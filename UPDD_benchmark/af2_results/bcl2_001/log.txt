@@ -1,0 +1,46 @@
+2026-04-12 13:21:36,103 Running colabfold 1.5.5 (83ee93d262a99ad62d6f0897c5ddd37eb918d385)
+2026-04-12 13:21:36,272 Running on GPU
+2026-04-12 13:21:36,333 Found 5 citations for tools or databases
+2026-04-12 13:21:36,333 Query 1/1: bcl2_001 (length 226)
+2026-04-12 13:21:36,442 Sleeping for 5s. Reason: PENDING
+2026-04-12 13:21:41,521 Sleeping for 5s. Reason: RUNNING
+2026-04-12 13:21:46,596 Sleeping for 9s. Reason: RUNNING
+2026-04-12 13:21:55,686 Sleeping for 6s. Reason: RUNNING
+2026-04-12 13:22:01,787 Sleeping for 10s. Reason: RUNNING
+2026-04-12 13:22:11,867 Sleeping for 9s. Reason: RUNNING
+2026-04-12 13:22:20,936 Sleeping for 10s. Reason: RUNNING
+2026-04-12 13:22:31,254 Sleeping for 9s. Reason: PENDING
+2026-04-12 13:22:40,344 Sleeping for 8s. Reason: RUNNING
+2026-04-12 13:22:48,430 Sleeping for 9s. Reason: RUNNING
+2026-04-12 13:22:57,834 Setting max_seq=508, max_extra_seq=2048
+2026-04-12 13:23:46,502 alphafold2_multimer_v3_model_1_seed_000 recycle=0 pLDDT=76.4 pTM=0.73 ipTM=0.935
+2026-04-12 13:24:08,292 alphafold2_multimer_v3_model_1_seed_000 recycle=1 pLDDT=77.4 pTM=0.732 ipTM=0.94 tol=1.2
+2026-04-12 13:24:09,731 alphafold2_multimer_v3_model_1_seed_000 recycle=2 pLDDT=77.1 pTM=0.729 ipTM=0.936 tol=0.748
+2026-04-12 13:24:11,173 alphafold2_multimer_v3_model_1_seed_000 recycle=3 pLDDT=77.6 pTM=0.732 ipTM=0.937 tol=0.694
+2026-04-12 13:24:11,173 alphafold2_multimer_v3_model_1_seed_000 took 71.6s (3 recycles)
+2026-04-12 13:24:12,608 alphafold2_multimer_v3_model_2_seed_000 recycle=0 pLDDT=73.9 pTM=0.709 ipTM=0.914
+2026-04-12 13:24:14,038 alphafold2_multimer_v3_model_2_seed_000 recycle=1 pLDDT=75.4 pTM=0.717 ipTM=0.918 tol=1.33
+2026-04-12 13:24:15,442 alphafold2_multimer_v3_model_2_seed_000 recycle=2 pLDDT=75.3 pTM=0.716 ipTM=0.918 tol=0.682
+2026-04-12 13:24:16,872 alphafold2_multimer_v3_model_2_seed_000 recycle=3 pLDDT=75.8 pTM=0.718 ipTM=0.917 tol=1.42
+2026-04-12 13:24:16,873 alphafold2_multimer_v3_model_2_seed_000 took 5.7s (3 recycles)
+2026-04-12 13:24:18,313 alphafold2_multimer_v3_model_3_seed_000 recycle=0 pLDDT=75 pTM=0.722 ipTM=0.916
+2026-04-12 13:24:19,757 alphafold2_multimer_v3_model_3_seed_000 recycle=1 pLDDT=76.9 pTM=0.732 ipTM=0.919 tol=1.61
+2026-04-12 13:24:21,196 alphafold2_multimer_v3_model_3_seed_000 recycle=2 pLDDT=76.2 pTM=0.729 ipTM=0.916 tol=0.662
+2026-04-12 13:24:22,609 alphafold2_multimer_v3_model_3_seed_000 recycle=3 pLDDT=76.3 pTM=0.727 ipTM=0.915 tol=0.268
+2026-04-12 13:24:22,609 alphafold2_multimer_v3_model_3_seed_000 took 5.7s (3 recycles)
+2026-04-12 13:24:24,050 alphafold2_multimer_v3_model_4_seed_000 recycle=0 pLDDT=75.2 pTM=0.719 ipTM=0.91
+2026-04-12 13:24:25,490 alphafold2_multimer_v3_model_4_seed_000 recycle=1 pLDDT=76.4 pTM=0.726 ipTM=0.92 tol=1.16
+2026-04-12 13:24:26,932 alphafold2_multimer_v3_model_4_seed_000 recycle=2 pLDDT=76.9 pTM=0.728 ipTM=0.919 tol=0.312
+2026-04-12 13:24:26,933 alphafold2_multimer_v3_model_4_seed_000 took 4.3s (2 recycles)
+2026-04-12 13:24:28,379 alphafold2_multimer_v3_model_5_seed_000 recycle=0 pLDDT=74.7 pTM=0.726 ipTM=0.922
+2026-04-12 13:24:29,798 alphafold2_multimer_v3_model_5_seed_000 recycle=1 pLDDT=75.6 pTM=0.729 ipTM=0.923 tol=0.917
+2026-04-12 13:24:31,242 alphafold2_multimer_v3_model_5_seed_000 recycle=2 pLDDT=75.5 pTM=0.728 ipTM=0.921 tol=0.627
+2026-04-12 13:24:32,679 alphafold2_multimer_v3_model_5_seed_000 recycle=3 pLDDT=75.2 pTM=0.725 ipTM=0.918 tol=0.406
+2026-04-12 13:24:32,679 alphafold2_multimer_v3_model_5_seed_000 took 5.7s (3 recycles)
+2026-04-12 13:24:32,696 reranking models by 'multimer' metric
+2026-04-12 13:24:32,696 rank_001_alphafold2_multimer_v3_model_1_seed_000 pLDDT=77.6 pTM=0.732 ipTM=0.937
+2026-04-12 13:24:32,696 rank_002_alphafold2_multimer_v3_model_4_seed_000 pLDDT=76.9 pTM=0.728 ipTM=0.919
+2026-04-12 13:24:32,696 rank_003_alphafold2_multimer_v3_model_5_seed_000 pLDDT=75.2 pTM=0.725 ipTM=0.918
+2026-04-12 13:24:32,696 rank_004_alphafold2_multimer_v3_model_3_seed_000 pLDDT=76.3 pTM=0.727 ipTM=0.915
+2026-04-12 13:24:32,696 rank_005_alphafold2_multimer_v3_model_2_seed_000 pLDDT=75.8 pTM=0.718 ipTM=0.917
+2026-04-12 13:24:33,034 Done

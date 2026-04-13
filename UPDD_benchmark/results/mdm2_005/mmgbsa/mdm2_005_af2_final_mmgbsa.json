@@ -1,0 +1,11 @@
+{
+  "snapshot": "mdm2_005_af2_final",
+  "pdb_path": "/home/san/UPDD_proj/UPDD_benchmark/results/mdm2_005/md/mdm2_005_af2_final.pdb",
+  "ncaa_element": "none",
+  "si_radius_A": 2.1,
+  "e_complex_kcal": -3925.2606256629274,
+  "e_receptor_kcal": -3445.4150847364886,
+  "e_ligand_kcal": -412.6861938534504,
+  "delta_g_kcal": -67.15934707298845,
+  "favorable": true
+}

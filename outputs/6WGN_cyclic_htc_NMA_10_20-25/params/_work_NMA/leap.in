@@ -1,0 +1,6 @@
+source leaprc.gaff2
+loadamberparams /home/san/UPDD_proj/outputs/6WGN_cyclic_htc_NMA_10_20-25/params/_work_NMA/NMA.frcmod
+mol = loadmol2 /home/san/UPDD_proj/outputs/6WGN_cyclic_htc_NMA_10_20-25/params/_work_NMA/NMA.mol2
+check mol
+saveamberparm mol /home/san/UPDD_proj/outputs/6WGN_cyclic_htc_NMA_10_20-25/params/_work_NMA/NMA.prmtop /home/san/UPDD_proj/outputs/6WGN_cyclic_htc_NMA_10_20-25/params/_work_NMA/NMA.inpcrd
+quit

@@ -1,0 +1,11 @@
+{
+  "snapshot": "keap1_001_af2_final",
+  "pdb_path": "/home/san/UPDD_proj/UPDD_benchmark/results/keap1_001/md/keap1_001_af2_final.pdb",
+  "ncaa_element": "none",
+  "si_radius_A": 2.1,
+  "e_complex_kcal": -12000.638301912444,
+  "e_receptor_kcal": -11481.645005515868,
+  "e_ligand_kcal": -474.6700427952478,
+  "delta_g_kcal": -44.323253601328815,
+  "favorable": true
+}

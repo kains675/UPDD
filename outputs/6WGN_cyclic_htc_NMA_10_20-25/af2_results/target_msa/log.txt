@@ -1,0 +1,6 @@
+2026-04-13 14:41:38,531 Running colabfold 1.5.5 (83ee93d262a99ad62d6f0897c5ddd37eb918d385)
+2026-04-13 14:41:38,790 Running on GPU
+2026-04-13 14:41:38,927 Found 4 citations for tools or databases
+2026-04-13 14:41:38,927 Query 1/1: target_only (length 166)
+2026-04-13 14:41:39,387 Saved /home/san/UPDD_proj/outputs/6WGN_cyclic_htc_NMA_10_20-25/af2_results/target_msa/target_only.pickle
+2026-04-13 14:41:39,804 Done

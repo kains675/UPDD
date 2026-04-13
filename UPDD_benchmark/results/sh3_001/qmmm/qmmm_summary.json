@@ -1,0 +1,48 @@
+{
+  "method": "wb97x-d3/6-31G*",
+  "n_calc": 5,
+  "n_failed": 0,
+  "failed": [],
+  "results": [
+    {
+      "snapshot": "sh3_001_af2_snap01_f37",
+      "energy_total_hartree": 0.0,
+      "energy_qmmm_kcal": 0.0,
+      "interaction_kcal": 0.0,
+      "converged": true,
+      "is_run_mmgbsa": false
+    },
+    {
+      "snapshot": "sh3_001_af2_snap02_f142",
+      "energy_total_hartree": 0.0,
+      "energy_qmmm_kcal": 0.0,
+      "interaction_kcal": 0.0,
+      "converged": true,
+      "is_run_mmgbsa": false
+    },
+    {
+      "snapshot": "sh3_001_af2_snap03_f388",
+      "energy_total_hartree": 0.0,
+      "energy_qmmm_kcal": 0.0,
+      "interaction_kcal": 0.0,
+      "converged": true,
+      "is_run_mmgbsa": false
+    },
+    {
+      "snapshot": "sh3_001_af2_snap04_f440",
+      "energy_total_hartree": 0.0,
+      "energy_qmmm_kcal": 0.0,
+      "interaction_kcal": 0.0,
+      "converged": true,
+      "is_run_mmgbsa": false
+    },
+    {
+      "snapshot": "sh3_001_af2_snap05_f496",
+      "energy_total_hartree": 0.0,
+      "energy_qmmm_kcal": 0.0,
+      "interaction_kcal": 0.0,
+      "converged": true,
+      "is_run_mmgbsa": false
+    }
+  ]
+}

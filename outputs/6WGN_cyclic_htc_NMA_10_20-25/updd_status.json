@@ -1,0 +1,41 @@
+{
+    "preprocess_opts": {
+        "target_pdb": "/home/san/UPDD_proj/target/6WGN.pdb",
+        "do_preprocess": true,
+        "keep_mode": "auto",
+        "chain_in": "A",
+        "keep_res": "GNP,MG"
+    },
+    "hotspots": "60,61,62,63,64,65",
+    "grafting_needed": false,
+    "ref_pdb": "",
+    "topology": {
+        "name": "Head-to-Tail Cyclic",
+        "abbr": "cyclic_htc",
+        "rf_T": 50,
+        "cyclic": true,
+        "canonical": "cyclic_htc",
+        "prediction": "afcycdesign",
+        "note": "N-C \ub9d0\ub2e8 \uc544\ubbf8\ub4dc \uacb0\ud569 \uace0\ub9ac\ud654"
+    },
+    "binder_len": "20-25",
+    "target_chain": "A",
+    "n_designs": "10",
+    "admet_mode": "none",
+    "ncaa_label": "N-Methylalanine",
+    "ncaa_code": "NMA",
+    "ncaa_positions": "AUTO_SASA:1",
+    "binder_chain": "B",
+    "qmmm_mode": "fast",
+    "parallel_workers": 4,
+    "msa_choice": "local",
+    "hdd_name": "ExpDATA",
+    "completed_steps": [
+        "rfdiffusion",
+        "proteinmpnn",
+        "alphafold",
+        "ncaa_mutation",
+        "md_snapshots",
+        "qmmm"
+    ]
+}

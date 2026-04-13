@@ -1,0 +1,33 @@
+{
+  "gb_model": "GBn2",
+  "ncaa_elem": "none",
+  "si_radius": 2.1,
+  "n_calc": 1,
+  "mean_dg": -36.43392079730086,
+  "best_dg": -36.43392079730086,
+  "results": [
+    {
+      "snapshot": "ww_001_af2_final",
+      "pdb_path": "/home/san/UPDD_proj/UPDD_benchmark/results/ww_001/md/ww_001_af2_final.pdb",
+      "ncaa_element": "none",
+      "si_radius_A": 2.1,
+      "e_complex_kcal": -6642.825813108423,
+      "e_receptor_kcal": -6582.765748188548,
+      "e_ligand_kcal": -23.626144122574146,
+      "delta_g_kcal": -36.43392079730086,
+      "favorable": true
+    }
+  ],
+  "interaction_entropy_per_design": {
+    "ww_001_af2_final": {
+      "mean_delta_g_kcal": -36.43392079730086,
+      "std_delta_g_kcal": 0.0,
+      "minus_TdS_kcal": 0.0,
+      "delta_g_corrected_kcal": -36.43392079730086,
+      "n_frames": 1,
+      "reliable": false,
+      "temperature_K": 300.0
+    }
+  },
+  "interaction_entropy_method": "Duan 2016 JCTC, T=300K"
+}

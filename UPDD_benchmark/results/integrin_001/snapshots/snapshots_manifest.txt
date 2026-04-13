@@ -1,0 +1,6 @@
+# 추출된 스냅샷 목록
+integrin_001_af2_snap01_f87.pdb
+integrin_001_af2_snap02_f180.pdb
+integrin_001_af2_snap03_f222.pdb
+integrin_001_af2_snap04_f375.pdb
+integrin_001_af2_snap05_f459.pdb

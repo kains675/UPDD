@@ -1,0 +1,27 @@
+2026-04-12 12:11:44,913 Running colabfold 1.5.5 (83ee93d262a99ad62d6f0897c5ddd37eb918d385)
+2026-04-12 12:11:45,053 Running on GPU
+2026-04-12 12:11:45,114 Found 5 citations for tools or databases
+2026-04-12 12:11:45,114 Query 1/1: mdm2_001 (length 97)
+2026-04-12 12:11:46,018 Setting max_seq=508, max_extra_seq=1128
+2026-04-12 12:12:29,964 alphafold2_multimer_v3_model_1_seed_000 recycle=0 pLDDT=96.3 pTM=0.886 ipTM=0.854
+2026-04-12 12:12:49,798 alphafold2_multimer_v3_model_1_seed_000 recycle=1 pLDDT=96.9 pTM=0.892 ipTM=0.865 tol=0.134
+2026-04-12 12:12:49,799 alphafold2_multimer_v3_model_1_seed_000 took 62.1s (1 recycles)
+2026-04-12 12:12:50,461 alphafold2_multimer_v3_model_2_seed_000 recycle=0 pLDDT=95.5 pTM=0.879 ipTM=0.815
+2026-04-12 12:12:51,117 alphafold2_multimer_v3_model_2_seed_000 recycle=1 pLDDT=96.9 pTM=0.892 ipTM=0.856 tol=0.244
+2026-04-12 12:12:51,117 alphafold2_multimer_v3_model_2_seed_000 took 1.3s (1 recycles)
+2026-04-12 12:12:51,774 alphafold2_multimer_v3_model_3_seed_000 recycle=0 pLDDT=95 pTM=0.875 ipTM=0.823
+2026-04-12 12:12:52,427 alphafold2_multimer_v3_model_3_seed_000 recycle=1 pLDDT=96.2 pTM=0.885 ipTM=0.851 tol=0.142
+2026-04-12 12:12:52,427 alphafold2_multimer_v3_model_3_seed_000 took 1.3s (1 recycles)
+2026-04-12 12:12:53,086 alphafold2_multimer_v3_model_4_seed_000 recycle=0 pLDDT=95.6 pTM=0.882 ipTM=0.825
+2026-04-12 12:12:53,741 alphafold2_multimer_v3_model_4_seed_000 recycle=1 pLDDT=96.9 pTM=0.894 ipTM=0.864 tol=0.173
+2026-04-12 12:12:53,741 alphafold2_multimer_v3_model_4_seed_000 took 1.3s (1 recycles)
+2026-04-12 12:12:54,400 alphafold2_multimer_v3_model_5_seed_000 recycle=0 pLDDT=95.3 pTM=0.882 ipTM=0.822
+2026-04-12 12:12:55,055 alphafold2_multimer_v3_model_5_seed_000 recycle=1 pLDDT=96.4 pTM=0.89 ipTM=0.852 tol=0.166
+2026-04-12 12:12:55,056 alphafold2_multimer_v3_model_5_seed_000 took 1.3s (1 recycles)
+2026-04-12 12:12:55,092 reranking models by 'multimer' metric
+2026-04-12 12:12:55,093 rank_001_alphafold2_multimer_v3_model_4_seed_000 pLDDT=96.9 pTM=0.894 ipTM=0.864
+2026-04-12 12:12:55,093 rank_002_alphafold2_multimer_v3_model_1_seed_000 pLDDT=96.9 pTM=0.892 ipTM=0.865
+2026-04-12 12:12:55,093 rank_003_alphafold2_multimer_v3_model_2_seed_000 pLDDT=96.9 pTM=0.892 ipTM=0.856
+2026-04-12 12:12:55,093 rank_004_alphafold2_multimer_v3_model_5_seed_000 pLDDT=96.4 pTM=0.89 ipTM=0.852
+2026-04-12 12:12:55,093 rank_005_alphafold2_multimer_v3_model_3_seed_000 pLDDT=96.2 pTM=0.885 ipTM=0.851
+2026-04-12 12:12:55,336 Done

@@ -1,0 +1,6 @@
+# 추출된 스냅샷 목록
+mdm2_005_af2_snap01_f35.pdb
+mdm2_005_af2_snap02_f185.pdb
+mdm2_005_af2_snap03_f264.pdb
+mdm2_005_af2_snap04_f337.pdb
+mdm2_005_af2_snap05_f478.pdb

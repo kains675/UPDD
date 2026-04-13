@@ -1,0 +1,48 @@
+{
+  "method": "wb97x-d3/6-31G*",
+  "n_calc": 5,
+  "n_failed": 0,
+  "failed": [],
+  "results": [
+    {
+      "snapshot": "mdm2_008_af2_snap01_f36",
+      "energy_total_hartree": 0.0,
+      "energy_qmmm_kcal": 0.0,
+      "interaction_kcal": 0.0,
+      "converged": true,
+      "is_run_mmgbsa": false
+    },
+    {
+      "snapshot": "mdm2_008_af2_snap02_f136",
+      "energy_total_hartree": 0.0,
+      "energy_qmmm_kcal": 0.0,
+      "interaction_kcal": 0.0,
+      "converged": true,
+      "is_run_mmgbsa": false
+    },
+    {
+      "snapshot": "mdm2_008_af2_snap03_f237",
+      "energy_total_hartree": 0.0,
+      "energy_qmmm_kcal": 0.0,
+      "interaction_kcal": 0.0,
+      "converged": true,
+      "is_run_mmgbsa": false
+    },
+    {
+      "snapshot": "mdm2_008_af2_snap04_f334",
+      "energy_total_hartree": 0.0,
+      "energy_qmmm_kcal": 0.0,
+      "interaction_kcal": 0.0,
+      "converged": true,
+      "is_run_mmgbsa": false
+    },
+    {
+      "snapshot": "mdm2_008_af2_snap05_f398",
+      "energy_total_hartree": 0.0,
+      "energy_qmmm_kcal": 0.0,
+      "interaction_kcal": 0.0,
+      "converged": true,
+      "is_run_mmgbsa": false
+    }
+  ]
+}

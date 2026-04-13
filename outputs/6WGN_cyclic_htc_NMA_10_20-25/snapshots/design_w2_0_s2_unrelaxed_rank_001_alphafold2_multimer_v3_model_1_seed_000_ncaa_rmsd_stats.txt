@@ -1,0 +1,6 @@
+# design_w2_0_s2_unrelaxed_rank_001_alphafold2_multimer_v3_model_1_seed_000_ncaa RMSD 통계
+
+전체 RMSD 평균   : 14.506 Å
+전체 RMSD 최대   : 20.299 Å
+최종 프레임 RMSD : 18.442 Å
+스냅샷 다양성 평균: 7.795 Å

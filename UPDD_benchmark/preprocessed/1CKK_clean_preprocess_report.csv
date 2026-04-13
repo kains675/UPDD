@@ -1,0 +1,7 @@
+section,chain,resid,icode,resname,value
+kept_het,A,152,,CA,manual_override
+kept_het,A,154,,CA,manual_override
+kept_het,A,151,,CA,manual_override
+kept_het,A,153,,CA,manual_override
+pdbfixer,,,,,fallback_no_repair
+pdbfixer_error,,,,,"Command '['pdbfixer', '/home/san/UPDD_proj/UPDD_benchmark/preprocessed/1CKK_clean.pdb.tmp', '--output=/home/san/UPDD_proj/UPDD_benchmark/preprocessed/1CKK_clean.pdb', '--add-atoms=all', '--add-residues', '--keep-heterogens=all']' returned non-zero exit status 1."

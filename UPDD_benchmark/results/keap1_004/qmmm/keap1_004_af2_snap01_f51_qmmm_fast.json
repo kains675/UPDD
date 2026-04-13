@@ -1,0 +1,13 @@
+{
+  "snapshot": "keap1_004_af2_snap01_f51",
+  "pdb_path": "/home/san/UPDD_proj/UPDD_benchmark/results/keap1_004/snapshots/keap1_004_af2_snap01_f51.pdb",
+  "qm_method": "wb97x-d3/6-31G*",
+  "n_qm_atoms": 420,
+  "n_mm_atoms": 4066,
+  "ncaa_element": "none",
+  "energy_total_hartree": null,
+  "energy_qm_hartree": null,
+  "energy_qmmm_kcal": null,
+  "interaction_kcal": null,
+  "converged": false
+}

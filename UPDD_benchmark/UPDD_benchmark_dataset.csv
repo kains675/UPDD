@@ -1,0 +1,69 @@
+peptide_id,sequence,target_name,target_uniprot,pdb_id,keep_hetatms,topology,kd_nm,ic50_nm,assay_type,reference,quality_score,notes
+mdm2_001,TSFAEYWNLLSP,MDM2,Q00987,3EQS,,linear,3.4,,SPR,Pazgier et al. PNAS 2009,5,PMI peptide
+mdm2_002,TSFAEYWNLLSP,MDMX,O15151,3EQY,,linear,4.2,,SPR,Pazgier et al. PNAS 2009,5,PMI peptide
+mdm2_003,ETFSDLWKLLPE,MDM2,Q00987,1YCR,,linear,140,,SPR,Kussie et al. Science 1996,5,p53 17-28 wild-type
+mdm2_004,ETFSDLWKLLPE,MDMX,O15151,,,linear,270,,SPR,Pazgier et al. PNAS 2009,4,p53 17-28 wild-type
+mdm2_005,LTFEHYWAQLTS,MDM2,Q00987,3JZK,,linear,1,,FP,Czarna et al. JBC 2010,5,pDI peptide
+mdm2_006,LTFEHYWAQLTS,MDMX,O15151,3LBJ,,linear,3,,FP,Czarna et al. JBC 2010,5,pDI peptide
+mdm2_007,EWWPLAFEALLR,MDM2,Q00987,3JZQ,,linear,8,,FP,Czarna et al. JBC 2010,5,pDIQ quadruple mutant
+mdm2_008,PRFWEYWLRLME,MDM2,Q00987,2RUH,,linear,0.5,,FP,Fukuoka et al. PLoS One 2014,5,MIP peptide NMR structure
+mdm2_009,TNWYANLEKLLR,MDM2,Q00987,3TPX,,linear,219,,SPR,Liu et al. PNAS 2010,5,DPMI-alpha D-peptide
+mdm2_010,DWWPLAFEALLR,MDM2,Q00987,3TPX,,linear,53,,SPR,Liu et al. PNAS 2010,5,DPMI-gamma D-peptide
+mdm2_011,DWWPLAFEALLR,MDM2,Q00987,3TPX,,linear,0.22,,SPR,Liu et al. PNAS 2010,5,DPMI-delta super optimized
+kras_001,RRRRCPLYISYDPVCRRRR,KRAS_G12D,P01116,5XCO,GDP;MG,cyclic_ss,4,,SPR,Sakamoto et al. Biochemistry 2017,5,KRpep-2d disulfide cyclic
+kras_002,RRCPLYISYDPVCRR,KRAS_G12D,P01116,,GDP;MG,cyclic_ss,20,,SPR,Sakamoto et al. Biochemistry 2017,4,KRpep-2 shorter version
+kras_003,CPLYISYDPVC,KRAS_G12D,P01116,,GDP;MG,cyclic_ss,100,,SPR,Sakamoto et al. Biochemistry 2017,4,Core cyclic peptide
+bclxl_001,MREIWIAQELRRIGDEFNA,BCL-XL,Q07817,3FDL,,linear,0.4,,FP,Lee et al. JACS 2009,5,Bim BH3 peptide
+bclxl_002,NLWAAQRYGRELRRMSDEFVDSFKK,BCL-XL,Q07817,2BZW,,linear,5,,ITC,Sattler et al. Science 1997,5,Bad BH3 peptide
+bclxl_003,SSQVGRQLAIIGDDINRRY,BCL-XL,Q07817,3INQ,,linear,40,,SPR,Lee et al. JACS 2009,4,Hrk BH3 peptide
+bcl2_001,SSQVGRQLAIIGDDINRRY,BCL-2,P10415,2XA0,,linear,15,,ITC,Ku et al. Cell Rep 2011,5,Bax BH3 peptide
+bcl2_002,NLWAAQRYGRELRRMSDEFVDSFKK,BCL-2,P10415,,,linear,23,,ITC,Ku et al. Cell Rep 2011,4,Bad BH3 peptide
+bclxl_004,MREIWIAQELRRIGDEFNA,BCL-2,P10415,,,linear,2.6,,FP,Foight et al. ACS Chem Biol 2014,5,Bim BH3 peptide
+bclxl_005,IWIAQELRRIGDEFNAY,BCL-XL,Q07817,,,linear,0.1,,FP,Foight et al. JMB 2015,5,XXA1 optimized
+keap1_001,LDEETGEFA,KEAP1,Q14145,7K2A,,linear,4300,,SPR,Heightman et al. JACS 2021,5,Nrf2 ETGE linear peptide
+keap1_002,DEETGE,KEAP1,Q14145,2FLU,,linear,20,,ITC,Lo et al. EMBO J 2006,5,Nrf2 core ETGE
+keap1_003,AFFAQLQLDEETGEFL,KEAP1,Q14145,5WFV,,linear,20,,SPR,Lo et al. EMBO J 2006,5,Extended ETGE peptide
+keap1_004,WRWR,KEAP1,Q14145,5X54,,linear,77000,30000,TR-FRET,Sogabe et al. ChemBioChem 2017,4,p222 phage display hit
+keap1_005,DPETGE,KEAP1,Q14145,7K2A,,cyclic_htc,20,,SPR,Heightman et al. JACS 2021,5,Cyclic 7-mer optimized
+brd4_001,cyclo(YFRAIAYDACKKYE),BRD4-BD1,O60885,6U6K,,cyclic_htc,0.1,,SPR,Philpott et al. PNAS 2020,5,3.1A RaPID peptide
+brd4_002,cyclo(YKAFKAAKK),BRD3-BD1,Q15059,6U71,,cyclic_htc,0.5,,SPR,Philpott et al. PNAS 2020,5,3.1B RaPID peptide
+brd4_003,cyclo(AFKAAKK),BRD4-BD1,O60885,6U7A,,cyclic_htc,100,,SPR,Philpott et al. PNAS 2020,4,4.2C peptide
+brd4_004,cyclo(YKAFKAAKK),BRD2-BD1,P25440,6U70,,cyclic_htc,35,,SPR,Philpott et al. PNAS 2020,5,3.1B vs BRD2
+brd4_005,cyclo(AFKAAKK),BRD4-BD2,O60885,6U6L,,cyclic_htc,300000,,SPR,Philpott et al. PNAS 2020,4,Negative selectivity
+sarscov2_001,cyclo(SGVLFNIGFWG),SARS-CoV-2_RBD,,7L4Z,,cyclic_htc,15,,SPR,Norman et al. ACS Cent Sci 2021,5,Peptide 4 highest affinity
+sarscov2_002,cyclo(NFHCFQSAHSWG),SARS-CoV-2_RBD,,,,cyclic_htc,76,,SPR,Norman et al. ACS Cent Sci 2021,4,Peptide 5
+sarscov2_003,cyclo(FWGRIRLGVG),SARS-CoV-2_RBD,,,,cyclic_htc,550,,SPR,Norman et al. ACS Cent Sci 2021,4,Peptide 6
+mpro_001,cyclo(ALQFNFWGSG),SARS-CoV-2_Mpro,,7RNW,,cyclic_htc,50,,FP,Johansen et al. Nat Chem 2022,5,RaPID Mpro inhibitor
+ck2_001,FHRGSDW,CK2alpha,,8A46,ATP;MG,cyclic_htc,750,5000,ITC,Brear et al. ChemComm 2022,4,P8C9 cyclic peptide
+ck2_002,FHRGSD,CK2alpha,,,ATP;MG,linear,150000,,ITC,Brear et al. ChemComm 2022,3,Linear parent
+src_001,cyclo(WRWRWRWRWR),c-Src,,2SRC,ANP;MG,cyclic_htc,210,,Radioactive,Shirazi et al. Pharmaceutics 2021,4,[WR]5 cyclic peptide
+src_002,cyclo(WRWRWRWRWRWRWRWRWRWR),c-Src,,,ANP;MG,cyclic_htc,210,,Radioactive,Shirazi et al. Pharmaceutics 2021,4,[WR]9 most potent
+integrin_001,GRGDSP,Integrin_αvβ3,,1L5G,CA;MN,linear,500,,FP,Marinelli et al. JMC 2003,4,RGD linear peptide
+integrin_002,cyclo(RGDfV),Integrin_αvβ3,,1L5G,CA;MN,cyclic_htc,1,,SPR,Dechantsreiter et al. JMC 1999,5,Cilengitide-like
+upa_001,CPAYSRYIGC,uPA,,6A8N,,cyclic_ss,4,,SPR,Xu et al. Biochemistry 2017,5,IG2 optimized peptide
+upa_002,CPAYSRYLDC,uPA,,,,cyclic_ss,400,,SPR,Hansen et al. JMC 2005,4,Mupain-1 parent
+ado_001,cyclo(YFWLKPC),ADO,,8UAN,FE,cyclic_htc,150,,FP,Murphy et al. Nat Commun 2025,5,CP6 RaPID peptide
+ado_002,cyclo(YFWLKPC-Dap-Gly-Ser),ADO,,9DXB,CO,cyclic_htc,150,,FP,Murphy et al. Nat Commun 2025,5,CP6 substrate mimic
+hiv_001,YGRKKRRQRRR,HIV_TAT,P04608,,,linear,1000,,FP,Peloponese et al. JBC 1999,4,TAT basic domain
+mhc_001,SIINFEKL,H2-Kb_MHC1,,1VAC,,linear,10,,SPR,Fremont et al. Science 1992,5,Ovalbumin epitope
+mhc_002,FAPGNYPAL,HLA-A2,,3BH8,,linear,100,,SPR,Gras et al. Immunity 2010,5,Influenza epitope
+sh3_001,PPPVPPRR,Src_SH3,,1RLQ,,linear,100,,ITC,Feng et al. Science 1994,5,Polyproline motif
+sh3_002,RPLPPLP,Grb2_SH3,,1GBQ,,linear,50,,ITC,Viguera et al. Biochemistry 1994,5,Sos peptide
+pdz_001,KQTSV,GRIP1_PDZ6,,1N7F,,linear,5,,ITC,Im et al. JBC 2003,5,C-terminal motif
+pdz_002,RETTQL,GRIP1_PDZ7,,1P1D,,linear,10,,ITC,Zhang et al. JBC 2001,5,C-terminal peptide
+ww_001,PPPPYGPP,PIN1_WW,,1F8A,,linear,30,,NMR,Verdecia et al. Nat Struct Biol 2000,5,pSer-Pro motif
+ww_002,GTPPPPYTVG,YAP_WW1,,2LAW,,linear,50,,ITC,Webb et al. JMB 2011,5,PPxY motif
+14_3_3_001,RLYHpSLPA,14-3-3_zeta,,1QJA,,linear,1,,ITC,Yaffe et al. Cell 1997,5,Mode 1 motif pSer
+14_3_3_002,RSApSEPPT,14-3-3_zeta,,1QJB,,linear,5,,ITC,Yaffe et al. Cell 1997,5,Mode 2 motif pSer
+cam_001,RRKWQKTGHAVRAIGRL,Calmodulin,,1CKK,CA,linear,0.1,,ITC,Meador et al. Science 1993,5,CaMKI peptide
+cam_002,KRRWKKNFIAVSAANRF,Calmodulin,,1CDL,CA,linear,0.5,,ITC,Meador et al. Science 1993,5,CaMKII peptide
+sh2_001,pYEEI,Src_SH2,,1SPS,,linear,100,,ITC,Waksman et al. Cell 1993,5,Optimal pTyr motif
+sh2_002,EPQpYEEIPIYL,Grb2_SH2,,1TZE,,linear,10,,ITC,Ogura et al. JMB 1999,5,EGFR pY1068 peptide
+neg_001,AAAAAAAA,MDM2,Q00987,,,linear,100000,,FP,Control,3,Poly-Ala negative control
+neg_002,GGGGGGG,BCL-XL,Q07817,,,linear,100000,,FP,Control,3,Poly-Gly negative control
+neg_003,KKKKKKKK,KEAP1,Q14145,,,linear,100000,,FP,Control,3,Poly-Lys negative control
+neg_004,EEEEEEEE,BRD4-BD1,O60885,,,linear,100000,,FP,Control,3,Poly-Glu negative control
+neg_005,SHUFFLED_PMI,MDM2,Q00987,,,linear,50000,,FP,Control,3,Shuffled PMI sequence
+decoy_001,TSFAEYWNLLSP,BCL-XL,Q07817,,,linear,100000,,FP,Control,3,PMI vs wrong target
+decoy_002,MREIWIAQELRRIGDEFNA,MDM2,Q00987,,,linear,100000,,FP,Control,3,Bim BH3 vs MDM2
+decoy_003,LDEETGEFA,BRD4-BD1,O60885,,,linear,100000,,FP,Control,3,ETGE vs BRD4

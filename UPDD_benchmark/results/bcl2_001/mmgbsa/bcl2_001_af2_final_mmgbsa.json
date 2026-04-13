@@ -1,0 +1,11 @@
+{
+  "snapshot": "bcl2_001_af2_final",
+  "pdb_path": "/home/san/UPDD_proj/UPDD_benchmark/results/bcl2_001/md/bcl2_001_af2_final.pdb",
+  "ncaa_element": "none",
+  "si_radius_A": 2.1,
+  "e_complex_kcal": -8495.302646772843,
+  "e_receptor_kcal": -7192.398925286359,
+  "e_ligand_kcal": -1207.6529524394823,
+  "delta_g_kcal": -95.25076904700154,
+  "favorable": true
+}

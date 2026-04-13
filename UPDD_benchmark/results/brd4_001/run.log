@@ -1,0 +1,385 @@
+
+============================================================
+[CMD] conda run -n md_simulation --no-capture-output python /home/san/UPDD_proj/utils/preprocess_target.py --input /home/san/UPDD_proj/UPDD_benchmark/pdbs/6U6K.pdb --output /home/san/UPDD_proj/UPDD_benchmark/preprocessed/6U6K_clean.pdb --chains A --hetatm_mode auto
+============================================================
+
+[+] PDBFixer를 통한 유실된 루프 및 원자 복구 시작...
+[+] PDBFixer 수술 완료: /home/san/UPDD_proj/UPDD_benchmark/preprocessed/6U6K_clean.pdb
+[+] 전처리 리포트 생성 완료: /home/san/UPDD_proj/UPDD_benchmark/preprocessed/6U6K_clean_preprocess_report.csv
+[+] 최종 출력: /home/san/UPDD_proj/UPDD_benchmark/preprocessed/6U6K_clean.pdb
+
+============================================================
+[CMD] /home/san/ai_projects/localcolabfold/.pixi/envs/default/bin/colabfold_batch /home/san/UPDD_proj/UPDD_benchmark/af2_inputs/brd4_001_input.csv /home/san/UPDD_proj/UPDD_benchmark/af2_results/brd4_001 --num-recycle 3 --pair-mode unpaired_paired --msa-mode mmseqs2_uniref_env
+============================================================
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+E0000 00:00:1775972608.772177 2210009 cuda_dnn.cc:8579] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+E0000 00:00:1775972608.774615 2210009 cuda_blas.cc:1407] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+W0000 00:00:1775972608.781191 2210009 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+W0000 00:00:1775972608.781206 2210009 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+W0000 00:00:1775972608.781208 2210009 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+W0000 00:00:1775972608.781209 2210009 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+
+WARNING: You are welcome to use the default MSA server, however keep in mind that it's a
+limited shared resource only capable of processing a few thousand MSAs per day. Please
+submit jobs only from a single IP address. We reserve the right to limit access to the
+server case-by-case when usage exceeds fair use. If you require more MSAs: You can 
+precompute all MSAs with `colabfold_search` or host your own API and pass it to `--host-url`
+
+W0000 00:00:1775972609.924837 2210009 gpu_device.cc:2430] TensorFlow was not built with CUDA kernel binaries compatible with compute capability 12.0. CUDA kernels will be jit-compiled from PTX, which could take 30 minutes or longer.
+2026-04-12 14:43:29,740 Running colabfold 1.5.5 (83ee93d262a99ad62d6f0897c5ddd37eb918d385)
+2026-04-12 14:43:29,892 Running on GPU
+2026-04-12 14:43:30,014 Found 5 citations for tools or databases
+2026-04-12 14:43:30,014 Query 1/1: brd4_001 (length 160)
+  0%|          | 0/300 [elapsed: 00:00 remaining: ?]SUBMIT:   0%|          | 0/300 [elapsed: 00:00 remaining: ?]PENDING:   0%|          | 0/300 [elapsed: 00:00 remaining: ?]                                                             PENDING:   0%|          | 0/300 [elapsed: 00:00 remaining: ?]RUNNING:   0%|          | 0/300 [elapsed: 00:05 remaining: ?]RUNNING:   2%|▏         | 5/300 [elapsed: 00:05 remaining: 05:02]                                                                 RUNNING:   2%|▏         | 5/300 [elapsed: 00:05 remaining: 05:02]RUNNING:   2%|▏         | 5/300 [elapsed: 00:13 remaining: 05:02]RUNNING:   4%|▍         | 13/300 [elapsed: 00:13 remaining: 04:50]                                                                  RUNNING:   4%|▍         | 13/300 [elapsed: 00:13 remaining: 04:50]RUNNING:   4%|▍         | 13/300 [elapsed: 00:19 remaining: 04:50]RUNNING:   6%|▋         | 19/300 [elapsed: 00:19 remaining: 04:44]                                                                  RUNNING:   6%|▋         | 19/300 [elapsed: 00:19 remaining: 04:44]RUNNING:   6%|▋         | 19/300 [elapsed: 00:26 remaining: 04:44]RUNNING:   9%|▊         | 26/300 [elapsed: 00:26 remaining: 04:37]                                                                  RUNNING:   9%|▊         | 26/300 [elapsed: 00:26 remaining: 04:37]RUNNING:   9%|▊         | 26/300 [elapsed: 00:31 remaining: 04:37]RUNNING:  10%|█         | 31/300 [elapsed: 00:31 remaining: 04:32]                                                                  RUNNING:  10%|█         | 31/300 [elapsed: 00:31 remaining: 04:32]RUNNING:  10%|█         | 31/300 [elapsed: 00:37 remaining: 04:32]RUNNING:  12%|█▏        | 37/300 [elapsed: 00:37 remaining: 04:26]                                                                  RUNNING:  12%|█▏        | 37/300 [elapsed: 00:37 remaining: 04:26]COMPLETE:  12%|█▏        | 37/300 [elapsed: 00:45 remaining: 04:26]COMPLETE: 100%|██████████| 300/300 [elapsed: 00:45 remaining: 00:00]COMPLETE: 100%|██████████| 300/300 [elapsed: 00:45 remaining: 00:00]
+2026-04-12 14:43:30,073 Sleeping for 5s. Reason: PENDING
+2026-04-12 14:43:35,136 Sleeping for 8s. Reason: RUNNING
+2026-04-12 14:43:43,202 Sleeping for 6s. Reason: RUNNING
+2026-04-12 14:43:49,291 Sleeping for 7s. Reason: RUNNING
+2026-04-12 14:43:56,380 Sleeping for 5s. Reason: RUNNING
+2026-04-12 14:44:01,447 Sleeping for 6s. Reason: RUNNING
+2026-04-12 14:44:07,529 Sleeping for 8s. Reason: RUNNING
+  0%|          | 0/300 [elapsed: 00:00 remaining: ?]SUBMIT:   0%|          | 0/300 [elapsed: 00:00 remaining: ?]PENDING:   0%|          | 0/300 [elapsed: 00:00 remaining: ?]                                                             PENDING:   0%|          | 0/300 [elapsed: 00:00 remaining: ?]RUNNING:   0%|          | 0/300 [elapsed: 00:08 remaining: ?]RUNNING:   3%|▎         | 8/300 [elapsed: 00:08 remaining: 04:56]                                                                 RUNNING:   3%|▎         | 8/300 [elapsed: 00:08 remaining: 04:56]RUNNING:   3%|▎         | 8/300 [elapsed: 00:13 remaining: 04:56]RUNNING:   4%|▍         | 13/300 [elapsed: 00:13 remaining: 04:50]                                                                  RUNNING:   4%|▍         | 13/300 [elapsed: 00:13 remaining: 04:50]RUNNING:   4%|▍         | 13/300 [elapsed: 00:21 remaining: 04:50]RUNNING:   7%|▋         | 21/300 [elapsed: 00:21 remaining: 04:42]                                                                  RUNNING:   7%|▋         | 21/300 [elapsed: 00:21 remaining: 04:42]COMPLETE:   7%|▋         | 21/300 [elapsed: 00:26 remaining: 04:42]COMPLETE: 100%|██████████| 300/300 [elapsed: 00:26 remaining: 00:00]COMPLETE: 100%|██████████| 300/300 [elapsed: 00:26 remaining: 00:00]
+2026-04-12 14:44:15,871 Sleeping for 8s. Reason: PENDING
+2026-04-12 14:44:23,936 Sleeping for 5s. Reason: RUNNING
+2026-04-12 14:44:28,991 Sleeping for 8s. Reason: RUNNING
+2026-04-12 14:44:37,065 Sleeping for 5s. Reason: RUNNING
+2026-04-12 14:44:42,495 Setting max_seq=508, max_extra_seq=1542
+2026-04-12 14:45:21,416 alphafold2_multimer_v3_model_1_seed_000 recycle=0 pLDDT=83.8 pTM=0.806 ipTM=0.48
+2026-04-12 14:45:38,798 alphafold2_multimer_v3_model_1_seed_000 recycle=1 pLDDT=81.4 pTM=0.778 ipTM=0.423 tol=1.07
+2026-04-12 14:45:39,747 alphafold2_multimer_v3_model_1_seed_000 recycle=2 pLDDT=81.4 pTM=0.778 ipTM=0.43 tol=0.303
+2026-04-12 14:45:39,747 alphafold2_multimer_v3_model_1_seed_000 took 55.5s (2 recycles)
+2026-04-12 14:45:40,715 alphafold2_multimer_v3_model_2_seed_000 recycle=0 pLDDT=82.9 pTM=0.803 ipTM=0.417
+2026-04-12 14:45:41,666 alphafold2_multimer_v3_model_2_seed_000 recycle=1 pLDDT=81.5 pTM=0.784 ipTM=0.384 tol=0.574
+2026-04-12 14:45:42,617 alphafold2_multimer_v3_model_2_seed_000 recycle=2 pLDDT=81.5 pTM=0.778 ipTM=0.404 tol=0.181
+2026-04-12 14:45:42,617 alphafold2_multimer_v3_model_2_seed_000 took 2.9s (2 recycles)
+2026-04-12 14:45:43,566 alphafold2_multimer_v3_model_3_seed_000 recycle=0 pLDDT=80.9 pTM=0.781 ipTM=0.468
+2026-04-12 14:45:44,510 alphafold2_multimer_v3_model_3_seed_000 recycle=1 pLDDT=78.9 pTM=0.759 ipTM=0.435 tol=0.873
+2026-04-12 14:45:45,460 alphafold2_multimer_v3_model_3_seed_000 recycle=2 pLDDT=79.8 pTM=0.763 ipTM=0.407 tol=0.812
+2026-04-12 14:45:46,411 alphafold2_multimer_v3_model_3_seed_000 recycle=3 pLDDT=80.5 pTM=0.771 ipTM=0.428 tol=3.55
+2026-04-12 14:45:46,411 alphafold2_multimer_v3_model_3_seed_000 took 3.8s (3 recycles)
+2026-04-12 14:45:47,374 alphafold2_multimer_v3_model_4_seed_000 recycle=0 pLDDT=81.5 pTM=0.788 ipTM=0.45
+2026-04-12 14:45:48,323 alphafold2_multimer_v3_model_4_seed_000 recycle=1 pLDDT=80.4 pTM=0.77 ipTM=0.42 tol=0.867
+2026-04-12 14:45:49,273 alphafold2_multimer_v3_model_4_seed_000 recycle=2 pLDDT=81 pTM=0.776 ipTM=0.424 tol=0.872
+2026-04-12 14:45:50,225 alphafold2_multimer_v3_model_4_seed_000 recycle=3 pLDDT=80.8 pTM=0.777 ipTM=0.428 tol=0.436
+2026-04-12 14:45:50,225 alphafold2_multimer_v3_model_4_seed_000 took 3.8s (3 recycles)
+2026-04-12 14:45:51,158 alphafold2_multimer_v3_model_5_seed_000 recycle=0 pLDDT=82.1 pTM=0.806 ipTM=0.436
+2026-04-12 14:45:52,111 alphafold2_multimer_v3_model_5_seed_000 recycle=1 pLDDT=81.2 pTM=0.798 ipTM=0.392 tol=0.81
+2026-04-12 14:45:53,065 alphafold2_multimer_v3_model_5_seed_000 recycle=2 pLDDT=81.9 pTM=0.803 ipTM=0.385 tol=0.244
+2026-04-12 14:45:53,065 alphafold2_multimer_v3_model_5_seed_000 took 2.8s (2 recycles)
+2026-04-12 14:45:53,075 reranking models by 'multimer' metric
+2026-04-12 14:45:53,075 rank_001_alphafold2_multimer_v3_model_1_seed_000 pLDDT=81.4 pTM=0.778 ipTM=0.43
+2026-04-12 14:45:53,076 rank_002_alphafold2_multimer_v3_model_4_seed_000 pLDDT=80.8 pTM=0.777 ipTM=0.428
+2026-04-12 14:45:53,076 rank_003_alphafold2_multimer_v3_model_3_seed_000 pLDDT=80.5 pTM=0.771 ipTM=0.428
+2026-04-12 14:45:53,076 rank_004_alphafold2_multimer_v3_model_2_seed_000 pLDDT=81.5 pTM=0.778 ipTM=0.404
+2026-04-12 14:45:53,076 rank_005_alphafold2_multimer_v3_model_5_seed_000 pLDDT=81.9 pTM=0.803 ipTM=0.385
+2026-04-12 14:45:53,396 Done
+
+============================================================
+[CMD] conda run -n md_simulation --no-capture-output python /home/san/UPDD_proj/utils/run_restrained_md.py --inputdir /home/san/UPDD_proj/UPDD_benchmark/results/brd4_001/md_input --outputdir /home/san/UPDD_proj/UPDD_benchmark/results/brd4_001/md --steps 50000 --topology cyclic_htc --ncaa_label none --binder_chain B --seed 42 --platform CUDA
+============================================================
+
+[Restrained MD v28 - The Absolute Integrity]
+  대상 PDB  : 1개
+  스텝 수   : 50000 (100.0 ps)
+  토폴로지  : cyclic_htc
+  ncAA 라벨 : none (Code: (미지정: XML 이름 검증 생략))
+  바인더    : 체인 B
+  난수 시드 : 42
+  분산 보정 : auto
+  그래프정책: strict
+  플랫폼    : CUDA
+
+  처리 중: brd4_001_af2
+  [WT Mode] ncAA 라벨이 'none'입니다. 야생형(Wild-type) 단백질 일반 MD를 수행합니다.
+  [MD] PDBFixer로 AF2 구조 정리 중...
+  [MD] OpenMM addHydrogens 실행 (선형 구조 토폴로지 동기화)...
+  [INFO] 수소 추가 완료 (선형 캡핑 및 내부 결합 매핑 성공)
+  [Warning] HTC 예측 모호함: N-말단 N과 C-말단 C 거리가 21.42 Å 입니다.
+  [FAIL] 요청한 고리형 토폴로지('cyclic_htc') 형성 실패. 과학적 위험을 방지하기 위해 중단합니다.
+
+========================================
+  [MD 배치 완료 통계]
+  - 총 입력 파일 : 1 개
+  - 성공 (ncAA MD) : 0 개
+  - 스킵 (완료됨 등): 0 개
+  - 실패 (폭발 등) : 1 개
+========================================
+
+============================================================
+[CMD] /home/san/ai_projects/localcolabfold/.pixi/envs/default/bin/colabfold_batch /home/san/UPDD_proj/UPDD_benchmark/af2_inputs/brd4_001_input.csv /home/san/UPDD_proj/UPDD_benchmark/af2_results/brd4_001 --num-recycle 3 --pair-mode unpaired_paired --msa-mode mmseqs2_uniref_env
+============================================================
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+E0000 00:00:1776010066.284089 2392259 cuda_dnn.cc:8579] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+E0000 00:00:1776010066.287308 2392259 cuda_blas.cc:1407] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+W0000 00:00:1776010066.294472 2392259 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+W0000 00:00:1776010066.294491 2392259 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+W0000 00:00:1776010066.294493 2392259 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+W0000 00:00:1776010066.294494 2392259 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+
+WARNING: You are welcome to use the default MSA server, however keep in mind that it's a
+limited shared resource only capable of processing a few thousand MSAs per day. Please
+submit jobs only from a single IP address. We reserve the right to limit access to the
+server case-by-case when usage exceeds fair use. If you require more MSAs: You can 
+precompute all MSAs with `colabfold_search` or host your own API and pass it to `--host-url`
+
+W0000 00:00:1776010067.637259 2392259 gpu_device.cc:2430] TensorFlow was not built with CUDA kernel binaries compatible with compute capability 12.0. CUDA kernels will be jit-compiled from PTX, which could take 30 minutes or longer.
+2026-04-13 01:07:47,317 Running colabfold 1.5.5 (83ee93d262a99ad62d6f0897c5ddd37eb918d385)
+2026-04-13 01:07:47,606 Running on GPU
+2026-04-13 01:07:47,668 Found 5 citations for tools or databases
+2026-04-13 01:07:47,668 Query 1/1: brd4_001 (length 160)
+  0%|          | 0/300 [elapsed: 00:00 remaining: ?]SUBMIT:   0%|          | 0/300 [elapsed: 00:00 remaining: ?]COMPLETE:   0%|          | 0/300 [elapsed: 00:00 remaining: ?]COMPLETE: 100%|██████████| 300/300 [elapsed: 00:00 remaining: 00:00]COMPLETE: 100%|██████████| 300/300 [elapsed: 00:00 remaining: 00:00]
+  0%|          | 0/300 [elapsed: 00:00 remaining: ?]SUBMIT:   0%|          | 0/300 [elapsed: 00:00 remaining: ?]COMPLETE:   0%|          | 0/300 [elapsed: 00:00 remaining: ?]COMPLETE: 100%|██████████| 300/300 [elapsed: 00:00 remaining: 00:00]COMPLETE: 100%|██████████| 300/300 [elapsed: 00:00 remaining: 00:00]
+2026-04-13 01:07:48,703 Setting max_seq=508, max_extra_seq=1542
+2026-04-13 01:08:28,084 alphafold2_multimer_v3_model_1_seed_000 recycle=0 pLDDT=83.9 pTM=0.807 ipTM=0.482
+2026-04-13 01:08:45,440 alphafold2_multimer_v3_model_1_seed_000 recycle=1 pLDDT=81.6 pTM=0.779 ipTM=0.421 tol=1.06
+2026-04-13 01:08:46,362 alphafold2_multimer_v3_model_1_seed_000 recycle=2 pLDDT=81.6 pTM=0.779 ipTM=0.432 tol=0.269
+2026-04-13 01:08:46,363 alphafold2_multimer_v3_model_1_seed_000 took 55.8s (2 recycles)
+2026-04-13 01:08:47,301 alphafold2_multimer_v3_model_2_seed_000 recycle=0 pLDDT=82.9 pTM=0.803 ipTM=0.417
+2026-04-13 01:08:48,226 alphafold2_multimer_v3_model_2_seed_000 recycle=1 pLDDT=81.4 pTM=0.784 ipTM=0.381 tol=0.567
+2026-04-13 01:08:49,149 alphafold2_multimer_v3_model_2_seed_000 recycle=2 pLDDT=81.4 pTM=0.778 ipTM=0.396 tol=0.184
+2026-04-13 01:08:49,150 alphafold2_multimer_v3_model_2_seed_000 took 2.8s (2 recycles)
+2026-04-13 01:08:50,079 alphafold2_multimer_v3_model_3_seed_000 recycle=0 pLDDT=81 pTM=0.782 ipTM=0.467
+2026-04-13 01:08:50,995 alphafold2_multimer_v3_model_3_seed_000 recycle=1 pLDDT=78.9 pTM=0.759 ipTM=0.428 tol=0.767
+2026-04-13 01:08:51,916 alphafold2_multimer_v3_model_3_seed_000 recycle=2 pLDDT=79.9 pTM=0.765 ipTM=0.405 tol=0.706
+2026-04-13 01:08:52,840 alphafold2_multimer_v3_model_3_seed_000 recycle=3 pLDDT=80.3 pTM=0.77 ipTM=0.431 tol=0.883
+2026-04-13 01:08:52,840 alphafold2_multimer_v3_model_3_seed_000 took 3.7s (3 recycles)
+2026-04-13 01:08:53,776 alphafold2_multimer_v3_model_4_seed_000 recycle=0 pLDDT=81.5 pTM=0.788 ipTM=0.451
+2026-04-13 01:08:54,698 alphafold2_multimer_v3_model_4_seed_000 recycle=1 pLDDT=80.6 pTM=0.771 ipTM=0.418 tol=0.84
+2026-04-13 01:08:55,619 alphafold2_multimer_v3_model_4_seed_000 recycle=2 pLDDT=81 pTM=0.776 ipTM=0.426 tol=0.652
+2026-04-13 01:08:56,542 alphafold2_multimer_v3_model_4_seed_000 recycle=3 pLDDT=80.7 pTM=0.777 ipTM=0.425 tol=0.382
+2026-04-13 01:08:56,542 alphafold2_multimer_v3_model_4_seed_000 took 3.7s (3 recycles)
+2026-04-13 01:08:57,480 alphafold2_multimer_v3_model_5_seed_000 recycle=0 pLDDT=82.1 pTM=0.805 ipTM=0.435
+2026-04-13 01:08:58,403 alphafold2_multimer_v3_model_5_seed_000 recycle=1 pLDDT=81.1 pTM=0.798 ipTM=0.405 tol=0.843
+2026-04-13 01:08:59,329 alphafold2_multimer_v3_model_5_seed_000 recycle=2 pLDDT=81.5 pTM=0.799 ipTM=0.382 tol=0.289
+2026-04-13 01:08:59,330 alphafold2_multimer_v3_model_5_seed_000 took 2.8s (2 recycles)
+2026-04-13 01:08:59,339 reranking models by 'multimer' metric
+2026-04-13 01:08:59,339 rank_001_alphafold2_multimer_v3_model_1_seed_000 pLDDT=81.6 pTM=0.779 ipTM=0.432
+2026-04-13 01:08:59,339 rank_002_alphafold2_multimer_v3_model_3_seed_000 pLDDT=80.3 pTM=0.77 ipTM=0.431
+2026-04-13 01:08:59,340 rank_003_alphafold2_multimer_v3_model_4_seed_000 pLDDT=80.7 pTM=0.777 ipTM=0.425
+2026-04-13 01:08:59,340 rank_004_alphafold2_multimer_v3_model_2_seed_000 pLDDT=81.4 pTM=0.778 ipTM=0.396
+2026-04-13 01:08:59,340 rank_005_alphafold2_multimer_v3_model_5_seed_000 pLDDT=81.5 pTM=0.799 ipTM=0.382
+2026-04-13 01:08:59,813 Done
+
+============================================================
+[CMD] conda run -n md_simulation --no-capture-output python /home/san/UPDD_proj/utils/run_restrained_md.py --inputdir /home/san/UPDD_proj/UPDD_benchmark/results/brd4_001/md_input --outputdir /home/san/UPDD_proj/UPDD_benchmark/results/brd4_001/md --steps 10000 --topology cyclic_htc --ncaa_label none --binder_chain B --seed 42 --platform CUDA
+============================================================
+
+[Restrained MD v28 - The Absolute Integrity]
+  대상 PDB  : 1개
+  스텝 수   : 10000 (20.0 ps)
+  토폴로지  : cyclic_htc
+  ncAA 라벨 : none (Code: (미지정: XML 이름 검증 생략))
+  바인더    : 체인 B
+  난수 시드 : 42
+  분산 보정 : auto
+  그래프정책: strict
+  플랫폼    : CUDA
+
+  처리 중: brd4_001_af2
+  [WT Mode] ncAA 라벨이 'none'입니다. 야생형(Wild-type) 단백질 일반 MD를 수행합니다.
+  [MD] PDBFixer로 AF2 구조 정리 중...
+  [MD] OpenMM addHydrogens 실행 (선형 구조 토폴로지 동기화)...
+  [INFO] 수소 추가 완료 (선형 캡핑 및 내부 결합 매핑 성공)
+  [cyclic_htc] HTC 결합 적용 전 체인 B 말단 잉여 원자(OXT/H2 등) 3개 절제 완료
+  [cyclic_htc] Peptide bond 추가 완료: GLU14.C → TYR1.N
+  원자 수 (용매화 후): 85242
+  [Physics] NonbondedForce Dispersion Correction: 비활성화됨 (OFF)
+  [Platform] CUDA 선택 (속도 지수 100x)
+  [Stage 1] Staged Minimization...
+    k=N/A: PE = -1578995.12 kJ/mol
+  [Stage 2] NVT 워밍업 (10K → 300K, 60ps, dt=2fs)...
+  [Stage 3] NPT 전환...
+  NPT 전환 완료.
+  MD 실행 중 (10000 steps = 20.0 ps)...
+#"Progress (%)","Step","Potential Energy (kJ/mole)","Temperature (K)"
+310.0%,31000,-1364913.7352733966,296.94066893060995
+320.0%,32000,-1361601.869250495,301.132664740833
+330.0%,33000,-1358132.806620907,298.53705393068736
+340.0%,34000,-1358680.2153843967,300.73608834628277
+350.0%,35000,-1360057.2482664846,300.4824180811835
+360.0%,36000,-1358157.017877372,300.8452617780888
+370.0%,37000,-1357788.184372048,299.2960835556218
+380.0%,38000,-1360760.0335942293,300.6786623474642
+390.0%,39000,-1359249.6323989835,299.96028943845346
+400.0%,40000,-1360087.710501369,301.4715327929666
+  최종 구조 저장 완료: brd4_001_af2_final.pdb
+  [Visual] HTC CONECT 추가 완료 (N=2414, C=2641)
+
+========================================
+  [MD 배치 완료 통계]
+  - 총 입력 파일 : 1 개
+  - 성공 (ncAA MD) : 0 개
+  - 성공 (야생형 MD) : 1 개
+  - 스킵 (완료됨 등): 0 개
+  - 실패 (폭발 등) : 0 개
+========================================
+
+============================================================
+[CMD] conda run -n md_simulation --no-capture-output python /home/san/UPDD_proj/utils/extract_snapshots.py --md_dir /home/san/UPDD_proj/UPDD_benchmark/results/brd4_001/md --outputdir /home/san/UPDD_proj/UPDD_benchmark/results/brd4_001/snapshots --n_snapshots 5 --binder_chain B
+============================================================
+
+[Snapshot Extraction]
+  DCD 파일  : 1개
+  스냅샷 수 : 5개/궤적
+
+  처리: brd4_001_af2
+  궤적 로드: brd4_001_af2_restrained.dcd
+  프레임 수: 500
+  원자 수  : 85242
+  용매 제거 후 원자 수: 2650
+  바인더 체인 해석: 'B' → chainid 1 (CA 원자 14개)
+  클러스터링 기준 CA 원자: 14개
+  K-Means 클러스터링 (k=5)...
+  선택 프레임: [35, 115, 330, 438, 463]
+  RMSD drift 평균 : 2.912 Å
+  스냅샷 다양성   : 0.735 Å
+  스냅샷  1: 프레임    35 → brd4_001_af2_snap01_f35.pdb
+  스냅샷  2: 프레임   115 → brd4_001_af2_snap02_f115.pdb
+  스냅샷  3: 프레임   330 → brd4_001_af2_snap03_f330.pdb
+  스냅샷  4: 프레임   438 → brd4_001_af2_snap04_f438.pdb
+  스냅샷  5: 프레임   463 → brd4_001_af2_snap05_f463.pdb
+
+  총 5개 스냅샷 저장 완료
+  출력 디렉토리: /home/san/UPDD_proj/UPDD_benchmark/results/brd4_001/snapshots
+  목록 파일    : /home/san/UPDD_proj/UPDD_benchmark/results/brd4_001/snapshots/snapshots_manifest.txt
+dcdplugin) detected standard 32-bit DCD file of native endianness
+dcdplugin) CHARMM format DCD file (also NAMD 2.1 and later)
+
+============================================================
+[CMD] conda run -n md_simulation --no-capture-output python /home/san/UPDD_proj/utils/run_mmgbsa.py --md_dir /home/san/UPDD_proj/UPDD_benchmark/results/brd4_001/md --outputdir /home/san/UPDD_proj/UPDD_benchmark/results/brd4_001/mmgbsa --ncaa_elem none --receptor_chain A --binder_chain B
+============================================================
+
+[MM-GBSA ΔG Calculation]
+  대상 PDB  : 1개
+  GB 모델   : GBn2
+  ncAA 원소 : none
+  Si 반경   : 2.1 Å
+
+  계산: brd4_001_af2_final
+  [split_complex] implicit GB 호환: water/ion/metal 82592개 원자 제거
+  Complex  에너지 계산 중...
+  [!] 시스템 생성 실패: No template found for residue 147 (TYR).  The set of atoms matches TYR, but the bonds are different.  Perhaps the chain is missing a terminal group?  For more information, see https://github.com/openmm/openmm/wiki/Frequently-Asked-Questions#template
+  Receptor 에너지 계산 중...
+  Ligand   에너지 계산 중...
+  [!] 시스템 생성 실패: No template found for residue 1 (TYR).  The set of atoms matches TYR, but the bonds are different.  Perhaps the chain is missing a terminal group?  For more information, see https://github.com/openmm/openmm/wiki/Frequently-Asked-Questions#template
+  [!] 에너지 계산 실패 — 건너뜀
+
+[!] 계산된 결과 없음
+
+============================================================
+[CMD] conda run -n md_simulation --no-capture-output python /home/san/UPDD_proj/utils/run_restrained_md.py --inputdir /home/san/UPDD_proj/UPDD_benchmark/results/brd4_001/md_input --outputdir /home/san/UPDD_proj/UPDD_benchmark/results/brd4_001/md --steps 10000 --topology cyclic_htc --ncaa_label none --binder_chain B --seed 42 --platform CUDA
+============================================================
+
+[Restrained MD v28 - The Absolute Integrity]
+  대상 PDB  : 1개
+  스텝 수   : 10000 (20.0 ps)
+  토폴로지  : cyclic_htc
+  ncAA 라벨 : none (Code: (미지정: XML 이름 검증 생략))
+  바인더    : 체인 B
+  난수 시드 : 42
+  분산 보정 : auto
+  그래프정책: strict
+  플랫폼    : CUDA
+  [SKIP] 이미 완료된 MD 결과 존재: brd4_001_af2
+
+========================================
+  [MD 배치 완료 통계]
+  - 총 입력 파일 : 1 개
+  - 성공 (ncAA MD) : 0 개
+  - 스킵 (완료됨 등): 1 개
+  - 실패 (폭발 등) : 0 개
+========================================
+
+============================================================
+[CMD] conda run -n md_simulation --no-capture-output python /home/san/UPDD_proj/utils/extract_snapshots.py --md_dir /home/san/UPDD_proj/UPDD_benchmark/results/brd4_001/md --outputdir /home/san/UPDD_proj/UPDD_benchmark/results/brd4_001/snapshots --n_snapshots 5 --binder_chain B
+============================================================
+
+[Snapshot Extraction]
+  DCD 파일  : 1개
+  스냅샷 수 : 5개/궤적
+
+  [Skip] brd4_001_af2 — 이미 목표 개수(5개)의 스냅샷이 존재합니다. 무거운 MDTraj 로딩을 생략합니다!
+
+  총 5개 스냅샷 저장 완료
+  출력 디렉토리: /home/san/UPDD_proj/UPDD_benchmark/results/brd4_001/snapshots
+  목록 파일    : /home/san/UPDD_proj/UPDD_benchmark/results/brd4_001/snapshots/snapshots_manifest.txt
+
+============================================================
+[CMD] conda run -n md_simulation --no-capture-output python /home/san/UPDD_proj/utils/run_mmgbsa.py --md_dir /home/san/UPDD_proj/UPDD_benchmark/results/brd4_001/md --outputdir /home/san/UPDD_proj/UPDD_benchmark/results/brd4_001/mmgbsa --ncaa_elem none --receptor_chain A --binder_chain B
+============================================================
+
+[MM-GBSA ΔG Calculation]
+  대상 PDB  : 1개
+  GB 모델   : GBn2
+  ncAA 원소 : none
+  Si 반경   : 2.1 Å
+
+  계산: brd4_001_af2_final
+  [split_complex] implicit GB 호환: water/ion/metal 82592개 원자 제거
+  Complex  에너지 계산 중...
+  [!] 시스템 생성 실패: No template found for residue 160 (GLU).  The set of atoms matches GLU, but the bonds are different.  Perhaps the chain is missing a terminal group?  For more information, see https://github.com/openmm/openmm/wiki/Frequently-Asked-Questions#template
+  Receptor 에너지 계산 중...
+  Ligand   에너지 계산 중...
+  [!] 시스템 생성 실패: No template found for residue 14 (GLU).  The set of atoms matches GLU, but the bonds are different.  Perhaps the chain is missing a terminal group?  For more information, see https://github.com/openmm/openmm/wiki/Frequently-Asked-Questions#template
+  [!] 에너지 계산 실패 — 건너뜀
+
+[!] 계산된 결과 없음
+
+============================================================
+[CMD] conda run -n md_simulation --no-capture-output python /home/san/UPDD_proj/utils/run_restrained_md.py --inputdir /home/san/UPDD_proj/UPDD_benchmark/results/brd4_001/md_input --outputdir /home/san/UPDD_proj/UPDD_benchmark/results/brd4_001/md --steps 10000 --topology cyclic_htc --ncaa_label none --binder_chain B --seed 42 --platform CUDA
+============================================================
+
+[Restrained MD v28 - The Absolute Integrity]
+  대상 PDB  : 1개
+  스텝 수   : 10000 (20.0 ps)
+  토폴로지  : cyclic_htc
+  ncAA 라벨 : none (Code: (미지정: XML 이름 검증 생략))
+  바인더    : 체인 B
+  난수 시드 : 42
+  분산 보정 : auto
+  그래프정책: strict
+  플랫폼    : CUDA
+  [SKIP] 이미 완료된 MD 결과 존재: brd4_001_af2
+
+========================================
+  [MD 배치 완료 통계]
+  - 총 입력 파일 : 1 개
+  - 성공 (ncAA MD) : 0 개
+  - 스킵 (완료됨 등): 1 개
+  - 실패 (폭발 등) : 0 개
+========================================
+
+============================================================
+[CMD] conda run -n md_simulation --no-capture-output python /home/san/UPDD_proj/utils/extract_snapshots.py --md_dir /home/san/UPDD_proj/UPDD_benchmark/results/brd4_001/md --outputdir /home/san/UPDD_proj/UPDD_benchmark/results/brd4_001/snapshots --n_snapshots 5 --binder_chain B
+============================================================
+
+[Snapshot Extraction]
+  DCD 파일  : 1개
+  스냅샷 수 : 5개/궤적
+
+  [Skip] brd4_001_af2 — 이미 목표 개수(5개)의 스냅샷이 존재합니다. 무거운 MDTraj 로딩을 생략합니다!
+
+  총 5개 스냅샷 저장 완료
+  출력 디렉토리: /home/san/UPDD_proj/UPDD_benchmark/results/brd4_001/snapshots
+  목록 파일    : /home/san/UPDD_proj/UPDD_benchmark/results/brd4_001/snapshots/snapshots_manifest.txt
+
+============================================================
+[CMD] conda run -n md_simulation --no-capture-output python /home/san/UPDD_proj/utils/run_mmgbsa.py --md_dir /home/san/UPDD_proj/UPDD_benchmark/results/brd4_001/md --outputdir /home/san/UPDD_proj/UPDD_benchmark/results/brd4_001/mmgbsa --ncaa_elem none --receptor_chain A --binder_chain B
+============================================================
+
+[MM-GBSA ΔG Calculation]
+  대상 PDB  : 1개
+  GB 모델   : GBn2
+  ncAA 원소 : none
+  Si 반경   : 2.1 Å
+
+  계산: brd4_001_af2_final
+  [split_complex] implicit GB 호환: water/ion/metal 82592개 원자 제거
+  Complex  에너지 계산 중...
+  [!] 시스템 생성 실패: No template found for residue 160 (GLU).  The set of atoms matches GLU, but the bonds are different.  Perhaps the chain is missing a terminal group?  For more information, see https://github.com/openmm/openmm/wiki/Frequently-Asked-Questions#template
+  Receptor 에너지 계산 중...
+  Ligand   에너지 계산 중...
+  [!] 시스템 생성 실패: No template found for residue 14 (GLU).  The set of atoms matches GLU, but the bonds are different.  Perhaps the chain is missing a terminal group?  For more information, see https://github.com/openmm/openmm/wiki/Frequently-Asked-Questions#template
+  [!] 에너지 계산 실패 — 건너뜀
+
+[!] 계산된 결과 없음

@@ -1,0 +1,934 @@
+#!/usr/bin/env python
+"""
+parameterize_ncaa.py
+--------------------
+SMILES 기반 ncAA GAFF2+RESP 파라미터화.
+UPDD의 ncaa_registry 정보를 받아 Manifest.json을 출력하고 하드코딩된 변수를 제거합니다.
+"""
+
+import os
+import sys
+import re
+import argparse
+import subprocess
+import logging
+import json
+import copy
+import xml.etree.ElementTree as ET
+import numpy as np
+
+# utils 디렉토리 내부에서 직접 registry 참조
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+try:
+    from ncaa_registry import resolve_ncaa_definition
+except ImportError:
+    sys.exit("[!] ncaa_registry.py 파일을 찾을 수 없습니다. utils 폴더에 위치해야 합니다.")
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+log = logging.getLogger("parameterize")
+
+try:
+    from pyscf import gto, scf, lib
+    lib.num_threads(os.cpu_count() or 8)
+    HAS_PYSCF = True
+except ImportError:
+    HAS_PYSCF = False
+
+try:
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+    HAS_RDKIT = True
+except ImportError:
+    HAS_RDKIT = False
+    log.error("[RDKit] 미설치 — parameterize_ncaa 실행 불가")
+    sys.exit(1)
+
+try:
+    import parmed as pmd
+    HAS_PARMED = True
+except ImportError:
+    HAS_PARMED = False
+
+GB_RADII = {
+    "C": 1.70, "N": 1.55, "O": 1.52, "H": 1.20, "S": 1.80, "P": 1.80,
+    "F": 1.47, "Cl": 1.75, "Br": 1.85, "Si": 2.10,
+}
+
+def _emit_hydrogen_definitions(xml_path: str, res_name: str, hyd_path: str) -> bool:
+    """[v36 CRITICAL FIX-2] OpenMM ``Modeller.addHydrogens()`` 가 ncAA 잔기에
+    수소를 추가할 수 있도록, 잔기 템플릿으로부터 Hydrogen Definitions XML 을
+    유도하여 별도 파일로 출력한다.
+
+    배경:
+        OpenMM 의 ``Modeller.addHydrogens()`` 는 ForceField 의 잔기 템플릿이
+        아닌, 별도의 ``Modeller._residueHydrogens`` 데이터베이스
+        (`Hydrogens.xml`) 를 참조하여 어느 부모 heavy atom 에 어떤 H 를
+        추가할지 결정한다. 표준 아미노산 (ALA, GLY, …) 만 기본 등록되어
+        있으며, ncAA 잔기명은 등록되어 있지 않다. 등록되지 않은 잔기는
+        ``addHydrogens`` 가 H 를 추가하지 않고 그대로 통과시키므로, 이후
+        ``ForceField.createSystem()`` 의 템플릿 매칭이 (heavy-only 6 원자 vs
+        heavy+H 14 원자) mismatch 로 실패한다 ("No template found ... is
+        similar to ASP" 에러).
+
+    근거:
+        OpenMM 5.x ~ 7.x 의 Modeller.addHydrogens 구현은 다음 조건을 갖는다
+        (lib/openmm/app/modeller.py 참조):
+
+            if residue.name in Modeller._residueHydrogens or ...:
+                <add hydrogens>
+
+        즉, ncAA 잔기명을 ``_residueHydrogens`` 에 등록하기 전에는 H 가
+        추가되지 않는다. ``Modeller.loadHydrogenDefinitions(file)`` 가 이를
+        등록하는 공식 진입점이므로, 본 함수는 그에 맞는 XML 을 생성한다.
+
+    데이터 계약 (Principle 7):
+        - 출력 파일: ``{res_name}_hydrogens.xml`` (parameterize_ncaa 출력
+          디렉토리 내) — manifest 의 ``hydrogens_path`` 키로 노출
+        - 형식 (OpenMM Hydrogens.xml 표준):
+
+            <Residues>
+              <Residue name="NMA">
+                <H name="HN" parent="N"/>
+                <H name="HA" parent="CA"/>
+                ...
+              </Residue>
+            </Residues>
+
+        - 본 함수는 ``terminal`` 속성을 부여하지 않는다. 즉, 모든 H 를
+          internal (비-terminal) 로 등록한다. ncAA 가 chain terminal 에
+          위치하는 경우의 cap 처리는 별도 메커니즘 (apply_universal_xml_patch
+          또는 사전 cyclization) 에 위임한다 — Principle 5 (영구 해법) 를
+          위해 단순한 가정에 의존하지 않는다.
+
+    Args:
+        xml_path: ParmEd → _rename → _postprocess 가 완료된 잔기 템플릿 XML
+        res_name: 잔기명 (예: "NMA")
+        hyd_path: 출력 Hydrogen Definitions XML 경로
+
+    Returns:
+        bool: 정상 출력 시 True, 잔기 블록을 찾지 못해 no-op 인 경우 False.
+    """
+    if not os.path.exists(xml_path):
+        log.warning(f"[Hydrogens] 입력 XML 부재: {xml_path}")
+        return False
+
+    tree = ET.parse(xml_path)
+    root = tree.getroot()
+
+    # [v5 해법 B] 단일 XML 안의 internal/N-term/C-term 3개 변형 잔기 모두에
+    # 대응하는 H 정의를 출력한다. _generate_topology_variants 가 N{RES}/C{RES}
+    # 블록을 추가하므로, addHydrogens 가 잔기명을 통해 어느 변형이 들어와도
+    # H 를 부착할 수 있어야 한다. 변형 블록이 부재하면 해당 entry 만 생략한다
+    # (Principle 7: 의존성 일관성 — 변형 미생성 환경에서도 무결성 유지).
+    target_names = [res_name, f"N{res_name}", f"C{res_name}"]
+
+    # AtomTypes 색인 — element 추론용 (XML 전체 단일 인스턴스)
+    atomtype_to_elem = {
+        t.get("name"): t.get("element")
+        for t in root.findall("AtomTypes/Type")
+    }
+
+    out_root = ET.Element("Residues")
+    emitted_count = 0
+    base_h_count = 0
+
+    for tname in target_names:
+        res_node = next(
+            (r for r in root.iter("Residue") if r.get("name") == tname),
+            None,
+        )
+        if res_node is None:
+            continue
+
+        # 원자명 → element 매핑 (잔기 내부)
+        name_to_elem: dict = {}
+        for atom in res_node.findall("Atom"):
+            aname = atom.get("name")
+            atype = atom.get("type")
+            name_to_elem[aname] = atomtype_to_elem.get(atype)
+
+        # 결합으로부터 H → 부모 heavy atom 매핑 추출
+        h_to_parent: dict = {}
+        for bond in res_node.findall("Bond"):
+            a1 = bond.get("atomName1")
+            a2 = bond.get("atomName2")
+            e1 = name_to_elem.get(a1)
+            e2 = name_to_elem.get(a2)
+            if e1 == "H" and e2 != "H":
+                h_to_parent[a1] = a2
+            elif e2 == "H" and e1 != "H":
+                h_to_parent[a2] = a1
+
+        if not h_to_parent:
+            log.warning(f"[Hydrogens] {tname}: 추출된 H 결합 없음 — 해당 변형 entry 생략")
+            continue
+
+        out_res = ET.SubElement(out_root, "Residue", attrib={"name": tname})
+        # 안정적 출력 순서: 부모 heavy atom 명 기준 알파벳 → H 이름
+        for h_name in sorted(h_to_parent.keys(), key=lambda x: (h_to_parent[x], x)):
+            ET.SubElement(out_res, "H", attrib={
+                "name": h_name,
+                "parent": h_to_parent[h_name],
+            })
+        emitted_count += 1
+        if tname == res_name:
+            base_h_count = len(h_to_parent)
+
+    if emitted_count == 0:
+        log.warning(f"[Hydrogens] {res_name}: 잔기 블록 미발견 — Hydrogens.xml 생성 생략")
+        return False
+
+    out_tree = ET.ElementTree(out_root)
+    out_tree.write(hyd_path, xml_declaration=True, encoding="utf-8")
+    log.info(
+        f"[Hydrogens] {res_name} Hydrogen Definitions 작성 완료 "
+        f"(변형={emitted_count}, base H={base_h_count}): {hyd_path}"
+    )
+    return True
+
+
+def write_manifest(output_dir, args, ncaa_def, xml_out, resp_used, mol2, frcmod, hydrogens_path=""):
+    # [v35 AUDIT] Principle 4/7: xml_resname MUST be sourced from the canonical
+    # ncaa_registry (ncaa_def.xml_resname), NOT from args.ncaa_code. The Antigravity
+    # Architecture Fix in UPDATE.md explicitly mandates xml_resname as the single
+    # source of truth — prior code wrote args.ncaa_code here, so any registry entry
+    # whose xml_resname diverges from its CLI code produced a manifest whose
+    # xml_resname disagreed with the actual XML <Residue name="..."> block. The
+    # downstream graph-isomorphism gate in run_restrained_md.py then loaded the
+    # wrong residue name and Fail-Fast with a cryptic "template not found" error.
+    # [v36] hydrogens_path 추가 — Modeller.addHydrogens 가 ncAA 에 H 를 추가할
+    # 수 있도록 _emit_hydrogen_definitions 가 생성한 OpenMM Hydrogens.xml 의
+    # 절대 경로를 manifest 에 노출한다 (Principle 7: 데이터 계약 일관성).
+    manifest = {
+        "ncaa_code": args.ncaa_code,
+        "xml_resname": ncaa_def.xml_resname,
+        "formal_charge": ncaa_def.formal_charge,
+        "smiles_used": ncaa_def.smiles_free,
+        "resp_used": resp_used,
+        "xml_path": xml_out,
+        "mol2_path": mol2,
+        "frcmod_path": frcmod,
+        "hydrogens_path": hydrogens_path,
+        "status": "SUCCESS"
+    }
+    # [v35 AUDIT] Principle 7/v27: encoding="utf-8" enforced for manifest I/O —
+    # output_dir may contain 한글 path segments on the operator's workstation.
+    manifest_path = os.path.join(output_dir, f"{args.ncaa_code}_params_manifest.json")
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, indent=2)
+    return manifest_path
+
+def smiles_to_mol(smiles, output_mol, name="ncAA"):
+    from rdkit.Chem import SDWriter
+    mol = Chem.MolFromSmiles(smiles)
+    mol = Chem.AddHs(mol)
+    result = AllChem.EmbedMolecule(mol, AllChem.ETKDGv3())
+    if result == -1:
+        result = AllChem.EmbedMolecule(mol, randomSeed=42)
+    # [v35 AUDIT] Principle 5: Silent 'except Exception: pass' replaced with a
+    # logged warning. The scientific fallback (ETKDG-embedded geometry without
+    # MMFF refinement) is preserved — only the silent swallow is eliminated, so
+    # the operator now learns *why* RESP charges may be noisier on this ncAA.
+    try:
+        AllChem.MMFFOptimizeMolecule(mol)
+    except Exception as _mmff_err:
+        log.warning(f"[MMFF] optimization failed for {name}: {_mmff_err}. Falling back to raw ETKDG geometry.")
+    with SDWriter(output_mol) as w: w.write(mol)
+    return mol
+
+def _mol_to_xyz(mol_path, xyz_path):
+    from rdkit.Chem import SDMolSupplier
+    suppl = SDMolSupplier(mol_path, removeHs=False)
+    mol = next(iter(suppl))
+    conf = mol.GetConformer()
+    with open(xyz_path, "w") as f:
+        f.write(f"{mol.GetNumAtoms()}\nPySCF RESP\n")
+        for atom in mol.GetAtoms():
+            pos = conf.GetAtomPosition(atom.GetIdx())
+            f.write(f"{atom.GetSymbol():2s} {pos.x:12.6f} {pos.y:12.6f} {pos.z:12.6f}\n")
+
+def run_antechamber(mol_path, work_dir, res_name, charge=0):
+    mol2 = os.path.join(work_dir, f"{res_name}.mol2")
+    frcmod = os.path.join(work_dir, f"{res_name}.frcmod")
+    cmd = ["antechamber", "-i", mol_path, "-fi", "mdl", "-o", mol2, "-fo", "mol2", "-c", "bcc", "-nc", str(charge), "-at", "gaff2", "-rn", res_name, "-dr", "no", "-s", "2"]
+    subprocess.run(cmd, check=True, capture_output=True, cwd=work_dir)
+    subprocess.run(["parmchk2", "-i", mol2, "-f", "mol2", "-o", frcmod, "-s", "gaff2"], check=True, capture_output=True)
+    return mol2, frcmod
+
+def _compute_electron_esp(mol, dm, grid_pts: np.ndarray) -> np.ndarray:
+    # [v35 AUDIT] Principle 1: This fallback is a *scientifically valid*
+    # physics routing — newer PySCF builds expose `int1e_grids` as a fast path,
+    # while older builds require the `int3c2e` aux-e2 integral via `df.incore`.
+    # Per Principle 1 the fallback must NOT be deleted; per Principle 5 we now
+    # log the routing decision so operators can audit which integral code path
+    # produced the ESP grid used in RESP fitting.
+    try:
+        j3c = mol.intor('int1e_grids', grids=grid_pts)
+        return np.einsum('pij,ij->p', j3c, dm)
+    except Exception as _int1e_err:
+        log.info(f"[ESP] int1e_grids unavailable ({_int1e_err.__class__.__name__}); routing through df.incore int3c2e fallback.")
+        from pyscf import df
+        from pyscf.gto import fakemol_for_charges
+        nao, n_pts = mol.nao, len(grid_pts)
+        esp_elec = np.zeros(n_pts)
+        for start in range(0, n_pts, 500):
+            end = min(start + 500, n_pts)
+            fmol = fakemol_for_charges(grid_pts[start:end])
+            ints = df.incore.aux_e2(mol, fmol, 'int3c2e', aosym='s1', comp=1)
+            if ints.ndim == 2:
+                ints = ints.reshape(nao, nao, -1)
+            esp_elec[start:end] = np.einsum('ij,ijn->n', dm, ints)
+        return esp_elec
+
+def _run_hf_calculation(xyz_path, charge):
+    """[v3 5-2] HF/6-31G* SCF 계산을 수행하고 (mol, dm) 튜플을 반환한다.
+
+    Args:
+        xyz_path: PySCF 가 읽을 수 있는 XYZ 형식의 좌표 파일 경로
+        charge:   분자 전체 정수 전하 (parameterize_ncaa 의 ncaa_def.formal_charge)
+
+    Returns:
+        Optional[Tuple[gto.Mole, np.ndarray]]: 수렴 시 (mol, density matrix),
+        SCF 가 수렴하지 못하면 None.
+    """
+    atoms_str = ""
+    with open(xyz_path, encoding="utf-8") as f:
+        for line in f.readlines()[2:]:
+            p = line.split()
+            if len(p) == 4:
+                atoms_str += f"{p[0]} {p[1]} {p[2]} {p[3]};"
+    mol = gto.M(atom=atoms_str.rstrip(";"), basis="6-31G*", charge=charge, spin=0, unit="Angstrom", verbose=0)
+    mf = scf.RHF(mol)
+    mf.max_cycle, mf.conv_tol = 200, 1e-9
+    mf.kernel()
+    if not mf.converged:
+        return None
+    return mol, mf.make_rdm1()
+
+
+def _build_esp_grid(mol, dm):
+    """[v3 5-2] 원자별 다중 동심구 격자 위에서 정전기 전위(ESP) 를 계산한다.
+
+    원자핵의 양전하 기여와 전자 밀도의 음전하 기여를 모두 합산하여, RESP
+    피팅에 사용되는 grid 정전기 전위 배열을 반환한다.
+
+    Args:
+        mol: PySCF gto.Mole 객체 (수렴된 SCF 의 산물)
+        dm:  HF density matrix (mol 과 동일한 좌표계)
+
+    Returns:
+        Tuple[np.ndarray, np.ndarray]: (grid_pts, esp) — grid 좌표(Bohr) 와
+        해당 격자 위의 정전기 전위(원자 단위).
+    """
+    n_atoms = mol.natm
+    grid_pts = []
+    np.random.seed(42)
+    for i in range(n_atoms):
+        coord = mol.atom_coord(i)
+        r_vdw = GB_RADII.get(mol.atom_symbol(i), 1.7) * 1.8897259886
+        for scale in [1.4, 1.6, 1.8, 2.0]:
+            for _ in range(100):
+                phi, ct = np.random.uniform(0, 2 * np.pi), np.random.uniform(-1, 1)
+                st = np.sqrt(1 - ct ** 2)
+                grid_pts.append(coord + r_vdw * scale * np.array([st * np.cos(phi), st * np.sin(phi), ct]))
+
+    grid_pts = np.array(grid_pts)
+    esp = np.zeros(len(grid_pts))
+    for i in range(n_atoms):
+        d = np.linalg.norm(grid_pts - mol.atom_coord(i), axis=1)
+        d = np.where(d < 1e-10, 1e-10, d)
+        esp += mol.atom_charge(i) / d
+    esp -= _compute_electron_esp(mol, dm, grid_pts)
+    return grid_pts, esp
+
+
+def _fit_resp_charges(esp, grid_pts, mol, charge):
+    """[v3 5-2] 라그랑주 승수법으로 RESP 전하를 최소제곱 피팅한다.
+
+    제약: sum(q_i) = total_charge (분자 전체 전하 보존)
+    목적: || A · q − b ||^2 최소화 (ESP 재현)
+
+    Args:
+        esp:      _build_esp_grid 가 산출한 ESP 배열
+        grid_pts: 동일 격자 좌표 (Bohr)
+        mol:      PySCF gto.Mole 객체
+        charge:   분자 전체 정수 전하
+
+    Returns:
+        np.ndarray: 원자별 RESP 전하 (n_atoms,) — 마지막 라그랑주 승수는 제외됨.
+    """
+    n_atoms = mol.natm
+    A = np.zeros((n_atoms, n_atoms))
+    b = np.zeros(n_atoms)
+    for idx, pt in enumerate(grid_pts):
+        di = np.array([max(np.linalg.norm(pt - mol.atom_coord(i)), 1e-10) for i in range(n_atoms)])
+        A += np.outer(1 / di, 1 / di)
+        b += esp[idx] / di
+
+    A_ext = np.zeros((n_atoms + 1, n_atoms + 1))
+    b_ext = np.zeros(n_atoms + 1)
+    A_ext[:n_atoms, :n_atoms] = A
+    A_ext[n_atoms, :n_atoms] = 1.0
+    A_ext[:n_atoms, n_atoms] = 1.0
+    b_ext[:n_atoms] = b
+    b_ext[n_atoms] = charge
+    return np.linalg.lstsq(A_ext, b_ext, rcond=None)[0][:n_atoms]
+
+
+def run_pyscf_resp(xyz_path, charge=0):
+    """[v3 5-2] PySCF 를 이용한 RESP 전하 도출 — 3단계 헬퍼의 얇은 오케스트레이터.
+
+    1) _run_hf_calculation: HF/6-31G* SCF 수렴
+    2) _build_esp_grid:     원자별 다중 동심구 ESP 격자 구축
+    3) _fit_resp_charges:   라그랑주 승수법 최소제곱 RESP 피팅
+
+    추가 안전장치:
+        - PySCF 미설치 환경: 즉시 None 반환 (downstream AM1-BCC 폴백)
+        - SCF 미수렴: None 반환
+        - |q|_max > 2.0 e: charge-sanity Fail-Fast (downstream AM1-BCC 폴백)
+        - 예기치 못한 예외: 경고 로깅 후 None 반환
+    """
+    if not HAS_PYSCF:
+        log.warning("[RESP] PySCF unavailable — skipping RESP charge derivation; downstream will fall back to AM1-BCC via antechamber.")
+        return None
+    try:
+        hf_result = _run_hf_calculation(xyz_path, charge)
+        if hf_result is None:
+            return None
+        mol, dm = hf_result
+
+        grid_pts, esp = _build_esp_grid(mol, dm)
+        charges = _fit_resp_charges(esp, grid_pts, mol, charge)
+
+        # [v35 AUDIT] Principle 5: log charge-sanity Fail-Fast with the offending
+        # magnitude so the operator can trace RESP divergence on this ncAA
+        # (mirrors the run_restrained_md.py v15 |q| > 2.0 threshold).
+        max_q = float(np.max(np.abs(charges)))
+        if max_q > 2.0:
+            log.warning(f"[RESP] rejected: peak |q|={max_q:.3f} e > 2.0 threshold — downstream will fall back to AM1-BCC.")
+            return None
+        return charges, mol
+    except Exception as _resp_err:
+        log.warning(f"[RESP] PySCF routine crashed ({_resp_err.__class__.__name__}: {_resp_err}). Falling back to AM1-BCC.")
+        return None
+
+def _inject_resp_into_mol2(mol2_path, resp_result):
+    if not HAS_PARMED or resp_result is None:
+        return False
+    resp_charges, _ = resp_result
+    mol2_obj = pmd.load_file(mol2_path)
+    atoms = list(list(mol2_obj.to_library().values())[0].atoms) if isinstance(mol2_obj, pmd.modeller.ResidueTemplateContainer) else list(mol2_obj.residues[0].atoms) if hasattr(mol2_obj, "residues") else list(mol2_obj.atoms)
+    if len(resp_charges) != len(atoms):
+        return False
+    for i, atom in enumerate(atoms):
+        atom.charge = float(resp_charges[i])
+    mol2_obj.save(mol2_path, overwrite=True)
+    return True
+
+def _run_tleap(mol2_path, frcmod_path, work_dir, res_name):
+    # [v35 AUDIT] Principle 4: tleap invocation now uses check=True so a failed
+    # leap.in (invalid mol2, missing GAFF2 parameters, radical spin mismatch)
+    # triggers Fail-Fast with the captured stdout/stderr rather than silently
+    # producing an empty/corrupt prmtop that downstream parmed loads and
+    # emits malformed OpenMM XML from.
+    prmtop = os.path.join(work_dir, f"{res_name}.prmtop")
+    inpcrd = os.path.join(work_dir, f"{res_name}.inpcrd")
+    leap_in = os.path.join(work_dir, "leap.in")
+    with open(leap_in, "w", encoding="utf-8") as f:
+        f.write(f"source leaprc.gaff2\nloadamberparams {frcmod_path}\nmol = loadmol2 {mol2_path}\ncheck mol\nsaveamberparm mol {prmtop} {inpcrd}\nquit\n")
+    try:
+        subprocess.run(["tleap", "-f", leap_in], check=True, capture_output=True, text=True, cwd=work_dir)
+    except subprocess.CalledProcessError as _leap_err:
+        log.error(f"[tleap] Non-zero exit for residue {res_name}. stdout:\n{_leap_err.stdout}\nstderr:\n{_leap_err.stderr}")
+        raise RuntimeError(f"tleap failed for {res_name}: {_leap_err}") from _leap_err
+    if not (os.path.exists(prmtop) and os.path.exists(inpcrd)):
+        raise RuntimeError(f"tleap completed but prmtop/inpcrd missing for {res_name}: {prmtop}, {inpcrd}")
+    return prmtop, inpcrd
+
+def _build_pdb_name_map(atoms, ncaa_mutation_type) -> dict:
+    """[v3 5-1] mol2 atoms 리스트를 분석하여 GAFF2 내부 원자명 → PDB 규약명 매핑 dict 를 생성한다.
+
+    백본 N/CA/C/O/CB/CM 식별 및 측쇄 H 원자명 추론을 수행한다. mutation type
+    이 "N-M" 이 아니거나, 핵심 anchor (N) 식별이 실패하면 빈 dict 를 반환한다.
+
+    Args:
+        atoms: parmed Atom 객체 리스트
+        ncaa_mutation_type: ncaa_def.mutation_type
+
+    Returns:
+        dict: {gaff2_name: pdb_name} 매핑. 빈 dict 는 rename 비대상 의미.
+    """
+    if ncaa_mutation_type != "N-M":
+        return {}
+
+    heavy = [a for a in atoms if a.atomic_number > 1]
+    name_map: dict = {}
+
+    def heavy_neighbors(atom):
+        return [
+            (b.atom1 if b.atom2 is atom else b.atom2)
+            for b in atom.bonds
+            if (b.atom1 if b.atom2 is atom else b.atom2).atomic_number > 1
+        ]
+
+    n_atom = next((a for a in heavy if a.atomic_number == 7), None)
+    if not n_atom:
+        return {}
+    name_map[n_atom.name] = "N"
+
+    ca_atom, c_atom = None, None
+    for c in [a for a in heavy_neighbors(n_atom) if a.atomic_number == 6]:
+        if len(heavy_neighbors(c)) <= 1:
+            name_map[c.name] = "CM"
+        else:
+            name_map[c.name] = "CA"
+            ca_atom = c
+
+    if ca_atom is not None:
+        for nbr in heavy_neighbors(ca_atom):
+            if nbr is n_atom or nbr.name in name_map:
+                continue
+            if nbr.atomic_number == 6:
+                if any(x.atomic_number == 8 for x in heavy_neighbors(nbr)):
+                    name_map[nbr.name] = "C"
+                    c_atom = nbr
+                else:
+                    name_map[nbr.name] = "CB"
+
+    if c_atom is not None:
+        for o in heavy_neighbors(c_atom):
+            if o.atomic_number != 8:
+                continue
+            has_h = any((b.atom1 if b.atom2 is o else b.atom2).atomic_number == 1 for b in o.bonds)
+            name_map[o.name] = "OXT" if has_h else "O"
+
+    # 수소 원자 명명: 부모 heavy atom 의 PDB 이름에 따라 결정
+    H_NAME_TABLE = {"CM": ["HM1", "HM2", "HM3"], "CB": ["HB1", "HB2", "HB3"]}
+    h_idx: dict = {}
+    for atom in atoms:
+        if atom.atomic_number != 1:
+            continue
+        parents = [b.atom1 if b.atom2 is atom else b.atom2 for b in atom.bonds]
+        if not parents:
+            continue
+        pname = name_map.get(parents[0].name, parents[0].name)
+        if pname in H_NAME_TABLE:
+            idx = h_idx.get(pname, 0)
+            tbl = H_NAME_TABLE[pname]
+            name_map[atom.name] = tbl[idx] if idx < len(tbl) else f"HX{idx}"
+            h_idx[pname] = idx + 1
+        elif pname == "N":
+            name_map[atom.name] = "HN"
+        elif pname == "CA":
+            name_map[atom.name] = "HA"
+        elif pname == "OXT":
+            name_map[atom.name] = "HXT"
+
+    return name_map
+
+
+def _apply_name_map_to_xml(xml_path: str, name_map: dict) -> bool:
+    """[v3 5-1] XML 파일 내 원자명을 name_map 에 따라 일괄 치환한다.
+
+    Args:
+        xml_path: 대상 OpenMM XML 파일 경로 (in-place 수정)
+        name_map: {gaff2_name: pdb_name} 매핑. 빈 dict 면 즉시 False 반환.
+
+    Returns:
+        bool: 실제 파일 수정이 수행되었으면 True, 아니면 False.
+    """
+    if not name_map:
+        return False
+    with open(xml_path, encoding="utf-8") as f:
+        content = f.read()
+    for old, new in sorted(name_map.items(), key=lambda x: -len(x[0])):
+        content = re.sub(
+            r'((?:name|atomName1|atomName2|atomName)\s*=\s*")' + re.escape(old) + r'(")',
+            r'\g<1>' + new + r'\g<2>',
+            content,
+        )
+    with open(xml_path, "w", encoding="utf-8") as f:
+        f.write(content)
+    return True
+
+
+def _rename_xml_to_pdb_names(xml_path: str, mol2_path: str, ncaa_code: str, ncaa_mutation_type: str) -> bool:
+    """[v3 5-1] _build_pdb_name_map + _apply_name_map_to_xml 의 얇은 오케스트레이터.
+
+    기존 인터페이스(인자, 반환값)를 그대로 유지하여 frcmod_to_openmm_xml 의
+    호출부 변경 없이 동작한다.
+    """
+    if not HAS_PARMED or ncaa_mutation_type != "N-M":
+        return False
+    try:
+        mol2_obj = pmd.load_file(mol2_path)
+        atoms = list(list(mol2_obj.to_library().values())[0].atoms) if isinstance(mol2_obj, pmd.modeller.ResidueTemplateContainer) else list(mol2_obj.residues[0].atoms) if hasattr(mol2_obj, "residues") else list(mol2_obj.atoms)
+        name_map = _build_pdb_name_map(atoms, ncaa_mutation_type)
+        if not name_map:
+            return False
+        return _apply_name_map_to_xml(xml_path, name_map)
+    except Exception as _rename_err:
+        # [v35 AUDIT] Principle 5: the GAFF2→PDB atom-name rename is required
+        # for the anchored graph-isomorphism gate in run_restrained_md.py to
+        # find N/CA/C anchors. A silent False return caused downstream strict
+        # matching to fail with a cryptic "anchor not found" message; now the
+        # exception is logged so operators can trace rename pathology.
+        log.warning(f"[XML rename] failed for {ncaa_code}: {_rename_err.__class__.__name__}: {_rename_err}")
+        return False
+
+def _generate_topology_variants(xml_path: str, res_name: str) -> bool:
+    """[v5 해법 B] 단일 ncAA XML 안에 internal/N-term/C-term 세 변형 잔기
+    템플릿을 동시에 정의한다 (계층적 ncAA 방어 전략의 두 번째 방어선).
+
+    배경 (CLAUDE.md v5 §해법 B):
+        해법 A 가 AUTO_SASA 후보에서 chain 말단을 제외하여 ncAA 의 말단 배치를
+        예방하지만, 사용자가 명시 위치(예: ``--residues B5,B12``) 로 말단 잔기를
+        지정하거나 동적 분석에서 ncAA 가 chain 끝에 배치되는 경우 OpenMM
+        ``addHydrogens`` 가 적절한 terminal 템플릿을 찾지 못해 즉시 실패한다.
+        본 함수는 amber14 의 표준 아미노산 처리 규약 (LYS / NLYS / CLYS) 을 모방
+        하여, ParmEd 가 생성한 자유산(free-acid) 잔기 블록으로부터 두 개의
+        terminal 변형 잔기 블록을 deep-copy 로 파생시켜 동일 XML 에 추가한다:
+
+            {RES}  : Internal residue
+                       - OXT/HXT 제거
+                       - <ExternalBond atomName="N"/>
+                       - <ExternalBond atomName="C"/>
+                       - 본 함수가 아닌 ``_postprocess_xml_for_internal_residue`` 가 처리.
+            N{RES} : N-terminal residue
+                       - OXT/HXT 제거 (C 가 다음 잔기의 N 과 결합)
+                       - <ExternalBond atomName="C"/> 만 존재
+                       - 본 함수가 deep-copy 로 생성.
+            C{RES} : C-terminal residue
+                       - OXT/HXT 유지 (자유산 형태로 노출)
+                       - <ExternalBond atomName="N"/> 만 존재
+                       - 본 함수가 deep-copy 로 생성.
+
+    동작 순서 (Principle 7 — 의존성 순서):
+        본 함수는 반드시 ``_rename_xml_to_pdb_names`` 직후, ``_postprocess_xml_
+        for_internal_residue`` *직전* 에 호출되어야 한다. 호출 시점에 원본
+        ``{RES}`` 블록은 자유산 형태(OXT/HXT 포함, ExternalBond 부재) 이며,
+        이 상태에서 deep-copy 해야 C-terminal 변형이 OXT/HXT 를 보존할 수 있다.
+        후속 ``_postprocess_xml_for_internal_residue`` 는 ``{RES}`` 블록만
+        필터링하여 수정하므로, 새로 추가된 ``N{RES}``/``C{RES}`` 는 영향받지
+        않는다.
+
+    데이터 신뢰성 (Principle 1):
+        본 함수는 GAFF2 force-field 파라미터(전하, 결합, 각도) 를 일체 변경
+        하지 않고 잔기 블록의 위상학적 (topological) 정의만 추가한다. 즉,
+        ncAA 가 어느 위치에 배치되어도 동일한 RESP 전하 + GAFF2 파라미터 가
+        적용되어 데이터 신뢰성이 유지된다 (변형 간 에너지 일관성).
+
+    Idempotent:
+        ``N{RES}`` 또는 ``C{RES}`` 블록이 이미 존재하면 해당 변형 생성을
+        건너뛴다. 캐시 재실행 시 중복 생성을 방지한다.
+
+    Args:
+        xml_path: ParmEd → rename 직후 OpenMM ForceField XML 경로 (in-place 수정)
+        res_name: 원본 잔기명 (예: "NMA")
+
+    Returns:
+        bool: 변형 잔기를 1개 이상 추가했으면 True, no-op 이면 False.
+    """
+    if not os.path.exists(xml_path):
+        log.warning(f"[Topology Variants] 파일이 존재하지 않음: {xml_path}")
+        return False
+
+    REMOVE_NAMES = {"OXT", "HXT"}
+    tree = ET.parse(xml_path)
+    root = tree.getroot()
+
+    residues_node = root.find("Residues")
+    if residues_node is None:
+        log.warning(f"[Topology Variants] <Residues> 컨테이너 미발견: {xml_path}")
+        return False
+
+    # 원본 internal/free-acid 잔기 블록 식별
+    src_node = next(
+        (r for r in residues_node.findall("Residue") if r.get("name") == res_name),
+        None,
+    )
+    if src_node is None:
+        log.warning(f"[Topology Variants] 원본 잔기 블록 미발견: name={res_name}")
+        return False
+
+    existing_names = {r.get("name") for r in residues_node.findall("Residue")}
+    added_variants = []
+
+    # ── N-terminal 변형: OXT/HXT 제거 + ExternalBond C 만 ──
+    n_variant_name = f"N{res_name}"
+    if n_variant_name not in existing_names:
+        n_node = copy.deepcopy(src_node)
+        n_node.set("name", n_variant_name)
+
+        for atom in list(n_node.findall("Atom")):
+            if atom.get("name") in REMOVE_NAMES:
+                n_node.remove(atom)
+        for bond in list(n_node.findall("Bond")):
+            if bond.get("atomName1", "") in REMOVE_NAMES or bond.get("atomName2", "") in REMOVE_NAMES:
+                n_node.remove(bond)
+        for eb in list(n_node.findall("ExternalBond")):
+            n_node.remove(eb)
+        # N-terminal: C 만 다음 잔기와 결합
+        present_atoms = {a.get("name") for a in n_node.findall("Atom")}
+        if "C" in present_atoms:
+            ET.SubElement(n_node, "ExternalBond", {"atomName": "C"})
+
+        residues_node.append(n_node)
+        added_variants.append(n_variant_name)
+
+    # ── C-terminal 변형: OXT/HXT 유지 + ExternalBond N 만 ──
+    c_variant_name = f"C{res_name}"
+    if c_variant_name not in existing_names:
+        c_node = copy.deepcopy(src_node)
+        c_node.set("name", c_variant_name)
+
+        # OXT/HXT 보존 (자유산 형태). 기존 ExternalBond 만 제거.
+        for eb in list(c_node.findall("ExternalBond")):
+            c_node.remove(eb)
+        # C-terminal: N 만 이전 잔기와 결합
+        present_atoms = {a.get("name") for a in c_node.findall("Atom")}
+        if "N" in present_atoms:
+            ET.SubElement(c_node, "ExternalBond", {"atomName": "N"})
+
+        residues_node.append(c_node)
+        added_variants.append(c_variant_name)
+
+    if added_variants:
+        tree.write(xml_path, xml_declaration=True, encoding="utf-8")
+        log.info(
+            f"[Topology Variants] {res_name}: 추가 변형 잔기 생성 = {added_variants}"
+        )
+        return True
+
+    log.info(f"[Topology Variants] {res_name}: 모든 변형이 이미 존재 — no-op")
+    return False
+
+
+def _postprocess_xml_for_internal_residue(xml_path: str, res_name: str) -> bool:
+    """[v36 CRITICAL FIX] 자유산(free acid) 형태의 GAFF2 XML 템플릿을 펩타이드 내부
+    잔기(internal residue) 템플릿으로 변환한다.
+
+    근본 원인 (CLAUDE.md 확정 진단):
+        ncaa_registry 의 ``smiles_free`` 는 의도적으로 양 말단이 자유산 형태이며
+        (RESP 전하 정확도 확보를 위해 -COOH 말단을 갖는다), 이 SMILES 로부터
+        antechamber → tleap → ParmEd → OpenMM XML 변환을 거치면 결과 XML 의
+        ``<Residue>`` 블록에 카르복실 산소(OXT)와 카르복실 수소(HXT)가 자유산
+        잔기로 그대로 보존된다. 반면 ``ncaa_mutate.py`` 는 ncAA 를 펩타이드
+        체인 *내부* 잔기로 삽입하므로 PDB 구조에는 OXT/HXT 가 존재하지 않는다.
+
+        결과: XML 중원자 7 (N, CA, C, O, CB, CM, OXT) ≠ PDB 중원자 6 → OpenMM
+        ``Modeller.addHydrogens()`` 의 템플릿 매칭이 실패하고 ``No template
+        found for residue 167 (NMA). The set of atoms is similar to ASP``
+        오류로 즉시 중단된다 (FAILED_ADDH.log 다수 사례 확인).
+
+    해결 (Principle 1: 데이터 신뢰성 향상):
+        1) ``<Residue name=res_name>`` 블록에서 OXT/HXT ``<Atom>`` 노드 제거
+        2) OXT/HXT 를 참조하는 ``<Bond atomName1/atomName2>`` 노드 제거
+        3) N(head) 및 C(tail) 에 ``<ExternalBond atomName="..."/>`` 가 누락된
+           경우 보강 (이미 존재하면 idempotent 하게 no-op)
+
+        본 함수는 잔기명에 의존하지 않으며, OXT/HXT 가 처음부터 없으면 ExternalBond
+        보강만 수행하므로 모든 ncAA 에 안전하게 적용 가능하다 (Principle 7:
+        의존성 일관성). 단, GAFF2→PDB 원자명 rename 이 선행되어 있어야 하므로
+        호출부는 반드시 ``_rename_xml_to_pdb_names`` 직후에 호출한다.
+
+        Principle 4 (Fail-Fast over Silent-Fallback): XML 파싱 실패는 명시적
+        예외로 전파되며, 호출부의 ``frcmod_to_openmm_xml`` 가 캐치하지 않으면
+        전체 파라미터화가 즉시 실패하여 운영자가 손상된 XML 을 즉각 인지할 수
+        있다.
+
+    Args:
+        xml_path: ParmEd 가 생성한 OpenMM ForceField XML 의 경로 (in-place 수정)
+        res_name: 후처리 대상 잔기명 (예: "NMA")
+
+    Returns:
+        bool: 실제 수정이 발생했으면 True, 변경이 없었으면 False.
+    """
+    if not os.path.exists(xml_path):
+        log.warning(f"[XML 후처리] 파일이 존재하지 않음: {xml_path}")
+        return False
+
+    REMOVE_NAMES = {"OXT", "HXT"}
+    tree = ET.parse(xml_path)
+    root = tree.getroot()
+    modified = False
+
+    for res_node in root.iter("Residue"):
+        if res_node.get("name") != res_name:
+            continue
+
+        # ── 1. 자유산 전용 원자(OXT, HXT) 제거 ──
+        atoms_removed = []
+        for atom in list(res_node.findall("Atom")):
+            if atom.get("name") in REMOVE_NAMES:
+                res_node.remove(atom)
+                atoms_removed.append(atom.get("name"))
+
+        # ── 2. 제거된 원자를 참조하는 결합 제거 (OpenMM XML 은 atomName1/2 사용) ──
+        bonds_removed = 0
+        for bond in list(res_node.findall("Bond")):
+            a1 = bond.get("atomName1", "")
+            a2 = bond.get("atomName2", "")
+            if a1 in REMOVE_NAMES or a2 in REMOVE_NAMES:
+                res_node.remove(bond)
+                bonds_removed += 1
+
+        # ── 3. N(head)/C(tail) ExternalBond 보강 (idempotent) ──
+        existing_ext = {eb.get("atomName") for eb in res_node.findall("ExternalBond")}
+        present_atoms = {a.get("name") for a in res_node.findall("Atom")}
+        ext_added = []
+        for anchor in ("N", "C"):
+            if anchor in present_atoms and anchor not in existing_ext:
+                ET.SubElement(res_node, "ExternalBond", {"atomName": anchor})
+                ext_added.append(anchor)
+
+        if atoms_removed or bonds_removed or ext_added:
+            modified = True
+            log.info(
+                f"[XML 후처리] {res_name}: removed atoms={atoms_removed}, "
+                f"removed bonds={bonds_removed}, added ExternalBond={ext_added}"
+            )
+
+    if modified:
+        # encoding 명시하여 한글 path/메타데이터 안전성 확보 (Principle 7/v27 규약)
+        tree.write(xml_path, xml_declaration=True, encoding="utf-8")
+    return modified
+
+
+def frcmod_to_openmm_xml(mol2_path, frcmod_path, output_xml, res_name, ncaa_mutation_type, resp_result=None):
+    if not HAS_PARMED:
+        return {"HarmonicBondForce"}
+    if resp_result:
+        _inject_resp_into_mol2(mol2_path, resp_result)
+    prmtop, inpcrd = _run_tleap(mol2_path, frcmod_path, os.path.dirname(mol2_path), res_name)
+    struct = pmd.load_file(prmtop, inpcrd)
+    ff = pmd.openmm.OpenMMParameterSet.from_structure(struct)
+    tmpl = pmd.modeller.ResidueTemplate.from_residue(struct.residues[0])
+    tmpl.name, tmpl.head, tmpl.tail = res_name, None, None
+    for atom in tmpl.atoms:
+        if atom.atomic_number == 7 and tmpl.head is None:
+            tmpl.head = atom
+        elif atom.atomic_number == 6 and tmpl.tail is None and any(
+            (b.atom1 if b.atom2 is atom else b.atom2).atomic_number == 8 for b in atom.bonds
+        ):
+            tmpl.tail = atom
+    ff.residues[res_name] = tmpl
+    ff.write(output_xml)
+
+    # [v4 CLAUDE.md 방안 A] rename 실패를 silent 로 넘기지 말고 명시적으로 경고.
+    # 실패 시 XML 내부 원자명 목록을 로그로 출력하여 downstream addHydrogens 실패
+    # 진단을 돕는다. STANDARD mutation type 은 현재 rename 대상이 아니므로 (N-M 에만
+    # 수행) 이 경로에서도 원자명 로그만 남겨 운영자가 XML 상태를 확인할 수 있게 한다.
+    renamed = _rename_xml_to_pdb_names(output_xml, mol2_path, res_name, ncaa_mutation_type)
+    if not renamed:
+        log.warning(
+            f"[XML Rename] GAFF2→PDB 원자명 변환 스킵 또는 실패 "
+            f"(ncaa_code='{res_name}', mutation_type='{ncaa_mutation_type}'). "
+            f"addHydrogens 단계에서 template 매칭 실패가 발생하면 XML 원자명을 점검하세요."
+        )
+        _log_xml_atom_names(output_xml, res_name)
+
+    # [v5 해법 B] rename 직후, postprocess 직전 — 자유산 잔기 블록을 deep-copy
+    # 하여 N-terminal/C-terminal 변형을 추가한다. C-terminal 변형은 OXT/HXT 가
+    # 보존된 상태에서 복사되어야 하므로 반드시 postprocess 보다 먼저 실행한다.
+    _generate_topology_variants(output_xml, res_name)
+
+    # [v36 CRITICAL FIX] rename 직후 자유산→내부 잔기 후처리를 수행한다. rename 이
+    # 성공한 경우에만 OXT/HXT 가 PDB 규약명으로 식별 가능하므로, rename skip 경로
+    # (현재 STANDARD 타입) 에서는 후처리도 no-op 가 된다. 이 순서 의존성은
+    # _postprocess_xml_for_internal_residue 의 docstring 에 명시되어 있다.
+    # 본 호출은 {RES} 잔기명만 필터링하므로 위에서 추가된 N{RES}/C{RES} 는
+    # 영향받지 않는다.
+    _postprocess_xml_for_internal_residue(output_xml, res_name)
+
+    return set()
+
+
+def _log_xml_atom_names(xml_path: str, res_name: str) -> None:
+    """[v4 CLAUDE.md 방안 A] XML 내 잔기 템플릿의 원자명을 진단 로그로 출력한다.
+
+    rename 실패 경로 또는 미지원 mutation_type 경로에서 호출되어, 운영자가 XML
+    원자명이 PDB 규약 (N/CA/C/O/CB/CM/...) 과 일치하는지 즉시 확인할 수 있게 한다.
+    """
+    try:
+        tree = ET.parse(xml_path)
+        for res_node in tree.getroot().iter("Residue"):
+            if res_node.get("name") == res_name:
+                atoms = [a.get("name") for a in res_node.findall("Atom")]
+                heavy = [a for a in atoms if a and not a.startswith("H")]
+                hs = [a for a in atoms if a and a.startswith("H")]
+                log.warning(f"  [XML 진단] {res_name} heavy atoms: {heavy}")
+                log.warning(f"  [XML 진단] {res_name} hydrogens:   {hs}")
+                return
+        log.warning(f"  [XML 진단] {res_name} 잔기 블록을 XML 에서 찾지 못함: {xml_path}")
+    except (ET.ParseError, FileNotFoundError) as _err:
+        log.warning(f"  [XML 진단] XML 읽기 실패 ({_err.__class__.__name__}): {_err}")
+
+def _is_cache_valid(xml_out: str, manifest_out: str) -> bool:
+    """파라미터화 캐시(XML + manifest 페어)의 유효성을 검사한다.
+
+    XML과 manifest JSON이 모두 존재할 때에만 캐시가 유효하다고 판단한다.
+    XML만 존재하는 부분 캐시는 stale/broken으로 간주하여 False를 반환하고,
+    호출부가 재파라미터화를 수행하도록 위임한다 (run_restrained_md.py 의
+    load_ncaa_manifest() Fail-Fast 경로와의 데이터 계약 일관성 보장).
+    """
+    if os.path.exists(xml_out) and os.path.exists(manifest_out):
+        return True
+    if os.path.exists(xml_out) and not os.path.exists(manifest_out):
+        log.warning(f"[캐시 불완전] XML은 존재하나 manifest 누락 → 재파라미터화 강제: {xml_out}")
+    return False
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--inputdir", required=True)
+    parser.add_argument("--outputdir", required=True)
+    parser.add_argument("--ncaa_code", required=True)
+    args = parser.parse_args()
+
+    os.makedirs(args.outputdir, exist_ok=True)
+
+    ncaa_def = resolve_ncaa_definition(args.ncaa_code)
+    if ncaa_def is None:
+        log.error(f"[!] 알 수 없는 ncAA Code: {args.ncaa_code}")
+        sys.exit(1)
+
+    res_name = ncaa_def.xml_resname
+    work_dir = os.path.join(args.outputdir, f"_work_{res_name}")
+    os.makedirs(work_dir, exist_ok=True)
+
+    xml_out = os.path.join(args.outputdir, f"{res_name}_gaff2.xml")
+    manifest_out = os.path.join(args.outputdir, f"{args.ncaa_code}_params_manifest.json")
+    # [v35 AUDIT] Principle 7: cache-hit must ALSO verify the manifest exists.
+    # 검증 로직은 _is_cache_valid()로 분리되어 main()의 본 흐름을 단순화한다.
+    if _is_cache_valid(xml_out, manifest_out):
+        log.info(f"[캐시 발견] 기존 XML + manifest 재사용: {xml_out}")
+        return
+
+    mol_free = os.path.join(work_dir, f"{res_name}_free.mol")
+    smiles_to_mol(ncaa_def.smiles_free, mol_free, res_name)
+
+    mol2, frcmod = run_antechamber(mol_free, work_dir, res_name, ncaa_def.formal_charge)
+    resp_result = None
+    if HAS_PYSCF:
+        xyz_free = os.path.join(work_dir, f"{res_name}_free.xyz")
+        _mol_to_xyz(mol_free, xyz_free)
+        resp_result = run_pyscf_resp(xyz_free, ncaa_def.formal_charge)
+
+    frcmod_to_openmm_xml(mol2, frcmod, xml_out, res_name, ncaa_def.mutation_type, resp_result)
+
+    # [v36 CRITICAL FIX-2] Hydrogen Definitions XML 생성 — addHydrogens 가
+    # ncAA 잔기에 수소를 추가하기 위해 필요. 본 파일이 부재하면 downstream
+    # run_restrained_md.py 의 addHydrogens 단계가 6-원자 NMA → 14-원자 템플릿
+    # mismatch 로 createSystem 에서 실패한다.
+    hyd_out = os.path.join(args.outputdir, f"{res_name}_hydrogens.xml")
+    _emit_hydrogen_definitions(xml_out, res_name, hyd_out)
+
+    write_manifest(
+        args.outputdir, args, ncaa_def, xml_out,
+        bool(resp_result), mol2, frcmod,
+        hydrogens_path=hyd_out if os.path.exists(hyd_out) else "",
+    )
+
+if __name__ == "__main__":
+    main()

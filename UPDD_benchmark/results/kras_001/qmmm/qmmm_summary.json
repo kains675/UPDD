@@ -1,0 +1,73 @@
+{
+  "method": "wb97x-d3/6-31G*",
+  "n_calc": 5,
+  "n_failed": 0,
+  "failed": [],
+  "results": [
+    {
+      "snapshot": "kras_001_af2_snap01_f0",
+      "pdb_path": "/home/san/UPDD_proj/UPDD_benchmark/results/kras_001/snapshots/kras_001_af2_snap01_f0.pdb",
+      "qm_method": "wb97x-d3/6-31G*",
+      "n_qm_atoms": 585,
+      "n_mm_atoms": 2509,
+      "ncaa_element": "none",
+      "energy_total_hartree": null,
+      "energy_qm_hartree": null,
+      "energy_qmmm_kcal": null,
+      "interaction_kcal": null,
+      "converged": false
+    },
+    {
+      "snapshot": "kras_001_af2_snap02_f25",
+      "pdb_path": "/home/san/UPDD_proj/UPDD_benchmark/results/kras_001/snapshots/kras_001_af2_snap02_f25.pdb",
+      "qm_method": "wb97x-d3/6-31G*",
+      "n_qm_atoms": 583,
+      "n_mm_atoms": 2511,
+      "ncaa_element": "none",
+      "energy_total_hartree": null,
+      "energy_qm_hartree": null,
+      "energy_qmmm_kcal": null,
+      "interaction_kcal": null,
+      "converged": false
+    },
+    {
+      "snapshot": "kras_001_af2_snap03_f213",
+      "pdb_path": "/home/san/UPDD_proj/UPDD_benchmark/results/kras_001/snapshots/kras_001_af2_snap03_f213.pdb",
+      "qm_method": "wb97x-d3/6-31G*",
+      "n_qm_atoms": 590,
+      "n_mm_atoms": 2502,
+      "ncaa_element": "none",
+      "energy_total_hartree": null,
+      "energy_qm_hartree": null,
+      "energy_qmmm_kcal": null,
+      "interaction_kcal": null,
+      "converged": false
+    },
+    {
+      "snapshot": "kras_001_af2_snap04_f281",
+      "pdb_path": "/home/san/UPDD_proj/UPDD_benchmark/results/kras_001/snapshots/kras_001_af2_snap04_f281.pdb",
+      "qm_method": "wb97x-d3/6-31G*",
+      "n_qm_atoms": 612,
+      "n_mm_atoms": 2480,
+      "ncaa_element": "none",
+      "energy_total_hartree": null,
+      "energy_qm_hartree": null,
+      "energy_qmmm_kcal": null,
+      "interaction_kcal": null,
+      "converged": false
+    },
+    {
+      "snapshot": "kras_001_af2_snap05_f425",
+      "pdb_path": "/home/san/UPDD_proj/UPDD_benchmark/results/kras_001/snapshots/kras_001_af2_snap05_f425.pdb",
+      "qm_method": "wb97x-d3/6-31G*",
+      "n_qm_atoms": 590,
+      "n_mm_atoms": 2502,
+      "ncaa_element": "none",
+      "energy_total_hartree": null,
+      "energy_qm_hartree": null,
+      "energy_qmmm_kcal": null,
+      "interaction_kcal": null,
+      "converged": false
+    }
+  ]
+}

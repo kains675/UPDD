@@ -1,0 +1,6 @@
+>design_w2_2, score=3.3811, global_score=1.7643, fixed_chains=['A'], designed_chains=['B'], model_name=v_48_020, git_hash=8907e6671bfbfc92303b5f79c4b5e6ce47cdef57, seed=125
+GGGGGGGGGGGGGGGGGGGGG
+>T=0.1, sample=1, score=1.4044, global_score=1.5173, seq_recovery=0.0000
+KKYPIEYRRKRIDELEEEAAK
+>T=0.1, sample=2, score=1.4540, global_score=1.5202, seq_recovery=0.0000
+KRYPIEERRARVDELEALAAK

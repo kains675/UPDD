@@ -1,0 +1,365 @@
+
+============================================================
+[CMD] conda run -n md_simulation --no-capture-output python /home/san/UPDD_proj/utils/preprocess_target.py --input /home/san/UPDD_proj/UPDD_benchmark/pdbs/2BZW.pdb --output /home/san/UPDD_proj/UPDD_benchmark/preprocessed/2BZW_clean.pdb --chains A --hetatm_mode auto
+============================================================
+
+[+] PDBFixer를 통한 유실된 루프 및 원자 복구 시작...
+[+] PDBFixer 수술 완료: /home/san/UPDD_proj/UPDD_benchmark/preprocessed/2BZW_clean.pdb
+[+] 전처리 리포트 생성 완료: /home/san/UPDD_proj/UPDD_benchmark/preprocessed/2BZW_clean_preprocess_report.csv
+[+] 최종 출력: /home/san/UPDD_proj/UPDD_benchmark/preprocessed/2BZW_clean.pdb
+
+============================================================
+[CMD] /home/san/ai_projects/localcolabfold/.pixi/envs/default/bin/colabfold_batch /home/san/UPDD_proj/UPDD_benchmark/af2_inputs/bclxl_002_input.csv /home/san/UPDD_proj/UPDD_benchmark/af2_results/bclxl_002 --num-recycle 3 --pair-mode unpaired_paired --msa-mode mmseqs2_uniref_env
+============================================================
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+E0000 00:00:1775966619.940106 2169030 cuda_dnn.cc:8579] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+E0000 00:00:1775966619.942673 2169030 cuda_blas.cc:1407] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+W0000 00:00:1775966619.949325 2169030 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+W0000 00:00:1775966619.949340 2169030 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+W0000 00:00:1775966619.949342 2169030 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+W0000 00:00:1775966619.949343 2169030 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+
+WARNING: You are welcome to use the default MSA server, however keep in mind that it's a
+limited shared resource only capable of processing a few thousand MSAs per day. Please
+submit jobs only from a single IP address. We reserve the right to limit access to the
+server case-by-case when usage exceeds fair use. If you require more MSAs: You can 
+precompute all MSAs with `colabfold_search` or host your own API and pass it to `--host-url`
+
+W0000 00:00:1775966621.147675 2169030 gpu_device.cc:2430] TensorFlow was not built with CUDA kernel binaries compatible with compute capability 12.0. CUDA kernels will be jit-compiled from PTX, which could take 30 minutes or longer.
+2026-04-12 13:03:40,951 Running colabfold 1.5.5 (83ee93d262a99ad62d6f0897c5ddd37eb918d385)
+2026-04-12 13:03:41,117 Running on GPU
+2026-04-12 13:03:41,178 Found 5 citations for tools or databases
+2026-04-12 13:03:41,178 Query 1/1: bclxl_002 (length 236)
+  0%|          | 0/300 [elapsed: 00:00 remaining: ?]SUBMIT:   0%|          | 0/300 [elapsed: 00:00 remaining: ?]PENDING:   0%|          | 0/300 [elapsed: 00:00 remaining: ?]                                                             PENDING:   0%|          | 0/300 [elapsed: 00:00 remaining: ?]RUNNING:   0%|          | 0/300 [elapsed: 00:07 remaining: ?]RUNNING:   2%|▏         | 7/300 [elapsed: 00:07 remaining: 04:59]                                                                 RUNNING:   2%|▏         | 7/300 [elapsed: 00:07 remaining: 04:59]RUNNING:   2%|▏         | 7/300 [elapsed: 00:15 remaining: 04:59]RUNNING:   5%|▌         | 15/300 [elapsed: 00:15 remaining: 04:49]                                                                  RUNNING:   5%|▌         | 15/300 [elapsed: 00:15 remaining: 04:49]RUNNING:   5%|▌         | 15/300 [elapsed: 00:20 remaining: 04:49]RUNNING:   7%|▋         | 20/300 [elapsed: 00:20 remaining: 04:44]                                                                  RUNNING:   7%|▋         | 20/300 [elapsed: 00:20 remaining: 04:44]RUNNING:   7%|▋         | 20/300 [elapsed: 00:26 remaining: 04:44]RUNNING:   9%|▊         | 26/300 [elapsed: 00:26 remaining: 04:37]                                                                  RUNNING:   9%|▊         | 26/300 [elapsed: 00:26 remaining: 04:37]COMPLETE:   9%|▊         | 26/300 [elapsed: 00:34 remaining: 04:37]COMPLETE: 100%|██████████| 300/300 [elapsed: 00:34 remaining: 00:00]COMPLETE: 100%|██████████| 300/300 [elapsed: 00:34 remaining: 00:00]
+2026-04-12 13:03:41,282 Sleeping for 7s. Reason: PENDING
+2026-04-12 13:03:48,345 Sleeping for 8s. Reason: RUNNING
+2026-04-12 13:03:56,421 Sleeping for 5s. Reason: RUNNING
+2026-04-12 13:04:01,487 Sleeping for 6s. Reason: RUNNING
+2026-04-12 13:04:07,561 Sleeping for 8s. Reason: RUNNING
+  0%|          | 0/300 [elapsed: 00:00 remaining: ?]SUBMIT:   0%|          | 0/300 [elapsed: 00:00 remaining: ?]PENDING:   0%|          | 0/300 [elapsed: 00:00 remaining: ?]                                                             PENDING:   0%|          | 0/300 [elapsed: 00:00 remaining: ?]RUNNING:   0%|          | 0/300 [elapsed: 00:06 remaining: ?]RUNNING:   2%|▏         | 6/300 [elapsed: 00:06 remaining: 05:00]                                                                 RUNNING:   2%|▏         | 6/300 [elapsed: 00:06 remaining: 05:00]RUNNING:   2%|▏         | 6/300 [elapsed: 00:13 remaining: 05:00]RUNNING:   4%|▍         | 13/300 [elapsed: 00:13 remaining: 04:51]                                                                  RUNNING:   4%|▍         | 13/300 [elapsed: 00:13 remaining: 04:51]COMPLETE:   4%|▍         | 13/300 [elapsed: 00:21 remaining: 04:51]COMPLETE: 100%|██████████| 300/300 [elapsed: 00:21 remaining: 00:00]COMPLETE: 100%|██████████| 300/300 [elapsed: 00:21 remaining: 00:00]
+2026-04-12 13:04:15,811 Sleeping for 6s. Reason: PENDING
+2026-04-12 13:04:21,887 Sleeping for 7s. Reason: RUNNING
+2026-04-12 13:04:28,963 Sleeping for 8s. Reason: RUNNING
+2026-04-12 13:04:37,362 Setting max_seq=508, max_extra_seq=1901
+2026-04-12 13:05:21,159 alphafold2_multimer_v3_model_1_seed_000 recycle=0 pLDDT=78.4 pTM=0.747 ipTM=0.929
+2026-04-12 13:05:40,636 alphafold2_multimer_v3_model_1_seed_000 recycle=1 pLDDT=79.4 pTM=0.759 ipTM=0.926 tol=1.21
+2026-04-12 13:05:42,058 alphafold2_multimer_v3_model_1_seed_000 recycle=2 pLDDT=79.6 pTM=0.76 ipTM=0.922 tol=0.577
+2026-04-12 13:05:43,482 alphafold2_multimer_v3_model_1_seed_000 recycle=3 pLDDT=80 pTM=0.764 ipTM=0.92 tol=0.436
+2026-04-12 13:05:43,482 alphafold2_multimer_v3_model_1_seed_000 took 64.4s (3 recycles)
+2026-04-12 13:05:44,881 alphafold2_multimer_v3_model_2_seed_000 recycle=0 pLDDT=78.6 pTM=0.755 ipTM=0.899
+2026-04-12 13:05:46,308 alphafold2_multimer_v3_model_2_seed_000 recycle=1 pLDDT=80.1 pTM=0.767 ipTM=0.918 tol=1.61
+2026-04-12 13:05:47,733 alphafold2_multimer_v3_model_2_seed_000 recycle=2 pLDDT=79.6 pTM=0.763 ipTM=0.912 tol=1.08
+2026-04-12 13:05:49,159 alphafold2_multimer_v3_model_2_seed_000 recycle=3 pLDDT=80.1 pTM=0.767 ipTM=0.915 tol=0.744
+2026-04-12 13:05:49,159 alphafold2_multimer_v3_model_2_seed_000 took 5.7s (3 recycles)
+2026-04-12 13:05:50,594 alphafold2_multimer_v3_model_3_seed_000 recycle=0 pLDDT=78.6 pTM=0.753 ipTM=0.915
+2026-04-12 13:05:51,977 alphafold2_multimer_v3_model_3_seed_000 recycle=1 pLDDT=80.6 pTM=0.767 ipTM=0.928 tol=1.61
+2026-04-12 13:05:53,399 alphafold2_multimer_v3_model_3_seed_000 recycle=2 pLDDT=80.1 pTM=0.762 ipTM=0.924 tol=0.608
+2026-04-12 13:05:54,821 alphafold2_multimer_v3_model_3_seed_000 recycle=3 pLDDT=80.2 pTM=0.764 ipTM=0.928 tol=0.519
+2026-04-12 13:05:54,821 alphafold2_multimer_v3_model_3_seed_000 took 5.6s (3 recycles)
+2026-04-12 13:05:56,255 alphafold2_multimer_v3_model_4_seed_000 recycle=0 pLDDT=78.4 pTM=0.755 ipTM=0.914
+2026-04-12 13:05:57,679 alphafold2_multimer_v3_model_4_seed_000 recycle=1 pLDDT=80.4 pTM=0.766 ipTM=0.911 tol=1.55
+2026-04-12 13:05:59,063 alphafold2_multimer_v3_model_4_seed_000 recycle=2 pLDDT=80.4 pTM=0.767 ipTM=0.912 tol=0.66
+2026-04-12 13:06:00,471 alphafold2_multimer_v3_model_4_seed_000 recycle=3 pLDDT=80.9 pTM=0.769 ipTM=0.912 tol=0.418
+2026-04-12 13:06:00,472 alphafold2_multimer_v3_model_4_seed_000 took 5.6s (3 recycles)
+2026-04-12 13:06:01,905 alphafold2_multimer_v3_model_5_seed_000 recycle=0 pLDDT=78.1 pTM=0.76 ipTM=0.913
+2026-04-12 13:06:03,330 alphafold2_multimer_v3_model_5_seed_000 recycle=1 pLDDT=80.2 pTM=0.771 ipTM=0.921 tol=1.06
+2026-04-12 13:06:04,752 alphafold2_multimer_v3_model_5_seed_000 recycle=2 pLDDT=79.9 pTM=0.768 ipTM=0.92 tol=0.724
+2026-04-12 13:06:06,139 alphafold2_multimer_v3_model_5_seed_000 recycle=3 pLDDT=80 pTM=0.769 ipTM=0.923 tol=0.457
+2026-04-12 13:06:06,140 alphafold2_multimer_v3_model_5_seed_000 took 5.6s (3 recycles)
+2026-04-12 13:06:06,158 reranking models by 'multimer' metric
+2026-04-12 13:06:06,158 rank_001_alphafold2_multimer_v3_model_3_seed_000 pLDDT=80.2 pTM=0.764 ipTM=0.928
+2026-04-12 13:06:06,158 rank_002_alphafold2_multimer_v3_model_5_seed_000 pLDDT=80 pTM=0.769 ipTM=0.923
+2026-04-12 13:06:06,158 rank_003_alphafold2_multimer_v3_model_1_seed_000 pLDDT=80 pTM=0.764 ipTM=0.92
+2026-04-12 13:06:06,158 rank_004_alphafold2_multimer_v3_model_2_seed_000 pLDDT=80.1 pTM=0.767 ipTM=0.915
+2026-04-12 13:06:06,158 rank_005_alphafold2_multimer_v3_model_4_seed_000 pLDDT=80.9 pTM=0.769 ipTM=0.912
+2026-04-12 13:06:06,488 Done
+
+============================================================
+[CMD] conda run -n md_simulation --no-capture-output python /home/san/UPDD_proj/utils/run_restrained_md.py --inputdir /home/san/UPDD_proj/UPDD_benchmark/results/bclxl_002/md_input --outputdir /home/san/UPDD_proj/UPDD_benchmark/results/bclxl_002/md --steps 50000 --topology linear --ncaa_label none --binder_chain B --seed 42 --platform CUDA
+============================================================
+
+[Restrained MD v28 - The Absolute Integrity]
+  대상 PDB  : 1개
+  스텝 수   : 50000 (100.0 ps)
+  토폴로지  : linear
+  ncAA 라벨 : none (Code: (미지정: XML 이름 검증 생략))
+  바인더    : 체인 B
+  난수 시드 : 42
+  분산 보정 : auto
+  그래프정책: strict
+  플랫폼    : CUDA
+
+  처리 중: bclxl_002_af2
+  [WT Mode] ncAA 라벨이 'none'입니다. 야생형(Wild-type) 단백질 일반 MD를 수행합니다.
+  [MD] PDBFixer로 AF2 구조 정리 중...
+  [MD] OpenMM addHydrogens 실행 (선형 구조 토폴로지 동기화)...
+  [INFO] 수소 추가 완료 (선형 캡핑 및 내부 결합 매핑 성공)
+  원자 수 (용매화 후): 180225
+  [Physics] NonbondedForce Dispersion Correction: 활성화됨 (ON)
+  [Platform] CUDA 선택 (속도 지수 100x)
+  [Stage 1] Staged Minimization...
+    k=N/A: PE = -3413675.39 kJ/mol
+  [Stage 2] NVT 워밍업 (10K → 300K, 60ps, dt=2fs)...
+  [Stage 3] NPT 전환...
+  NPT 전환 완료.
+  MD 실행 중 (50000 steps = 100.0 ps)...
+#"Progress (%)","Step","Potential Energy (kJ/mole)","Temperature (K)"
+70.0%,35000,-2931898.0060764384,300.87361215366246
+80.0%,40000,-2933704.8332916144,299.9786707480796
+90.0%,45000,-2933516.7220328636,299.7234360824122
+100.0%,50000,-2933712.7687477972,300.9511602510423
+110.0%,55000,-2932083.219431756,300.4122774858893
+120.0%,60000,-2934531.418830313,301.2727417713069
+130.0%,65000,-2935134.069610622,299.97070630929204
+140.0%,70000,-2932265.5975502487,301.66546505194117
+150.0%,75000,-2933058.2878871877,301.4542184401006
+160.0%,80000,-2932124.2466130927,300.5532553101873
+  최종 구조 저장 완료: bclxl_002_af2_final.pdb
+
+========================================
+  [MD 배치 완료 통계]
+  - 총 입력 파일 : 1 개
+  - 성공 (ncAA MD) : 0 개
+  - 성공 (야생형 MD) : 1 개
+  - 스킵 (완료됨 등): 0 개
+  - 실패 (폭발 등) : 0 개
+========================================
+
+============================================================
+[CMD] conda run -n md_simulation --no-capture-output python /home/san/UPDD_proj/utils/extract_snapshots.py --md_dir /home/san/UPDD_proj/UPDD_benchmark/results/bclxl_002/md --outputdir /home/san/UPDD_proj/UPDD_benchmark/results/bclxl_002/snapshots --n_snapshots 5 --binder_chain B
+============================================================
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/mdtraj/formats/pdb/pdbstructure.py:273: UserWarning: Need to guess residue number string    0 starting from residue34996, atom 162720.
+  warnings.warn(
+
+[Snapshot Extraction]
+  DCD 파일  : 1개
+  스냅샷 수 : 5개/궤적
+
+  처리: bclxl_002_af2
+  궤적 로드: bclxl_002_af2_restrained.dcd
+  프레임 수: 500
+  원자 수  : 180225
+  용매 제거 후 원자 수: 3672
+  바인더 체인 해석: 'B' → chainid 1 (CA 원자 25개)
+  클러스터링 기준 CA 원자: 25개
+  K-Means 클러스터링 (k=5)...
+  선택 프레임: [25, 139, 230, 359, 443]
+  RMSD drift 평균 : 1.336 Å
+  스냅샷 다양성   : 1.252 Å
+  스냅샷  1: 프레임    25 → bclxl_002_af2_snap01_f25.pdb
+  스냅샷  2: 프레임   139 → bclxl_002_af2_snap02_f139.pdb
+  스냅샷  3: 프레임   230 → bclxl_002_af2_snap03_f230.pdb
+  스냅샷  4: 프레임   359 → bclxl_002_af2_snap04_f359.pdb
+  스냅샷  5: 프레임   443 → bclxl_002_af2_snap05_f443.pdb
+
+  총 5개 스냅샷 저장 완료
+  출력 디렉토리: /home/san/UPDD_proj/UPDD_benchmark/results/bclxl_002/snapshots
+  목록 파일    : /home/san/UPDD_proj/UPDD_benchmark/results/bclxl_002/snapshots/snapshots_manifest.txt
+dcdplugin) detected standard 32-bit DCD file of native endianness
+dcdplugin) CHARMM format DCD file (also NAMD 2.1 and later)
+
+============================================================
+[CMD] conda run -n qmmm --no-capture-output python /home/san/UPDD_proj/utils/run_qmmm.py --snapdir /home/san/UPDD_proj/UPDD_benchmark/results/bclxl_002/snapshots --outputdir /home/san/UPDD_proj/UPDD_benchmark/results/bclxl_002/qmmm --mode fast --cutoff 5.0 --qm_basis 6-31G* --qm_xc wb97x-d3 --ncaa_elem none --binder_chain B
+============================================================
+[amber_charges] WARN: ff14SB 부분전하 합산이 기대값에서 벗어났습니다 (편차 > 0.05 e):
+  - HID: 합=+0.0632, 기대=+0, 편차=0.0632
+  - HIP: 합=+1.1377, 기대=+1, 편차=0.1377
+  - PHE: 합=-0.0954, 기대=+0, 편차=0.0954
+  → 이는 일부 양성자화 H 원자 누락에 기인한 것으로 추정됩니다.
+  → 파이프라인 동작은 정상이며, 데이터 정밀도 개선을 권고합니다.
+
+[QM/MM Calculation]
+  스냅샷 수 : 5개
+  수준      : wb97x-d3/6-31G*
+  QM cutoff : 5.0 Å
+  ncAA 원소 : none
+
+  계산: bclxl_002_af2_snap01_f25
+  [Mode: FAST] 4.0 Å 이내 인터페이스 핵심 잔기만 QM 영역으로 추출합니다.
+  [FAST] 추출된 핵심 QM 원자 수: 853개
+  [Link Atom] QM/MM 경계 절단 결합 45개 → H-cap 삽입 (Senn & Thiel 2009)
+    [!] 홀수 전자 감지 (Protons: 3335) -> Charge를 -1로 자동 조정하여 Spin=0 붕괴 방어
+  QM 기저함수: 6-31G* | 범함수: wb97x-d3
+  QM 원자 수 (중원자): 898
+  [+] MM 점전하: 2819개 포함 (GPU 상태)
+  🚀 [GPU 가속 - DFT계산]
+
+
+******** <class 'gpu4pyscf.qmmm.itrf.QMMMRKS'> ********
+method = QMMMRKS
+initial guess = minao
+damping factor = None
+level_shift factor = None
+DIIS = <class 'gpu4pyscf.scf.diis.CDIIS'>
+diis_start_cycle = 1
+diis_space = 8
+diis_damp = 0
+SCF conv_tol = 1e-08
+SCF conv_tol_grad = None
+SCF max_cycles = 300
+direct_scf = True
+direct_scf_tol = 1e-13
+chkfile to save SCF result = /tmp/tmp0z4e9oqa
+XC library gpu4pyscf.dft.libxc version 7.0.0 (CUDA)
+    unable to decode the reference due to https://github.com/NVIDIA/cuda-python/issues/29
+XC functionals = wb97x-d3
+  [!] DFT 수렴 실패: wb97x-d3 is not supported yet.
+  결과 저장: /home/san/UPDD_proj/UPDD_benchmark/results/bclxl_002/qmmm/bclxl_002_af2_snap01_f25_qmmm_fast.json
+
+  계산: bclxl_002_af2_snap02_f139
+  [Mode: FAST] 4.0 Å 이내 인터페이스 핵심 잔기만 QM 영역으로 추출합니다.
+  [FAST] 추출된 핵심 QM 원자 수: 936개
+  [Link Atom] QM/MM 경계 절단 결합 39개 → H-cap 삽입 (Senn & Thiel 2009)
+  QM 기저함수: 6-31G* | 범함수: wb97x-d3
+  QM 원자 수 (중원자): 975
+  [+] MM 점전하: 2736개 포함 (GPU 상태)
+  🚀 [GPU 가속 - DFT계산]
+
+
+******** <class 'gpu4pyscf.qmmm.itrf.QMMMRKS'> ********
+method = QMMMRKS
+initial guess = minao
+damping factor = None
+level_shift factor = None
+DIIS = <class 'gpu4pyscf.scf.diis.CDIIS'>
+diis_start_cycle = 1
+diis_space = 8
+diis_damp = 0
+SCF conv_tol = 1e-08
+SCF conv_tol_grad = None
+SCF max_cycles = 300
+direct_scf = True
+direct_scf_tol = 1e-13
+chkfile to save SCF result = /tmp/tmp_ke82zpy
+XC library gpu4pyscf.dft.libxc version 7.0.0 (CUDA)
+    unable to decode the reference due to https://github.com/NVIDIA/cuda-python/issues/29
+XC functionals = wb97x-d3
+  [!] DFT 수렴 실패: wb97x-d3 is not supported yet.
+  결과 저장: /home/san/UPDD_proj/UPDD_benchmark/results/bclxl_002/qmmm/bclxl_002_af2_snap02_f139_qmmm_fast.json
+
+  계산: bclxl_002_af2_snap03_f230
+  [Mode: FAST] 4.0 Å 이내 인터페이스 핵심 잔기만 QM 영역으로 추출합니다.
+  [FAST] 추출된 핵심 QM 원자 수: 874개
+  [Link Atom] QM/MM 경계 절단 결합 39개 → H-cap 삽입 (Senn & Thiel 2009)
+  QM 기저함수: 6-31G* | 범함수: wb97x-d3
+  QM 원자 수 (중원자): 913
+  [+] MM 점전하: 2798개 포함 (GPU 상태)
+  🚀 [GPU 가속 - DFT계산]
+
+
+******** <class 'gpu4pyscf.qmmm.itrf.QMMMRKS'> ********
+method = QMMMRKS
+initial guess = minao
+damping factor = None
+level_shift factor = None
+DIIS = <class 'gpu4pyscf.scf.diis.CDIIS'>
+diis_start_cycle = 1
+diis_space = 8
+diis_damp = 0
+SCF conv_tol = 1e-08
+SCF conv_tol_grad = None
+SCF max_cycles = 300
+direct_scf = True
+direct_scf_tol = 1e-13
+chkfile to save SCF result = /tmp/tmp0jgommkf
+XC library gpu4pyscf.dft.libxc version 7.0.0 (CUDA)
+    unable to decode the reference due to https://github.com/NVIDIA/cuda-python/issues/29
+XC functionals = wb97x-d3
+  [!] DFT 수렴 실패: wb97x-d3 is not supported yet.
+  결과 저장: /home/san/UPDD_proj/UPDD_benchmark/results/bclxl_002/qmmm/bclxl_002_af2_snap03_f230_qmmm_fast.json
+
+  계산: bclxl_002_af2_snap04_f359
+  [Mode: FAST] 4.0 Å 이내 인터페이스 핵심 잔기만 QM 영역으로 추출합니다.
+  [FAST] 추출된 핵심 QM 원자 수: 914개
+  [Link Atom] QM/MM 경계 절단 결합 42개 → H-cap 삽입 (Senn & Thiel 2009)
+    [!] 홀수 전자 감지 (Protons: 3537) -> Charge를 -1로 자동 조정하여 Spin=0 붕괴 방어
+  QM 기저함수: 6-31G* | 범함수: wb97x-d3
+  QM 원자 수 (중원자): 956
+  [+] MM 점전하: 2758개 포함 (GPU 상태)
+  🚀 [GPU 가속 - DFT계산]
+
+
+******** <class 'gpu4pyscf.qmmm.itrf.QMMMRKS'> ********
+method = QMMMRKS
+initial guess = minao
+damping factor = None
+level_shift factor = None
+DIIS = <class 'gpu4pyscf.scf.diis.CDIIS'>
+diis_start_cycle = 1
+diis_space = 8
+diis_damp = 0
+SCF conv_tol = 1e-08
+SCF conv_tol_grad = None
+SCF max_cycles = 300
+direct_scf = True
+direct_scf_tol = 1e-13
+chkfile to save SCF result = /tmp/tmprk4jwgwl
+XC library gpu4pyscf.dft.libxc version 7.0.0 (CUDA)
+    unable to decode the reference due to https://github.com/NVIDIA/cuda-python/issues/29
+XC functionals = wb97x-d3
+  [!] DFT 수렴 실패: wb97x-d3 is not supported yet.
+  결과 저장: /home/san/UPDD_proj/UPDD_benchmark/results/bclxl_002/qmmm/bclxl_002_af2_snap04_f359_qmmm_fast.json
+
+  계산: bclxl_002_af2_snap05_f443
+  [Mode: FAST] 4.0 Å 이내 인터페이스 핵심 잔기만 QM 영역으로 추출합니다.
+  [FAST] 추출된 핵심 QM 원자 수: 869개
+  [Link Atom] QM/MM 경계 절단 결합 42개 → H-cap 삽입 (Senn & Thiel 2009)
+  QM 기저함수: 6-31G* | 범함수: wb97x-d3
+  QM 원자 수 (중원자): 911
+  [+] MM 점전하: 2803개 포함 (GPU 상태)
+  🚀 [GPU 가속 - DFT계산]
+
+
+******** <class 'gpu4pyscf.qmmm.itrf.QMMMRKS'> ********
+method = QMMMRKS
+initial guess = minao
+damping factor = None
+level_shift factor = None
+DIIS = <class 'gpu4pyscf.scf.diis.CDIIS'>
+diis_start_cycle = 1
+diis_space = 8
+diis_damp = 0
+SCF conv_tol = 1e-08
+SCF conv_tol_grad = None
+SCF max_cycles = 300
+direct_scf = True
+direct_scf_tol = 1e-13
+chkfile to save SCF result = /tmp/tmpgp8x2lgo
+XC library gpu4pyscf.dft.libxc version 7.0.0 (CUDA)
+    unable to decode the reference due to https://github.com/NVIDIA/cuda-python/issues/29
+XC functionals = wb97x-d3
+  [!] DFT 수렴 실패: wb97x-d3 is not supported yet.
+  결과 저장: /home/san/UPDD_proj/UPDD_benchmark/results/bclxl_002/qmmm/bclxl_002_af2_snap05_f443_qmmm_fast.json
+
+  완료: 0/5 수렴
+
+  요약 저장: /home/san/UPDD_proj/UPDD_benchmark/results/bclxl_002/qmmm/qmmm_summary.json
+
+============================================================
+[CMD] conda run -n md_simulation --no-capture-output python /home/san/UPDD_proj/utils/run_mmgbsa.py --md_dir /home/san/UPDD_proj/UPDD_benchmark/results/bclxl_002/md --outputdir /home/san/UPDD_proj/UPDD_benchmark/results/bclxl_002/mmgbsa --ncaa_elem none --receptor_chain A --binder_chain B
+============================================================
+
+[MM-GBSA ΔG Calculation]
+  대상 PDB  : 1개
+  GB 모델   : GBn2
+  ncAA 원소 : none
+  Si 반경   : 2.1 Å
+
+  계산: bclxl_002_af2_final
+  [split_complex] implicit GB 호환: water/ion/metal 176553개 원자 제거
+  Complex  에너지 계산 중...
+  Receptor 에너지 계산 중...
+  Ligand   에너지 계산 중...
+  E_complex  :   -9812.1126 kcal/mol
+  E_receptor :   -8179.9589 kcal/mol
+  E_ligand   :   -1529.6157 kcal/mol
+  ΔG_bind    :    -102.5380 kcal/mol  ✅ 결합 유리
+
+  [ΔG_bind 순위 (낮을수록 강한 결합)]
+  순위   스냅샷                                         ΔG (kcal/mol)
+  --------------------------------------------------------------
+  1    bclxl_002_af2_final                           -102.5380  ✅
+
+  평균 ΔG : -102.5380 kcal/mol
+  최선 ΔG : -102.5380 kcal/mol
+  요약 저장: /home/san/UPDD_proj/UPDD_benchmark/results/bclxl_002/mmgbsa/mmgbsa_summary.json

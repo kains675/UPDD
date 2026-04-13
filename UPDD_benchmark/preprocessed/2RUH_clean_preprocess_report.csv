@@ -1,0 +1,3 @@
+section,chain,resid,icode,resname,value
+pdbfixer,,,,,fallback_no_repair
+pdbfixer_error,,,,,"Command '['pdbfixer', '/home/san/UPDD_proj/UPDD_benchmark/preprocessed/2RUH_clean.pdb.tmp', '--output=/home/san/UPDD_proj/UPDD_benchmark/preprocessed/2RUH_clean.pdb', '--add-atoms=all', '--add-residues', '--keep-heterogens=all']' returned non-zero exit status 1."

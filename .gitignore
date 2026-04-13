@@ -1,0 +1,10 @@
+*.dcd
+*.xtc
+*.chk
+*_trimmed.dcd
+__pycache__/
+*.pyc
+tmp/
+outputs/*/mdresult/*.dcd
+.pixi/
+*.egg-info/

@@ -1,0 +1,480 @@
+
+============================================================
+[CMD] conda run -n md_simulation --no-capture-output python /home/san/UPDD_proj/utils/preprocess_target.py --input /home/san/UPDD_proj/UPDD_benchmark/pdbs/1CKK.pdb --output /home/san/UPDD_proj/UPDD_benchmark/preprocessed/1CKK_clean.pdb --chains A --hetatm_mode auto --keep_hetatms CA
+============================================================
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2716 CA    CA A 151       6.650  12.599 -14.148  1.00  0.00          CA  , HETATM 2716 CA    CA A 151       6.890  12.662 -14.146  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2716 CA    CA A 151       7.378  12.559 -14.052  1.00  0.00          CA  , HETATM 2716 CA    CA A 151       6.650  12.599 -14.148  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2716 CA    CA A 151       7.265  12.742 -13.420  1.00  0.00          CA  , HETATM 2716 CA    CA A 151       7.378  12.559 -14.052  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2716 CA    CA A 151       7.315  13.004 -13.829  1.00  0.00          CA  , HETATM 2716 CA    CA A 151       7.265  12.742 -13.420  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2716 CA    CA A 151       7.283  12.281 -14.119  1.00  0.00          CA  , HETATM 2716 CA    CA A 151       7.315  13.004 -13.829  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2716 CA    CA A 151       7.026  12.812 -14.320  1.00  0.00          CA  , HETATM 2716 CA    CA A 151       7.283  12.281 -14.119  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2716 CA    CA A 151       7.146  12.557 -14.114  1.00  0.00          CA  , HETATM 2716 CA    CA A 151       7.026  12.812 -14.320  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2716 CA    CA A 151       6.894  12.380 -13.581  1.00  0.00          CA  , HETATM 2716 CA    CA A 151       7.146  12.557 -14.114  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2716 CA    CA A 151       6.948  12.850 -14.057  1.00  0.00          CA  , HETATM 2716 CA    CA A 151       6.894  12.380 -13.581  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2716 CA    CA A 151       7.306  12.983 -13.853  1.00  0.00          CA  , HETATM 2716 CA    CA A 151       6.948  12.850 -14.057  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2716 CA    CA A 151       7.078  12.350 -14.432  1.00  0.00          CA  , HETATM 2716 CA    CA A 151       7.306  12.983 -13.853  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2716 CA    CA A 151       6.626  11.777 -13.839  1.00  0.00          CA  , HETATM 2716 CA    CA A 151       7.078  12.350 -14.432  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2716 CA    CA A 151       6.987  12.709 -13.536  1.00  0.00          CA  , HETATM 2716 CA    CA A 151       6.626  11.777 -13.839  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2716 CA    CA A 151       6.517  11.793 -14.021  1.00  0.00          CA  , HETATM 2716 CA    CA A 151       6.987  12.709 -13.536  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2716 CA    CA A 151       6.648  12.453 -14.138  1.00  0.00          CA  , HETATM 2716 CA    CA A 151       6.517  11.793 -14.021  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2716 CA    CA A 151       7.037  12.764 -14.249  1.00  0.00          CA  , HETATM 2716 CA    CA A 151       6.648  12.453 -14.138  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2716 CA    CA A 151       7.398  12.608 -13.907  1.00  0.00          CA  , HETATM 2716 CA    CA A 151       7.037  12.764 -14.249  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2716 CA    CA A 151       7.357  12.627 -13.761  1.00  0.00          CA  , HETATM 2716 CA    CA A 151       7.398  12.608 -13.907  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2716 CA    CA A 151       6.731  12.124 -14.074  1.00  0.00          CA  , HETATM 2716 CA    CA A 151       7.357  12.627 -13.761  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2716 CA    CA A 151       6.484  11.996 -13.731  1.00  0.00          CA  , HETATM 2716 CA    CA A 151       6.731  12.124 -14.074  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2716 CA    CA A 151       6.508  12.531 -13.823  1.00  0.00          CA  , HETATM 2716 CA    CA A 151       6.484  11.996 -13.731  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2716 CA    CA A 151       6.831  12.501 -13.715  1.00  0.00          CA  , HETATM 2716 CA    CA A 151       6.508  12.531 -13.823  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2716 CA    CA A 151       6.902  13.083 -13.919  1.00  0.00          CA  , HETATM 2716 CA    CA A 151       6.831  12.501 -13.715  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2716 CA    CA A 151       6.616  11.768 -14.113  1.00  0.00          CA  , HETATM 2716 CA    CA A 151       6.902  13.083 -13.919  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2716 CA    CA A 151       6.999  12.795 -13.021  1.00  0.00          CA  , HETATM 2716 CA    CA A 151       6.616  11.768 -14.113  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2716 CA    CA A 151       7.910  12.775 -13.417  1.00  0.00          CA  , HETATM 2716 CA    CA A 151       6.999  12.795 -13.021  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2716 CA    CA A 151       6.747  13.127 -14.169  1.00  0.00          CA  , HETATM 2716 CA    CA A 151       7.910  12.775 -13.417  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2716 CA    CA A 151       6.954  12.329 -13.375  1.00  0.00          CA  , HETATM 2716 CA    CA A 151       6.747  13.127 -14.169  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2716 CA    CA A 151       7.773  13.365 -13.388  1.00  0.00          CA  , HETATM 2716 CA    CA A 151       6.954  12.329 -13.375  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2717 CA    CA A 152       0.549  11.473 -23.689  1.00  0.00          CA  , HETATM 2717 CA    CA A 152       1.271  10.356 -23.800  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2717 CA    CA A 152       1.103  11.173 -24.319  1.00  0.00          CA  , HETATM 2717 CA    CA A 152       0.549  11.473 -23.689  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2717 CA    CA A 152       2.075   9.552 -23.476  1.00  0.00          CA  , HETATM 2717 CA    CA A 152       1.103  11.173 -24.319  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2717 CA    CA A 152       0.505  11.031 -23.884  1.00  0.00          CA  , HETATM 2717 CA    CA A 152       2.075   9.552 -23.476  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2717 CA    CA A 152       0.796  11.354 -23.502  1.00  0.00          CA  , HETATM 2717 CA    CA A 152       0.505  11.031 -23.884  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2717 CA    CA A 152       0.947  10.017 -23.513  1.00  0.00          CA  , HETATM 2717 CA    CA A 152       0.796  11.354 -23.502  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2717 CA    CA A 152       0.509  11.592 -24.050  1.00  0.00          CA  , HETATM 2717 CA    CA A 152       0.947  10.017 -23.513  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2717 CA    CA A 152       0.081  11.496 -23.443  1.00  0.00          CA  , HETATM 2717 CA    CA A 152       0.509  11.592 -24.050  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2717 CA    CA A 152       0.015  11.508 -24.029  1.00  0.00          CA  , HETATM 2717 CA    CA A 152       0.081  11.496 -23.443  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2717 CA    CA A 152       1.818  10.635 -23.930  1.00  0.00          CA  , HETATM 2717 CA    CA A 152       0.015  11.508 -24.029  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2717 CA    CA A 152       0.629  10.655 -23.891  1.00  0.00          CA  , HETATM 2717 CA    CA A 152       1.818  10.635 -23.930  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2717 CA    CA A 152       0.831  10.306 -23.915  1.00  0.00          CA  , HETATM 2717 CA    CA A 152       0.629  10.655 -23.891  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2717 CA    CA A 152       0.296  11.215 -23.099  1.00  0.00          CA  , HETATM 2717 CA    CA A 152       0.831  10.306 -23.915  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2717 CA    CA A 152       1.123  10.986 -24.378  1.00  0.00          CA  , HETATM 2717 CA    CA A 152       0.296  11.215 -23.099  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2717 CA    CA A 152      -0.034  11.425 -24.409  1.00  0.00          CA  , HETATM 2717 CA    CA A 152       1.123  10.986 -24.378  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2717 CA    CA A 152       0.271  10.810 -23.654  1.00  0.00          CA  , HETATM 2717 CA    CA A 152      -0.034  11.425 -24.409  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2717 CA    CA A 152       0.676  11.611 -24.116  1.00  0.00          CA  , HETATM 2717 CA    CA A 152       0.271  10.810 -23.654  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2717 CA    CA A 152       1.365  10.652 -23.929  1.00  0.00          CA  , HETATM 2717 CA    CA A 152       0.676  11.611 -24.116  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2717 CA    CA A 152       0.278  10.075 -23.396  1.00  0.00          CA  , HETATM 2717 CA    CA A 152       1.365  10.652 -23.929  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2717 CA    CA A 152      -0.025  10.529 -23.765  1.00  0.00          CA  , HETATM 2717 CA    CA A 152       0.278  10.075 -23.396  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2717 CA    CA A 152       0.296  11.723 -24.043  1.00  0.00          CA  , HETATM 2717 CA    CA A 152      -0.025  10.529 -23.765  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2717 CA    CA A 152       0.167  11.206 -24.044  1.00  0.00          CA  , HETATM 2717 CA    CA A 152       0.296  11.723 -24.043  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2717 CA    CA A 152       0.652  10.747 -23.527  1.00  0.00          CA  , HETATM 2717 CA    CA A 152       0.167  11.206 -24.044  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2717 CA    CA A 152      -0.598  11.162 -23.995  1.00  0.00          CA  , HETATM 2717 CA    CA A 152       0.652  10.747 -23.527  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2717 CA    CA A 152       0.561  10.762 -23.155  1.00  0.00          CA  , HETATM 2717 CA    CA A 152      -0.598  11.162 -23.995  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2717 CA    CA A 152       0.316  10.836 -23.125  1.00  0.00          CA  , HETATM 2717 CA    CA A 152       0.561  10.762 -23.155  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2717 CA    CA A 152       1.803  10.460 -24.262  1.00  0.00          CA  , HETATM 2717 CA    CA A 152       0.316  10.836 -23.125  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2717 CA    CA A 152       0.714  10.383 -23.122  1.00  0.00          CA  , HETATM 2717 CA    CA A 152       1.803  10.460 -24.262  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2717 CA    CA A 152       1.335  10.808 -22.908  1.00  0.00          CA  , HETATM 2717 CA    CA A 152       0.714  10.383 -23.122  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2718 CA    CA A 153       2.545  44.167 -12.859  1.00  0.00          CA  , HETATM 2718 CA    CA A 153       1.990  44.753 -13.307  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2718 CA    CA A 153       2.233  45.336 -12.896  1.00  0.00          CA  , HETATM 2718 CA    CA A 153       2.545  44.167 -12.859  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2718 CA    CA A 153       2.068  44.750 -12.974  1.00  0.00          CA  , HETATM 2718 CA    CA A 153       2.233  45.336 -12.896  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2718 CA    CA A 153       1.399  43.699 -13.853  1.00  0.00          CA  , HETATM 2718 CA    CA A 153       2.068  44.750 -12.974  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2718 CA    CA A 153       1.267  43.905 -14.105  1.00  0.00          CA  , HETATM 2718 CA    CA A 153       1.399  43.699 -13.853  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2718 CA    CA A 153       1.887  44.806 -13.452  1.00  0.00          CA  , HETATM 2718 CA    CA A 153       1.267  43.905 -14.105  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2718 CA    CA A 153       1.947  44.300 -12.697  1.00  0.00          CA  , HETATM 2718 CA    CA A 153       1.887  44.806 -13.452  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2718 CA    CA A 153       1.782  44.743 -13.058  1.00  0.00          CA  , HETATM 2718 CA    CA A 153       1.947  44.300 -12.697  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2718 CA    CA A 153       2.165  44.269 -12.895  1.00  0.00          CA  , HETATM 2718 CA    CA A 153       1.782  44.743 -13.058  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2718 CA    CA A 153       1.824  44.632 -13.293  1.00  0.00          CA  , HETATM 2718 CA    CA A 153       2.165  44.269 -12.895  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2718 CA    CA A 153       1.437  44.818 -13.035  1.00  0.00          CA  , HETATM 2718 CA    CA A 153       1.824  44.632 -13.293  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2718 CA    CA A 153       1.514  44.349 -13.631  1.00  0.00          CA  , HETATM 2718 CA    CA A 153       1.437  44.818 -13.035  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2718 CA    CA A 153       1.171  43.910 -13.543  1.00  0.00          CA  , HETATM 2718 CA    CA A 153       1.514  44.349 -13.631  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2718 CA    CA A 153       1.680  44.172 -13.921  1.00  0.00          CA  , HETATM 2718 CA    CA A 153       1.171  43.910 -13.543  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2718 CA    CA A 153       1.637  44.415 -13.218  1.00  0.00          CA  , HETATM 2718 CA    CA A 153       1.680  44.172 -13.921  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2718 CA    CA A 153       2.003  44.368 -13.107  1.00  0.00          CA  , HETATM 2718 CA    CA A 153       1.637  44.415 -13.218  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2718 CA    CA A 153       1.478  44.442 -13.622  1.00  0.00          CA  , HETATM 2718 CA    CA A 153       2.003  44.368 -13.107  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2718 CA    CA A 153       2.099  43.522 -14.631  1.00  0.00          CA  , HETATM 2718 CA    CA A 153       1.478  44.442 -13.622  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2718 CA    CA A 153       1.495  43.519 -13.109  1.00  0.00          CA  , HETATM 2718 CA    CA A 153       2.099  43.522 -14.631  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2718 CA    CA A 153       3.211  43.778 -13.125  1.00  0.00          CA  , HETATM 2718 CA    CA A 153       1.495  43.519 -13.109  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2718 CA    CA A 153       1.626  44.727 -13.296  1.00  0.00          CA  , HETATM 2718 CA    CA A 153       3.211  43.778 -13.125  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2718 CA    CA A 153       1.710  43.292 -14.284  1.00  0.00          CA  , HETATM 2718 CA    CA A 153       1.626  44.727 -13.296  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2718 CA    CA A 153       2.008  44.634 -12.954  1.00  0.00          CA  , HETATM 2718 CA    CA A 153       1.710  43.292 -14.284  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2718 CA    CA A 153       2.044  43.886 -14.276  1.00  0.00          CA  , HETATM 2718 CA    CA A 153       2.008  44.634 -12.954  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2718 CA    CA A 153       2.467  44.488 -12.510  1.00  0.00          CA  , HETATM 2718 CA    CA A 153       2.044  43.886 -14.276  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2718 CA    CA A 153       1.643  43.964 -14.231  1.00  0.00          CA  , HETATM 2718 CA    CA A 153       2.467  44.488 -12.510  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2718 CA    CA A 153       2.031  44.324 -13.259  1.00  0.00          CA  , HETATM 2718 CA    CA A 153       1.643  43.964 -14.231  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2718 CA    CA A 153       2.175  44.980 -13.116  1.00  0.00          CA  , HETATM 2718 CA    CA A 153       2.031  44.324 -13.259  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2718 CA    CA A 153       2.668  45.292 -12.643  1.00  0.00          CA  , HETATM 2718 CA    CA A 153       2.175  44.980 -13.116  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2719 CA    CA A 154       7.789  49.922 -21.637  1.00  0.00          CA  , HETATM 2719 CA    CA A 154       8.858  49.474 -22.041  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2719 CA    CA A 154       8.156  49.426 -22.265  1.00  0.00          CA  , HETATM 2719 CA    CA A 154       7.789  49.922 -21.637  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2719 CA    CA A 154       8.577  49.760 -21.377  1.00  0.00          CA  , HETATM 2719 CA    CA A 154       8.156  49.426 -22.265  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2719 CA    CA A 154       7.957  50.480 -21.741  1.00  0.00          CA  , HETATM 2719 CA    CA A 154       8.577  49.760 -21.377  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2719 CA    CA A 154       7.855  50.109 -21.720  1.00  0.00          CA  , HETATM 2719 CA    CA A 154       7.957  50.480 -21.741  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2719 CA    CA A 154       8.781  50.141 -21.999  1.00  0.00          CA  , HETATM 2719 CA    CA A 154       7.855  50.109 -21.720  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2719 CA    CA A 154       7.878  49.886 -21.027  1.00  0.00          CA  , HETATM 2719 CA    CA A 154       8.781  50.141 -21.999  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2719 CA    CA A 154       8.712  49.796 -22.164  1.00  0.00          CA  , HETATM 2719 CA    CA A 154       7.878  49.886 -21.027  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2719 CA    CA A 154       7.572  50.515 -21.898  1.00  0.00          CA  , HETATM 2719 CA    CA A 154       8.712  49.796 -22.164  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2719 CA    CA A 154       7.453  50.123 -21.780  1.00  0.00          CA  , HETATM 2719 CA    CA A 154       7.572  50.515 -21.898  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2719 CA    CA A 154       7.785  49.772 -21.862  1.00  0.00          CA  , HETATM 2719 CA    CA A 154       7.453  50.123 -21.780  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2719 CA    CA A 154       8.395  49.838 -21.794  1.00  0.00          CA  , HETATM 2719 CA    CA A 154       7.785  49.772 -21.862  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2719 CA    CA A 154       7.883  50.322 -21.679  1.00  0.00          CA  , HETATM 2719 CA    CA A 154       8.395  49.838 -21.794  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2719 CA    CA A 154       8.628  49.805 -22.478  1.00  0.00          CA  , HETATM 2719 CA    CA A 154       7.883  50.322 -21.679  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2719 CA    CA A 154       8.253  49.547 -22.108  1.00  0.00          CA  , HETATM 2719 CA    CA A 154       8.628  49.805 -22.478  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2719 CA    CA A 154       8.235  49.868 -21.928  1.00  0.00          CA  , HETATM 2719 CA    CA A 154       8.253  49.547 -22.108  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2719 CA    CA A 154       7.649  50.217 -21.526  1.00  0.00          CA  , HETATM 2719 CA    CA A 154       8.235  49.868 -21.928  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2719 CA    CA A 154       8.146  49.519 -22.526  1.00  0.00          CA  , HETATM 2719 CA    CA A 154       7.649  50.217 -21.526  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2719 CA    CA A 154       8.341  49.659 -22.003  1.00  0.00          CA  , HETATM 2719 CA    CA A 154       8.146  49.519 -22.526  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2719 CA    CA A 154       8.765  49.540 -21.932  1.00  0.00          CA  , HETATM 2719 CA    CA A 154       8.341  49.659 -22.003  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2719 CA    CA A 154       8.219  50.014 -21.746  1.00  0.00          CA  , HETATM 2719 CA    CA A 154       8.765  49.540 -21.932  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2719 CA    CA A 154       7.357  50.503 -21.696  1.00  0.00          CA  , HETATM 2719 CA    CA A 154       8.219  50.014 -21.746  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2719 CA    CA A 154       7.486  50.105 -21.832  1.00  0.00          CA  , HETATM 2719 CA    CA A 154       7.357  50.503 -21.696  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2719 CA    CA A 154       6.495  50.187 -22.031  1.00  0.00          CA  , HETATM 2719 CA    CA A 154       7.486  50.105 -21.832  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2719 CA    CA A 154       7.497  50.172 -21.513  1.00  0.00          CA  , HETATM 2719 CA    CA A 154       6.495  50.187 -22.031  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2719 CA    CA A 154       7.985  49.637 -21.820  1.00  0.00          CA  , HETATM 2719 CA    CA A 154       7.497  50.172 -21.513  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2719 CA    CA A 154       9.760  48.702 -22.387  1.00  0.00          CA  , HETATM 2719 CA    CA A 154       7.985  49.637 -21.820  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2719 CA    CA A 154       8.641  50.175 -22.102  1.00  0.00          CA  , HETATM 2719 CA    CA A 154       9.760  48.702 -22.387  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py:537: UserWarning: WARNING: duplicate atom (HETATM 2719 CA    CA A 154       9.013  49.341 -21.590  1.00  0.00          CA  , HETATM 2719 CA    CA A 154       8.641  50.175 -22.102  1.00  0.00          CA  )
+  warnings.warn("WARNING: duplicate atom (%s, %s)" % (atom, old_atom._pdb_string(old_atom.serial_number, atom.alternate_location_indicator)))
+Traceback (most recent call last):
+  File "/home/san/miniconda3/envs/md_simulation/bin/pdbfixer", line 10, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/pdbfixer/pdbfixer.py", line 1730, in main
+    fixer = PDBFixer(filename=sys.argv[1])
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/pdbfixer/pdbfixer.py", line 362, in __init__
+    self._initializeFromPDB(file)
+  File "/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/pdbfixer/pdbfixer.py", line 404, in _initializeFromPDB
+    structure = PdbStructure(file)
+                ^^^^^^^^^^^^^^^^^^
+  File "/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py", line 153, in __init__
+    self._load(input_stream)
+  File "/home/san/miniconda3/envs/md_simulation/lib/python3.11/site-packages/openmm/app/internal/pdbstructure.py", line 190, in _load
+    self._current_model._current_chain._add_ter_record()
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute '_add_ter_record'
+
+[+] PDBFixer를 통한 유실된 루프 및 원자 복구 시작...
+[!] PDBFixer 실행 실패 (환경 확인 필요): Command '['pdbfixer', '/home/san/UPDD_proj/UPDD_benchmark/preprocessed/1CKK_clean.pdb.tmp', '--output=/home/san/UPDD_proj/UPDD_benchmark/preprocessed/1CKK_clean.pdb', '--add-atoms=all', '--add-residues', '--keep-heterogens=all']' returned non-zero exit status 1.
+[!] 복구 없이 기본 필터링만 적용하여 저장합니다.
+[+] 전처리 리포트 생성 완료: /home/san/UPDD_proj/UPDD_benchmark/preprocessed/1CKK_clean_preprocess_report.csv
+[+] 최종 출력: /home/san/UPDD_proj/UPDD_benchmark/preprocessed/1CKK_clean.pdb
+
+============================================================
+[CMD] /home/san/ai_projects/localcolabfold/.pixi/envs/default/bin/colabfold_batch /home/san/UPDD_proj/UPDD_benchmark/af2_inputs/cam_001_input.csv /home/san/UPDD_proj/UPDD_benchmark/af2_results/cam_001 --num-recycle 3 --pair-mode unpaired_paired --msa-mode mmseqs2_uniref_env
+============================================================
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+E0000 00:00:1775990391.081108 2318394 cuda_dnn.cc:8579] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+E0000 00:00:1775990391.083499 2318394 cuda_blas.cc:1407] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+W0000 00:00:1775990391.089981 2318394 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+W0000 00:00:1775990391.089997 2318394 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+W0000 00:00:1775990391.089999 2318394 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+W0000 00:00:1775990391.089999 2318394 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+
+WARNING: You are welcome to use the default MSA server, however keep in mind that it's a
+limited shared resource only capable of processing a few thousand MSAs per day. Please
+submit jobs only from a single IP address. We reserve the right to limit access to the
+server case-by-case when usage exceeds fair use. If you require more MSAs: You can 
+precompute all MSAs with `colabfold_search` or host your own API and pass it to `--host-url`
+
+W0000 00:00:1775990392.339256 2318394 gpu_device.cc:2430] TensorFlow was not built with CUDA kernel binaries compatible with compute capability 12.0. CUDA kernels will be jit-compiled from PTX, which could take 30 minutes or longer.
+2026-04-12 19:39:52,091 Running colabfold 1.5.5 (83ee93d262a99ad62d6f0897c5ddd37eb918d385)
+2026-04-12 19:39:52,308 Running on GPU
+2026-04-12 19:39:52,370 Found 5 citations for tools or databases
+2026-04-12 19:39:52,370 Query 1/1: cam_001 (length 165)
+  0%|          | 0/300 [elapsed: 00:00 remaining: ?]SUBMIT:   0%|          | 0/300 [elapsed: 00:00 remaining: ?]PENDING:   0%|          | 0/300 [elapsed: 00:00 remaining: ?]                                                             PENDING:   0%|          | 0/300 [elapsed: 00:00 remaining: ?]RUNNING:   0%|          | 0/300 [elapsed: 00:05 remaining: ?]RUNNING:   2%|▏         | 5/300 [elapsed: 00:05 remaining: 05:06]                                                                 RUNNING:   2%|▏         | 5/300 [elapsed: 00:05 remaining: 05:06]RUNNING:   2%|▏         | 5/300 [elapsed: 00:12 remaining: 05:06]RUNNING:   4%|▍         | 12/300 [elapsed: 00:12 remaining: 04:53]                                                                  RUNNING:   4%|▍         | 12/300 [elapsed: 00:12 remaining: 04:53]RUNNING:   4%|▍         | 12/300 [elapsed: 00:20 remaining: 04:53]RUNNING:   7%|▋         | 20/300 [elapsed: 00:20 remaining: 04:43]                                                                  RUNNING:   7%|▋         | 20/300 [elapsed: 00:20 remaining: 04:43]RUNNING:   7%|▋         | 20/300 [elapsed: 00:30 remaining: 04:43]RUNNING:  10%|█         | 30/300 [elapsed: 00:30 remaining: 04:32]                                                                  RUNNING:  10%|█         | 30/300 [elapsed: 00:30 remaining: 04:32]RUNNING:  10%|█         | 30/300 [elapsed: 00:39 remaining: 04:32]RUNNING:  13%|█▎        | 39/300 [elapsed: 00:39 remaining: 04:23]                                                                  RUNNING:  13%|█▎        | 39/300 [elapsed: 00:39 remaining: 04:23]RUNNING:  13%|█▎        | 39/300 [elapsed: 00:48 remaining: 04:23]RUNNING:  16%|█▌        | 48/300 [elapsed: 00:48 remaining: 04:14]                                                                  RUNNING:  16%|█▌        | 48/300 [elapsed: 00:48 remaining: 04:14]RUNNING:  16%|█▌        | 48/300 [elapsed: 00:53 remaining: 04:14]RUNNING:  18%|█▊        | 53/300 [elapsed: 00:53 remaining: 04:09]                                                                  RUNNING:  18%|█▊        | 53/300 [elapsed: 00:53 remaining: 04:09]RUNNING:  18%|█▊        | 53/300 [elapsed: 00:58 remaining: 04:09]RUNNING:  19%|█▉        | 58/300 [elapsed: 00:58 remaining: 04:04]                                                                  RUNNING:  19%|█▉        | 58/300 [elapsed: 00:58 remaining: 04:04]COMPLETE:  19%|█▉        | 58/300 [elapsed: 01:04 remaining: 04:04]COMPLETE: 100%|██████████| 300/300 [elapsed: 01:04 remaining: 00:00]COMPLETE: 100%|██████████| 300/300 [elapsed: 01:04 remaining: 00:00]
+2026-04-12 19:39:52,477 Sleeping for 5s. Reason: PENDING
+2026-04-12 19:39:57,564 Sleeping for 7s. Reason: RUNNING
+2026-04-12 19:40:04,622 Sleeping for 8s. Reason: RUNNING
+2026-04-12 19:40:12,689 Sleeping for 10s. Reason: RUNNING
+2026-04-12 19:40:22,758 Sleeping for 9s. Reason: RUNNING
+2026-04-12 19:40:31,832 Sleeping for 9s. Reason: RUNNING
+2026-04-12 19:40:40,902 Sleeping for 5s. Reason: RUNNING
+2026-04-12 19:40:45,995 Sleeping for 5s. Reason: RUNNING
+2026-04-12 19:40:51,045 Sleeping for 6s. Reason: RUNNING
+  0%|          | 0/300 [elapsed: 00:00 remaining: ?]SUBMIT:   0%|          | 0/300 [elapsed: 00:00 remaining: ?]PENDING:   0%|          | 0/300 [elapsed: 00:00 remaining: ?]                                                             PENDING:   0%|          | 0/300 [elapsed: 00:00 remaining: ?]RUNNING:   0%|          | 0/300 [elapsed: 00:06 remaining: ?]RUNNING:   2%|▏         | 6/300 [elapsed: 00:06 remaining: 05:01]                                                                 RUNNING:   2%|▏         | 6/300 [elapsed: 00:06 remaining: 05:01]RUNNING:   2%|▏         | 6/300 [elapsed: 00:11 remaining: 05:01]RUNNING:   4%|▎         | 11/300 [elapsed: 00:11 remaining: 04:56]                                                                  RUNNING:   4%|▎         | 11/300 [elapsed: 00:11 remaining: 04:56]RUNNING:   4%|▎         | 11/300 [elapsed: 00:17 remaining: 04:56]RUNNING:   6%|▌         | 17/300 [elapsed: 00:17 remaining: 04:48]                                                                  RUNNING:   6%|▌         | 17/300 [elapsed: 00:17 remaining: 04:48]RUNNING:   6%|▌         | 17/300 [elapsed: 00:23 remaining: 04:48]RUNNING:   8%|▊         | 23/300 [elapsed: 00:23 remaining: 04:42]                                                                  RUNNING:   8%|▊         | 23/300 [elapsed: 00:23 remaining: 04:42]COMPLETE:   8%|▊         | 23/300 [elapsed: 00:28 remaining: 04:42]COMPLETE: 100%|██████████| 300/300 [elapsed: 00:28 remaining: 00:00]COMPLETE: 100%|██████████| 300/300 [elapsed: 00:28 remaining: 00:00]
+2026-04-12 19:40:57,477 Sleeping for 6s. Reason: PENDING
+2026-04-12 19:41:03,534 Sleeping for 5s. Reason: RUNNING
+2026-04-12 19:41:08,662 Sleeping for 6s. Reason: RUNNING
+2026-04-12 19:41:14,723 Sleeping for 6s. Reason: RUNNING
+2026-04-12 19:41:20,838 Sleeping for 5s. Reason: RUNNING
+2026-04-12 19:41:26,391 Setting max_seq=508, max_extra_seq=2048
+2026-04-12 19:42:15,201 alphafold2_multimer_v3_model_1_seed_000 recycle=0 pLDDT=88.9 pTM=0.795 ipTM=0.849
+2026-04-12 19:42:36,297 alphafold2_multimer_v3_model_1_seed_000 recycle=1 pLDDT=92.3 pTM=0.853 ipTM=0.905 tol=0.659
+2026-04-12 19:42:37,427 alphafold2_multimer_v3_model_1_seed_000 recycle=2 pLDDT=93.6 pTM=0.867 ipTM=0.917 tol=0.0999
+2026-04-12 19:42:37,427 alphafold2_multimer_v3_model_1_seed_000 took 69.3s (2 recycles)
+2026-04-12 19:42:38,586 alphafold2_multimer_v3_model_2_seed_000 recycle=0 pLDDT=89.6 pTM=0.812 ipTM=0.87
+2026-04-12 19:42:39,702 alphafold2_multimer_v3_model_2_seed_000 recycle=1 pLDDT=91.3 pTM=0.842 ipTM=0.898 tol=0.574
+2026-04-12 19:42:40,829 alphafold2_multimer_v3_model_2_seed_000 recycle=2 pLDDT=91.9 pTM=0.85 ipTM=0.906 tol=0.0913
+2026-04-12 19:42:40,830 alphafold2_multimer_v3_model_2_seed_000 took 3.4s (2 recycles)
+2026-04-12 19:42:41,948 alphafold2_multimer_v3_model_3_seed_000 recycle=0 pLDDT=83.8 pTM=0.646 ipTM=0.644
+2026-04-12 19:42:43,073 alphafold2_multimer_v3_model_3_seed_000 recycle=1 pLDDT=91.9 pTM=0.856 ipTM=0.905 tol=0.725
+2026-04-12 19:42:44,196 alphafold2_multimer_v3_model_3_seed_000 recycle=2 pLDDT=92.9 pTM=0.865 ipTM=0.914 tol=0.164
+2026-04-12 19:42:44,196 alphafold2_multimer_v3_model_3_seed_000 took 3.4s (2 recycles)
+2026-04-12 19:42:45,328 alphafold2_multimer_v3_model_4_seed_000 recycle=0 pLDDT=89.1 pTM=0.809 ipTM=0.816
+2026-04-12 19:42:46,455 alphafold2_multimer_v3_model_4_seed_000 recycle=1 pLDDT=90.3 pTM=0.841 ipTM=0.854 tol=0.5
+2026-04-12 19:42:47,585 alphafold2_multimer_v3_model_4_seed_000 recycle=2 pLDDT=91 pTM=0.848 ipTM=0.858 tol=0.161
+2026-04-12 19:42:47,586 alphafold2_multimer_v3_model_4_seed_000 took 3.4s (2 recycles)
+2026-04-12 19:42:48,718 alphafold2_multimer_v3_model_5_seed_000 recycle=0 pLDDT=81.1 pTM=0.631 ipTM=0.538
+2026-04-12 19:42:49,843 alphafold2_multimer_v3_model_5_seed_000 recycle=1 pLDDT=89.5 pTM=0.833 ipTM=0.863 tol=0.636
+2026-04-12 19:42:50,958 alphafold2_multimer_v3_model_5_seed_000 recycle=2 pLDDT=92.1 pTM=0.86 ipTM=0.906 tol=0.452
+2026-04-12 19:42:50,959 alphafold2_multimer_v3_model_5_seed_000 took 3.4s (2 recycles)
+2026-04-12 19:42:50,969 reranking models by 'multimer' metric
+2026-04-12 19:42:50,969 rank_001_alphafold2_multimer_v3_model_1_seed_000 pLDDT=93.6 pTM=0.867 ipTM=0.917
+2026-04-12 19:42:50,969 rank_002_alphafold2_multimer_v3_model_3_seed_000 pLDDT=92.9 pTM=0.865 ipTM=0.914
+2026-04-12 19:42:50,969 rank_003_alphafold2_multimer_v3_model_5_seed_000 pLDDT=92.1 pTM=0.86 ipTM=0.906
+2026-04-12 19:42:50,969 rank_004_alphafold2_multimer_v3_model_2_seed_000 pLDDT=91.9 pTM=0.85 ipTM=0.906
+2026-04-12 19:42:50,969 rank_005_alphafold2_multimer_v3_model_4_seed_000 pLDDT=91 pTM=0.848 ipTM=0.858
+2026-04-12 19:42:51,283 Done
+
+============================================================
+[CMD] conda run -n md_simulation --no-capture-output python /home/san/UPDD_proj/utils/run_restrained_md.py --inputdir /home/san/UPDD_proj/UPDD_benchmark/results/cam_001/md_input --outputdir /home/san/UPDD_proj/UPDD_benchmark/results/cam_001/md --steps 50000 --topology linear --ncaa_label none --binder_chain B --seed 42 --platform CUDA
+============================================================
+
+[Restrained MD v28 - The Absolute Integrity]
+  대상 PDB  : 1개
+  스텝 수   : 50000 (100.0 ps)
+  토폴로지  : linear
+  ncAA 라벨 : none (Code: (미지정: XML 이름 검증 생략))
+  바인더    : 체인 B
+  난수 시드 : 42
+  분산 보정 : auto
+  그래프정책: strict
+  플랫폼    : CUDA
+
+  처리 중: cam_001_af2
+  [WT Mode] ncAA 라벨이 'none'입니다. 야생형(Wild-type) 단백질 일반 MD를 수행합니다.
+  [MD] PDBFixer로 AF2 구조 정리 중...
+  [MD] OpenMM addHydrogens 실행 (선형 구조 토폴로지 동기화)...
+  [INFO] 수소 추가 완료 (선형 캡핑 및 내부 결합 매핑 성공)
+  원자 수 (용매화 후): 26208
+  [Physics] NonbondedForce Dispersion Correction: 활성화됨 (ON)
+  [Platform] CUDA 선택 (속도 지수 100x)
+  [Stage 1] Staged Minimization...
+    k=N/A: PE = -477954.12 kJ/mol
+  [Stage 2] NVT 워밍업 (10K → 300K, 60ps, dt=2fs)...
+  [Stage 3] NPT 전환...
+  NPT 전환 완료.
+  MD 실행 중 (50000 steps = 100.0 ps)...
+#"Progress (%)","Step","Potential Energy (kJ/mole)","Temperature (K)"
+70.0%,35000,-420452.7988514814,301.3734795320072
+80.0%,40000,-420717.94559011445,300.21441070855985
+90.0%,45000,-421529.9534110618,300.35575349961834
+100.0%,50000,-421064.5788196763,304.6376452152455
+110.0%,55000,-421598.44714899175,300.26663218159774
+120.0%,60000,-421798.46173233003,299.9648407809536
+130.0%,65000,-421811.92676937603,298.7882902573001
+140.0%,70000,-421193.2735295822,300.24607185715604
+150.0%,75000,-421898.59468108485,299.8307036727757
+160.0%,80000,-422000.9493030417,300.5970111606141
+  최종 구조 저장 완료: cam_001_af2_final.pdb
+
+========================================
+  [MD 배치 완료 통계]
+  - 총 입력 파일 : 1 개
+  - 성공 (ncAA MD) : 0 개
+  - 성공 (야생형 MD) : 1 개
+  - 스킵 (완료됨 등): 0 개
+  - 실패 (폭발 등) : 0 개
+========================================
+
+============================================================
+[CMD] conda run -n md_simulation --no-capture-output python /home/san/UPDD_proj/utils/extract_snapshots.py --md_dir /home/san/UPDD_proj/UPDD_benchmark/results/cam_001/md --outputdir /home/san/UPDD_proj/UPDD_benchmark/results/cam_001/snapshots --n_snapshots 5 --binder_chain B
+============================================================
+
+[Snapshot Extraction]
+  DCD 파일  : 1개
+  스냅샷 수 : 5개/궤적
+
+  처리: cam_001_af2
+  궤적 로드: cam_001_af2_restrained.dcd
+  프레임 수: 500
+  원자 수  : 26208
+  용매 제거 후 원자 수: 2565
+  바인더 체인 해석: 'B' → chainid 1 (CA 원자 17개)
+  클러스터링 기준 CA 원자: 17개
+  K-Means 클러스터링 (k=5)...
+  선택 프레임: [30, 70, 150, 259, 364]
+  RMSD drift 평균 : 9.666 Å
+  스냅샷 다양성   : 4.585 Å
+  스냅샷  1: 프레임    30 → cam_001_af2_snap01_f30.pdb
+  스냅샷  2: 프레임    70 → cam_001_af2_snap02_f70.pdb
+  스냅샷  3: 프레임   150 → cam_001_af2_snap03_f150.pdb
+  스냅샷  4: 프레임   259 → cam_001_af2_snap04_f259.pdb
+  스냅샷  5: 프레임   364 → cam_001_af2_snap05_f364.pdb
+
+  총 5개 스냅샷 저장 완료
+  출력 디렉토리: /home/san/UPDD_proj/UPDD_benchmark/results/cam_001/snapshots
+  목록 파일    : /home/san/UPDD_proj/UPDD_benchmark/results/cam_001/snapshots/snapshots_manifest.txt
+dcdplugin) detected standard 32-bit DCD file of native endianness
+dcdplugin) CHARMM format DCD file (also NAMD 2.1 and later)
+
+============================================================
+[CMD] conda run -n qmmm --no-capture-output python /home/san/UPDD_proj/utils/run_qmmm.py --snapdir /home/san/UPDD_proj/UPDD_benchmark/results/cam_001/snapshots --outputdir /home/san/UPDD_proj/UPDD_benchmark/results/cam_001/qmmm --mode fast --cutoff 5.0 --qm_basis 6-31G* --qm_xc wb97x-d3 --ncaa_elem none --binder_chain B
+============================================================
+[amber_charges] WARN: ff14SB 부분전하 합산이 기대값에서 벗어났습니다 (편차 > 0.05 e):
+  - HID: 합=+0.0632, 기대=+0, 편차=0.0632
+  - HIP: 합=+1.1377, 기대=+1, 편차=0.1377
+  - PHE: 합=-0.0954, 기대=+0, 편차=0.0954
+  → 이는 일부 양성자화 H 원자 누락에 기인한 것으로 추정됩니다.
+  → 파이프라인 동작은 정상이며, 데이터 정밀도 개선을 권고합니다.
+
+[QM/MM Calculation]
+  스냅샷 수 : 5개
+  수준      : wb97x-d3/6-31G*
+  QM cutoff : 5.0 Å
+  ncAA 원소 : none
+
+  [Skip] 구조 붕괴 감지: RMSD 9.666Å (기준 4.0Å 초과)
+  [!] cam_001_af2_snap01_f30.pdb의 QM/MM을 0점 처리하고 스킵합니다.
+
+  [Skip] 구조 붕괴 감지: RMSD 9.666Å (기준 4.0Å 초과)
+  [!] cam_001_af2_snap02_f70.pdb의 QM/MM을 0점 처리하고 스킵합니다.
+
+  [Skip] 구조 붕괴 감지: RMSD 9.666Å (기준 4.0Å 초과)
+  [!] cam_001_af2_snap03_f150.pdb의 QM/MM을 0점 처리하고 스킵합니다.
+
+  [Skip] 구조 붕괴 감지: RMSD 9.666Å (기준 4.0Å 초과)
+  [!] cam_001_af2_snap04_f259.pdb의 QM/MM을 0점 처리하고 스킵합니다.
+
+  [Skip] 구조 붕괴 감지: RMSD 9.666Å (기준 4.0Å 초과)
+  [!] cam_001_af2_snap05_f364.pdb의 QM/MM을 0점 처리하고 스킵합니다.
+
+  완료: 5/5 수렴
+
+  [에너지 순위 (낮을수록 안정)]
+   1. cam_001_af2_snap01_f30                    E=        0.0000 kcal/mol  QM-MM=+0.00 kcal/mol
+   2. cam_001_af2_snap02_f70                    E=        0.0000 kcal/mol  QM-MM=+0.00 kcal/mol
+   3. cam_001_af2_snap03_f150                   E=        0.0000 kcal/mol  QM-MM=+0.00 kcal/mol
+   4. cam_001_af2_snap04_f259                   E=        0.0000 kcal/mol  QM-MM=+0.00 kcal/mol
+   5. cam_001_af2_snap05_f364                   E=        0.0000 kcal/mol  QM-MM=+0.00 kcal/mol
+
+  요약 저장: /home/san/UPDD_proj/UPDD_benchmark/results/cam_001/qmmm/qmmm_summary.json
+
+============================================================
+[CMD] conda run -n md_simulation --no-capture-output python /home/san/UPDD_proj/utils/run_mmgbsa.py --md_dir /home/san/UPDD_proj/UPDD_benchmark/results/cam_001/md --outputdir /home/san/UPDD_proj/UPDD_benchmark/results/cam_001/mmgbsa --ncaa_elem none --receptor_chain A --binder_chain B
+============================================================
+
+[MM-GBSA ΔG Calculation]
+  대상 PDB  : 1개
+  GB 모델   : GBn2
+  ncAA 원소 : none
+  Si 반경   : 2.1 Å
+
+  계산: cam_001_af2_final
+  [split_complex] implicit GB 호환: water/ion/metal 23643개 원자 제거
+  Complex  에너지 계산 중...
+  Receptor 에너지 계산 중...
+  Ligand   에너지 계산 중...
+  E_complex  :   -7387.7471 kcal/mol
+  E_receptor :   -6104.1984 kcal/mol
+  E_ligand   :   -1127.7113 kcal/mol
+  ΔG_bind    :    -155.8374 kcal/mol  ✅ 결합 유리
+
+  [ΔG_bind 순위 (낮을수록 강한 결합)]
+  순위   스냅샷                                         ΔG (kcal/mol)
+  --------------------------------------------------------------
+  1    cam_001_af2_final                             -155.8374  ✅
+
+  평균 ΔG : -155.8374 kcal/mol
+  최선 ΔG : -155.8374 kcal/mol
+  요약 저장: /home/san/UPDD_proj/UPDD_benchmark/results/cam_001/mmgbsa/mmgbsa_summary.json

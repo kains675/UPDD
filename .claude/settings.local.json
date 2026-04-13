@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -m py_compile /home/san/UPDD_proj/UPDD.py)",
+      "Bash(python3 -c \"import sys; sys.path.insert\\(0, '/home/san/UPDD_proj/utils'\\); from ncaa_registry import NCAADef; help\\(NCAADef\\)\")",
+      "Bash(grep -n \".upper\\(\\)\" /home/san/UPDD_proj/utils/*.py)",
+      "Bash(grep -n \"except\\\\|pass$\" /home/san/UPDD_proj/utils/ncaa_mutate.py)",
+      "Bash(grep:*)",
+      "Bash(cat)",
+      "Read(//tmp/**)",
+      "Bash(python:*)",
+      "Bash(python3:*)",
+      "Bash(wc:*)",
+      "Bash(conda run:*)",
+      "Bash(bash:*)",
+      "Bash(ls /home/san/UPDD_proj/outputs/6WGN_cyclic_htc_NMA_30_20-25/af2_results/*.pdb)",
+      "Bash(ls /home/san/UPDD_proj/outputs/6WGN_*/mmgbsa_results/)",
+      "Bash(cat /home/san/UPDD_proj/outputs/6WGN_*/mmgbsa_results/mmgbsa_summary.json)",
+      "Bash(cat /home/san/UPDD_proj/outputs/6WGN_*/qmmm_results/*_qmmm_fast.json)",
+      "Bash(ls /home/san/UPDD_proj/outputs/6WGN_*/mdresult/*_final.pdb)",
+      "Bash(ls:*)"
+    ]
+  }
+}

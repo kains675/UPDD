@@ -1,0 +1,6 @@
+# 추출된 스냅샷 목록
+kras_001_af2_snap01_f0.pdb
+kras_001_af2_snap02_f25.pdb
+kras_001_af2_snap03_f213.pdb
+kras_001_af2_snap04_f281.pdb
+kras_001_af2_snap05_f425.pdb

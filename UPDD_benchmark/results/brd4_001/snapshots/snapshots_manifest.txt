@@ -1,0 +1,6 @@
+# 추출된 스냅샷 목록
+brd4_001_af2_snap01_f35.pdb
+brd4_001_af2_snap02_f115.pdb
+brd4_001_af2_snap03_f330.pdb
+brd4_001_af2_snap04_f438.pdb
+brd4_001_af2_snap05_f463.pdb

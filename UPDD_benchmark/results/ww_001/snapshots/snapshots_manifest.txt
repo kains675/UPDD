@@ -1,0 +1,6 @@
+# 추출된 스냅샷 목록
+ww_001_af2_snap01_f44.pdb
+ww_001_af2_snap02_f142.pdb
+ww_001_af2_snap03_f308.pdb
+ww_001_af2_snap04_f323.pdb
+ww_001_af2_snap05_f496.pdb

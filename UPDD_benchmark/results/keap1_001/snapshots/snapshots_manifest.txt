@@ -1,0 +1,6 @@
+# 추출된 스냅샷 목록
+keap1_001_af2_snap01_f57.pdb
+keap1_001_af2_snap02_f175.pdb
+keap1_001_af2_snap03_f323.pdb
+keap1_001_af2_snap04_f351.pdb
+keap1_001_af2_snap05_f435.pdb

@@ -1,0 +1,12 @@
+section,chain,resid,icode,resname,value
+removed_het,A,2001,,HOH,water
+removed_het,A,2002,,HOH,water
+removed_het,A,2003,,HOH,water
+removed_het,A,2004,,HOH,water
+removed_het,A,2005,,HOH,water
+removed_het,A,2006,,HOH,water
+removed_het,A,2007,,HOH,water
+removed_het,A,2008,,HOH,water
+removed_het,A,2009,,HOH,water
+removed_het,A,2010,,HOH,water
+pdbfixer,,,,,applied

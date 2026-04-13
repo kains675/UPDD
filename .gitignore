@@ -9,3 +9,9 @@ outputs/*/mdresult/*.dcd
 .pixi/
 *.egg-info/
 UPDD_benchmark/results/*/md/*.pdb
+.claude/
+UPDD_benchmark/
+UPDD_benchmark.py
+outputs/
+tests/
+UPDATE.md

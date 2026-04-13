@@ -1,9 +1,0 @@
-section,chain,resid,icode,resname,value
-kept_het,A,4008,,MN,manual_override
-kept_het,A,4004,,MN,manual_override
-kept_het,A,4005,,MN,manual_override
-kept_het,A,4006,,MN,manual_override
-kept_het,A,2260,,NAG,distance<=5A
-kept_het,A,2458,,NAG,distance<=5A
-kept_het,A,4007,,MN,manual_override
-pdbfixer,,,,,applied

@@ -1,6 +1,0 @@
-# 추출된 스냅샷 목록
-upa_001_af2_snap01_f49.pdb
-upa_001_af2_snap02_f75.pdb
-upa_001_af2_snap03_f194.pdb
-upa_001_af2_snap04_f245.pdb
-upa_001_af2_snap05_f407.pdb

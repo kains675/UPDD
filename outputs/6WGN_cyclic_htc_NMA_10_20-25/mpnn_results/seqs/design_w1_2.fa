@@ -1,6 +1,0 @@
->design_w1_2, score=3.1017, global_score=1.7243, fixed_chains=['A'], designed_chains=['B'], model_name=v_48_020, git_hash=8907e6671bfbfc92303b5f79c4b5e6ce47cdef57, seed=125
-GGGGGGGGGGGGGGGGGGGGGGGGG
->T=0.1, sample=1, score=1.2986, global_score=1.4810, seq_recovery=0.0000
-LVDPALAAAAAAAAEAAVRAAVAAL
->T=0.1, sample=2, score=1.4244, global_score=1.5065, seq_recovery=0.0000
-MVDPEVAAALAAAVDAAVREAVAKM

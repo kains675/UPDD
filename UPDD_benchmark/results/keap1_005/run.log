@@ -1,486 +1,0 @@
-
-============================================================
-[CMD] /home/san/ai_projects/localcolabfold/.pixi/envs/default/bin/colabfold_batch /home/san/UPDD_proj/UPDD_benchmark/af2_inputs/keap1_005_input.csv /home/san/UPDD_proj/UPDD_benchmark/af2_results/keap1_005 --num-recycle 3 --pair-mode unpaired_paired --msa-mode mmseqs2_uniref_env
-============================================================
-WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
-E0000 00:00:1775972359.875001 2206357 cuda_dnn.cc:8579] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
-E0000 00:00:1775972359.877604 2206357 cuda_blas.cc:1407] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
-W0000 00:00:1775972359.884438 2206357 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
-W0000 00:00:1775972359.884453 2206357 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
-W0000 00:00:1775972359.884455 2206357 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
-W0000 00:00:1775972359.884456 2206357 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
-
-WARNING: You are welcome to use the default MSA server, however keep in mind that it's a
-limited shared resource only capable of processing a few thousand MSAs per day. Please
-submit jobs only from a single IP address. We reserve the right to limit access to the
-server case-by-case when usage exceeds fair use. If you require more MSAs: You can 
-precompute all MSAs with `colabfold_search` or host your own API and pass it to `--host-url`
-
-W0000 00:00:1775972361.159586 2206357 gpu_device.cc:2430] TensorFlow was not built with CUDA kernel binaries compatible with compute capability 12.0. CUDA kernels will be jit-compiled from PTX, which could take 30 minutes or longer.
-2026-04-12 14:39:20,894 Running colabfold 1.5.5 (83ee93d262a99ad62d6f0897c5ddd37eb918d385)
-2026-04-12 14:39:21,126 Running on GPU
-2026-04-12 14:39:21,191 Found 5 citations for tools or databases
-2026-04-12 14:39:21,191 Query 1/1: keap1_005 (length 307)
-  0%|          | 0/300 [elapsed: 00:00 remaining: ?]SUBMIT:   0%|          | 0/300 [elapsed: 00:00 remaining: ?]PENDING:   0%|          | 0/300 [elapsed: 00:00 remaining: ?]                                                             PENDING:   0%|          | 0/300 [elapsed: 00:00 remaining: ?]RUNNING:   0%|          | 0/300 [elapsed: 00:10 remaining: ?]RUNNING:   3%|▎         | 10/300 [elapsed: 00:10 remaining: 04:56]                                                                  RUNNING:   3%|▎         | 10/300 [elapsed: 00:10 remaining: 04:56]RUNNING:   3%|▎         | 10/300 [elapsed: 00:15 remaining: 04:56]RUNNING:   5%|▌         | 15/300 [elapsed: 00:15 remaining: 04:50]                                                                  RUNNING:   5%|▌         | 15/300 [elapsed: 00:15 remaining: 04:50]RUNNING:   5%|▌         | 15/300 [elapsed: 00:22 remaining: 04:50]RUNNING:   7%|▋         | 22/300 [elapsed: 00:22 remaining: 04:42]                                                                  RUNNING:   7%|▋         | 22/300 [elapsed: 00:22 remaining: 04:42]RUNNING:   7%|▋         | 22/300 [elapsed: 00:32 remaining: 04:42]RUNNING:  11%|█         | 32/300 [elapsed: 00:32 remaining: 04:31]                                                                  RUNNING:  11%|█         | 32/300 [elapsed: 00:32 remaining: 04:31]RUNNING:  11%|█         | 32/300 [elapsed: 00:38 remaining: 04:31]RUNNING:  13%|█▎        | 38/300 [elapsed: 00:38 remaining: 04:25]                                                                  RUNNING:  13%|█▎        | 38/300 [elapsed: 00:38 remaining: 04:25]RUNNING:  13%|█▎        | 38/300 [elapsed: 00:48 remaining: 04:25]RUNNING:  16%|█▌        | 48/300 [elapsed: 00:48 remaining: 04:17]                                                                  RUNNING:  16%|█▌        | 48/300 [elapsed: 00:48 remaining: 04:17]RUNNING:  16%|█▌        | 48/300 [elapsed: 00:57 remaining: 04:17]RUNNING:  19%|█▉        | 57/300 [elapsed: 00:57 remaining: 04:07]                                                                  RUNNING:  19%|█▉        | 57/300 [elapsed: 00:57 remaining: 04:07]RUNNING:  19%|█▉        | 57/300 [elapsed: 01:06 remaining: 04:07]RUNNING:  22%|██▏       | 65/300 [elapsed: 01:06 remaining: 03:58]                                                                  RUNNING:  22%|██▏       | 65/300 [elapsed: 01:06 remaining: 03:58]RUNNING:  22%|██▏       | 65/300 [elapsed: 01:11 remaining: 03:58]RUNNING:  23%|██▎       | 70/300 [elapsed: 01:11 remaining: 03:53]                                                                  RUNNING:  23%|██▎       | 70/300 [elapsed: 01:11 remaining: 03:53]RUNNING:  23%|██▎       | 70/300 [elapsed: 01:16 remaining: 03:53]RUNNING:  25%|██▌       | 75/300 [elapsed: 01:16 remaining: 03:48]                                                                  RUNNING:  25%|██▌       | 75/300 [elapsed: 01:16 remaining: 03:48]COMPLETE:  25%|██▌       | 75/300 [elapsed: 01:26 remaining: 03:48]COMPLETE: 100%|██████████| 300/300 [elapsed: 01:26 remaining: 00:00]COMPLETE: 100%|██████████| 300/300 [elapsed: 01:26 remaining: 00:00]
-2026-04-12 14:39:21,308 Sleeping for 10s. Reason: PENDING
-2026-04-12 14:39:31,417 Sleeping for 5s. Reason: RUNNING
-2026-04-12 14:39:36,501 Sleeping for 7s. Reason: RUNNING
-2026-04-12 14:39:43,567 Sleeping for 10s. Reason: RUNNING
-2026-04-12 14:39:53,645 Sleeping for 6s. Reason: RUNNING
-2026-04-12 14:39:59,755 Sleeping for 10s. Reason: RUNNING
-2026-04-12 14:40:10,086 Sleeping for 9s. Reason: RUNNING
-2026-04-12 14:40:19,159 Sleeping for 8s. Reason: RUNNING
-2026-04-12 14:40:27,263 Sleeping for 5s. Reason: RUNNING
-2026-04-12 14:40:32,330 Sleeping for 5s. Reason: RUNNING
-2026-04-12 14:40:37,434 Sleeping for 10s. Reason: RUNNING
-  0%|          | 0/300 [elapsed: 00:00 remaining: ?]SUBMIT:   0%|          | 0/300 [elapsed: 00:00 remaining: ?]PENDING:   0%|          | 0/300 [elapsed: 00:00 remaining: ?]                                                             PENDING:   0%|          | 0/300 [elapsed: 00:00 remaining: ?]RUNNING:   0%|          | 0/300 [elapsed: 00:06 remaining: ?]RUNNING:   2%|▏         | 6/300 [elapsed: 00:06 remaining: 05:00]                                                                 RUNNING:   2%|▏         | 6/300 [elapsed: 00:06 remaining: 05:00]RUNNING:   2%|▏         | 6/300 [elapsed: 00:13 remaining: 05:00]RUNNING:   4%|▍         | 13/300 [elapsed: 00:13 remaining: 04:52]                                                                  RUNNING:   4%|▍         | 13/300 [elapsed: 00:13 remaining: 04:52]RUNNING:   4%|▍         | 13/300 [elapsed: 00:22 remaining: 04:52]RUNNING:   7%|▋         | 22/300 [elapsed: 00:22 remaining: 04:41]                                                                  RUNNING:   7%|▋         | 22/300 [elapsed: 00:22 remaining: 04:41]RUNNING:   7%|▋         | 22/300 [elapsed: 00:28 remaining: 04:41]RUNNING:   9%|▉         | 28/300 [elapsed: 00:28 remaining: 04:36]                                                                  RUNNING:   9%|▉         | 28/300 [elapsed: 00:28 remaining: 04:36]RUNNING:   9%|▉         | 28/300 [elapsed: 00:36 remaining: 04:36]RUNNING:  12%|█▏        | 36/300 [elapsed: 00:36 remaining: 04:27]                                                                  RUNNING:  12%|█▏        | 36/300 [elapsed: 00:36 remaining: 04:27]RUNNING:  12%|█▏        | 36/300 [elapsed: 00:45 remaining: 04:27]RUNNING:  15%|█▌        | 45/300 [elapsed: 00:45 remaining: 04:18]                                                                  RUNNING:  15%|█▌        | 45/300 [elapsed: 00:45 remaining: 04:18]COMPLETE:  15%|█▌        | 45/300 [elapsed: 00:51 remaining: 04:18]COMPLETE: 100%|██████████| 300/300 [elapsed: 00:51 remaining: 00:00]COMPLETE: 100%|██████████| 300/300 [elapsed: 00:51 remaining: 00:00]
-2026-04-12 14:40:47,771 Sleeping for 6s. Reason: PENDING
-2026-04-12 14:40:53,832 Sleeping for 7s. Reason: RUNNING
-2026-04-12 14:41:00,939 Sleeping for 9s. Reason: RUNNING
-2026-04-12 14:41:10,024 Sleeping for 6s. Reason: RUNNING
-2026-04-12 14:41:16,132 Sleeping for 8s. Reason: RUNNING
-2026-04-12 14:41:24,198 Sleeping for 9s. Reason: RUNNING
-2026-04-12 14:41:33,305 Sleeping for 6s. Reason: RUNNING
-2026-04-12 14:41:39,966 Setting max_seq=508, max_extra_seq=1542
-2026-04-12 14:42:35,129 alphafold2_multimer_v3_model_1_seed_000 recycle=0 pLDDT=93.9 pTM=0.924 ipTM=0.682
-2026-04-12 14:42:59,026 alphafold2_multimer_v3_model_1_seed_000 recycle=1 pLDDT=94.5 pTM=0.932 ipTM=0.657 tol=0.409
-2026-04-12 14:42:59,026 alphafold2_multimer_v3_model_1_seed_000 took 77.3s (1 recycles)
-2026-04-12 14:43:01,376 alphafold2_multimer_v3_model_2_seed_000 recycle=0 pLDDT=95.9 pTM=0.933 ipTM=0.952
-2026-04-12 14:43:03,743 alphafold2_multimer_v3_model_2_seed_000 recycle=1 pLDDT=96.3 pTM=0.938 ipTM=0.958 tol=0.31
-2026-04-12 14:43:03,743 alphafold2_multimer_v3_model_2_seed_000 took 4.7s (1 recycles)
-2026-04-12 14:43:06,106 alphafold2_multimer_v3_model_3_seed_000 recycle=0 pLDDT=93.8 pTM=0.924 ipTM=0.683
-2026-04-12 14:43:08,471 alphafold2_multimer_v3_model_3_seed_000 recycle=1 pLDDT=96.1 pTM=0.936 ipTM=0.956 tol=0.506
-2026-04-12 14:43:10,828 alphafold2_multimer_v3_model_3_seed_000 recycle=2 pLDDT=96.1 pTM=0.936 ipTM=0.952 tol=0.0591
-2026-04-12 14:43:10,829 alphafold2_multimer_v3_model_3_seed_000 took 7.1s (2 recycles)
-2026-04-12 14:43:13,196 alphafold2_multimer_v3_model_4_seed_000 recycle=0 pLDDT=93.9 pTM=0.923 ipTM=0.666
-2026-04-12 14:43:15,564 alphafold2_multimer_v3_model_4_seed_000 recycle=1 pLDDT=96.1 pTM=0.936 ipTM=0.961 tol=0.492
-2026-04-12 14:43:15,564 alphafold2_multimer_v3_model_4_seed_000 took 4.7s (1 recycles)
-2026-04-12 14:43:17,937 alphafold2_multimer_v3_model_5_seed_000 recycle=0 pLDDT=93.7 pTM=0.925 ipTM=0.645
-2026-04-12 14:43:20,300 alphafold2_multimer_v3_model_5_seed_000 recycle=1 pLDDT=95.8 pTM=0.934 ipTM=0.95 tol=0.51
-2026-04-12 14:43:22,660 alphafold2_multimer_v3_model_5_seed_000 recycle=2 pLDDT=95.9 pTM=0.934 ipTM=0.957 tol=0.0919
-2026-04-12 14:43:22,660 alphafold2_multimer_v3_model_5_seed_000 took 7.1s (2 recycles)
-2026-04-12 14:43:22,689 reranking models by 'multimer' metric
-2026-04-12 14:43:22,689 rank_001_alphafold2_multimer_v3_model_4_seed_000 pLDDT=96.1 pTM=0.936 ipTM=0.961
-2026-04-12 14:43:22,689 rank_002_alphafold2_multimer_v3_model_2_seed_000 pLDDT=96.3 pTM=0.938 ipTM=0.958
-2026-04-12 14:43:22,689 rank_003_alphafold2_multimer_v3_model_5_seed_000 pLDDT=95.9 pTM=0.934 ipTM=0.957
-2026-04-12 14:43:22,689 rank_004_alphafold2_multimer_v3_model_3_seed_000 pLDDT=96.1 pTM=0.936 ipTM=0.952
-2026-04-12 14:43:22,689 rank_005_alphafold2_multimer_v3_model_1_seed_000 pLDDT=94.5 pTM=0.932 ipTM=0.657
-2026-04-12 14:43:23,062 Done
-
-============================================================
-[CMD] conda run -n md_simulation --no-capture-output python /home/san/UPDD_proj/utils/run_restrained_md.py --inputdir /home/san/UPDD_proj/UPDD_benchmark/results/keap1_005/md_input --outputdir /home/san/UPDD_proj/UPDD_benchmark/results/keap1_005/md --steps 50000 --topology cyclic_htc --ncaa_label none --binder_chain B --seed 42 --platform CUDA
-============================================================
-
-[Restrained MD v28 - The Absolute Integrity]
-  대상 PDB  : 1개
-  스텝 수   : 50000 (100.0 ps)
-  토폴로지  : cyclic_htc
-  ncAA 라벨 : none (Code: (미지정: XML 이름 검증 생략))
-  바인더    : 체인 B
-  난수 시드 : 42
-  분산 보정 : auto
-  그래프정책: strict
-  플랫폼    : CUDA
-
-  처리 중: keap1_005_af2
-  [WT Mode] ncAA 라벨이 'none'입니다. 야생형(Wild-type) 단백질 일반 MD를 수행합니다.
-  [MD] PDBFixer로 AF2 구조 정리 중...
-  [MD] OpenMM addHydrogens 실행 (선형 구조 토폴로지 동기화)...
-  [INFO] 수소 추가 완료 (선형 캡핑 및 내부 결합 매핑 성공)
-  [Warning] HTC 예측 모호함: N-말단 N과 C-말단 C 거리가 3.64 Å 입니다.
-  [FAIL] 요청한 고리형 토폴로지('cyclic_htc') 형성 실패. 과학적 위험을 방지하기 위해 중단합니다.
-
-========================================
-  [MD 배치 완료 통계]
-  - 총 입력 파일 : 1 개
-  - 성공 (ncAA MD) : 0 개
-  - 스킵 (완료됨 등): 0 개
-  - 실패 (폭발 등) : 1 개
-========================================
-
-============================================================
-[CMD] conda run -n md_simulation --no-capture-output python /home/san/UPDD_proj/utils/run_restrained_md.py --inputdir /home/san/UPDD_proj/UPDD_benchmark/results/keap1_005/md_input --outputdir /home/san/UPDD_proj/UPDD_benchmark/results/keap1_005/md --steps 10000 --topology linear --ncaa_label none --binder_chain B --seed 42 --platform CUDA
-============================================================
-
-[Restrained MD v28 - The Absolute Integrity]
-  대상 PDB  : 1개
-  스텝 수   : 10000 (20.0 ps)
-  토폴로지  : linear
-  ncAA 라벨 : none (Code: (미지정: XML 이름 검증 생략))
-  바인더    : 체인 B
-  난수 시드 : 42
-  분산 보정 : auto
-  그래프정책: strict
-  플랫폼    : CUDA
-
-  처리 중: keap1_005_af2
-  [WT Mode] ncAA 라벨이 'none'입니다. 야생형(Wild-type) 단백질 일반 MD를 수행합니다.
-  [MD] PDBFixer로 AF2 구조 정리 중...
-  [MD] OpenMM addHydrogens 실행 (선형 구조 토폴로지 동기화)...
-  [INFO] 수소 추가 완료 (선형 캡핑 및 내부 결합 매핑 성공)
-  원자 수 (용매화 후): 42361
-  [Physics] NonbondedForce Dispersion Correction: 활성화됨 (ON)
-  [Platform] CUDA 선택 (속도 지수 100x)
-  [Stage 1] Staged Minimization...
-    k=N/A: PE = -763087.63 kJ/mol
-  [Stage 2] NVT 워밍업 (10K → 300K, 60ps, dt=2fs)...
-  [Stage 3] NPT 전환...
-  NPT 전환 완료.
-  MD 실행 중 (10000 steps = 20.0 ps)...
-#"Progress (%)","Step","Potential Energy (kJ/mole)","Temperature (K)"
-310.0%,31000,-662103.477402193,300.8597280511194
-320.0%,32000,-660938.2218168951,299.4140118333728
-330.0%,33000,-660270.2979802727,300.45497994600584
-340.0%,34000,-659677.8328224891,301.6481118692296
-350.0%,35000,-659352.0644891746,298.84045511660867
-360.0%,36000,-658947.089685298,302.40877542232914
-370.0%,37000,-660418.9703110806,301.065602424949
-380.0%,38000,-660324.559300533,298.93905390272175
-390.0%,39000,-661658.2803762332,302.69665293724194
-400.0%,40000,-661601.5673860963,302.2304470715001
-  최종 구조 저장 완료: keap1_005_af2_final.pdb
-
-========================================
-  [MD 배치 완료 통계]
-  - 총 입력 파일 : 1 개
-  - 성공 (ncAA MD) : 0 개
-  - 성공 (야생형 MD) : 1 개
-  - 스킵 (완료됨 등): 0 개
-  - 실패 (폭발 등) : 0 개
-========================================
-
-============================================================
-[CMD] conda run -n md_simulation --no-capture-output python /home/san/UPDD_proj/utils/extract_snapshots.py --md_dir /home/san/UPDD_proj/UPDD_benchmark/results/keap1_005/md --outputdir /home/san/UPDD_proj/UPDD_benchmark/results/keap1_005/snapshots --n_snapshots 5 --binder_chain B
-============================================================
-
-[Snapshot Extraction]
-  DCD 파일  : 1개
-  스냅샷 수 : 5개/궤적
-
-  처리: keap1_005_af2
-  궤적 로드: keap1_005_af2_restrained.dcd
-  프레임 수: 500
-  원자 수  : 42361
-  용매 제거 후 원자 수: 4602
-  바인더 체인 해석: 'B' → chainid 1 (CA 원자 6개)
-  클러스터링 기준 CA 원자: 6개
-  K-Means 클러스터링 (k=5)...
-  선택 프레임: [146, 159, 253, 319, 388]
-  RMSD drift 평균 : 0.670 Å
-  스냅샷 다양성   : 0.543 Å
-  스냅샷  1: 프레임   146 → keap1_005_af2_snap01_f146.pdb
-  스냅샷  2: 프레임   159 → keap1_005_af2_snap02_f159.pdb
-  스냅샷  3: 프레임   253 → keap1_005_af2_snap03_f253.pdb
-  스냅샷  4: 프레임   319 → keap1_005_af2_snap04_f319.pdb
-  스냅샷  5: 프레임   388 → keap1_005_af2_snap05_f388.pdb
-
-  총 5개 스냅샷 저장 완료
-  출력 디렉토리: /home/san/UPDD_proj/UPDD_benchmark/results/keap1_005/snapshots
-  목록 파일    : /home/san/UPDD_proj/UPDD_benchmark/results/keap1_005/snapshots/snapshots_manifest.txt
-dcdplugin) detected standard 32-bit DCD file of native endianness
-dcdplugin) CHARMM format DCD file (also NAMD 2.1 and later)
-
-============================================================
-[CMD] conda run -n md_simulation --no-capture-output python /home/san/UPDD_proj/utils/run_mmgbsa.py --md_dir /home/san/UPDD_proj/UPDD_benchmark/results/keap1_005/md --outputdir /home/san/UPDD_proj/UPDD_benchmark/results/keap1_005/mmgbsa --ncaa_elem none --receptor_chain A --binder_chain B
-============================================================
-
-[MM-GBSA ΔG Calculation]
-  대상 PDB  : 1개
-  GB 모델   : GBn2
-  ncAA 원소 : none
-  Si 반경   : 2.1 Å
-
-  계산: keap1_005_af2_final
-  [split_complex] implicit GB 호환: water/ion/metal 37759개 원자 제거
-  Complex  에너지 계산 중...
-  Receptor 에너지 계산 중...
-  Ligand   에너지 계산 중...
-  E_complex  :  -11919.8850 kcal/mol
-  E_receptor :  -11509.4454 kcal/mol
-  E_ligand   :    -364.1226 kcal/mol
-  ΔG_bind    :     -46.3169 kcal/mol  ✅ 결합 유리
-
-  [ΔG_bind 순위 (낮을수록 강한 결합)]
-  순위   스냅샷                                         ΔG (kcal/mol)
-  --------------------------------------------------------------
-  1    keap1_005_af2_final                            -46.3169  ✅
-
-  평균 ΔG : -46.3169 kcal/mol
-  최선 ΔG : -46.3169 kcal/mol
-  요약 저장: /home/san/UPDD_proj/UPDD_benchmark/results/keap1_005/mmgbsa/mmgbsa_summary.json
-
-============================================================
-[CMD] conda run -n md_simulation --no-capture-output python /home/san/UPDD_proj/utils/run_cyclic_fold.py --input_csv /home/san/UPDD_proj/UPDD_benchmark/af2_inputs/keap1_005_input.csv --output_dir /home/san/UPDD_proj/UPDD_benchmark/af2_results/keap1_005 --topology_type cyclic_htc --num_models 5
-============================================================
-2026-04-12 21:14:39,746 [INFO] [AfCycDesign] keap1_005: target=301aa, binder=6aa (cyclic)
-2026-04-12 21:14:39,768 [ERROR] [AfCycDesign] 예측 실패: keap1_005 — No module named 'colabdesign'
-
-============================================================
-[CMD] /home/san/ai_projects/localcolabfold/.pixi/envs/default/bin/python3 /home/san/UPDD_proj/utils/run_cyclic_fold.py --input_csv /home/san/UPDD_proj/UPDD_benchmark/af2_inputs/keap1_005_input.csv --output_dir /home/san/UPDD_proj/UPDD_benchmark/af2_results/keap1_005 --topology_type cyclic_htc --num_models 5
-============================================================
-2026-04-12 21:16:04,325 [INFO] [AfCycDesign] keap1_005: target=301aa, binder=6aa (cyclic)
-INFO:2026-04-12 21:16:05,142:jax._src.xla_bridge:925: Unable to initialize backend 'rocm': module 'jaxlib.xla_extension' has no attribute 'GpuAllocatorConfig'
-2026-04-12 21:16:05,142 [INFO] Unable to initialize backend 'rocm': module 'jaxlib.xla_extension' has no attribute 'GpuAllocatorConfig'
-INFO:2026-04-12 21:16:05,142:jax._src.xla_bridge:925: Unable to initialize backend 'tpu': INTERNAL: Failed to open libtpu.so: libtpu.so: cannot open shared object file: No such file or directory
-2026-04-12 21:16:05,142 [INFO] Unable to initialize backend 'tpu': INTERNAL: Failed to open libtpu.so: libtpu.so: cannot open shared object file: No such file or directory
-2026-04-12 21:16:06,976 [ERROR] [AfCycDesign] 예측 실패: keap1_005 — argument of type 'NoneType' is not iterable
-
-============================================================
-[CMD] /home/san/ai_projects/localcolabfold/.pixi/envs/default/bin/python3 /home/san/UPDD_proj/utils/run_cyclic_fold.py --input_csv /home/san/UPDD_proj/UPDD_benchmark/af2_inputs/keap1_005_input.csv --output_dir /home/san/UPDD_proj/UPDD_benchmark/af2_results/keap1_005 --target_pdb /home/san/UPDD_proj/UPDD_benchmark/preprocessed/7K2A_clean.pdb --target_chain B --topology_type cyclic_htc --num_models 5
-============================================================
-2026-04-12 21:19:37,193 [INFO] [AfCycDesign] keap1_005: target=301aa, binder=6aa (cyclic), pdb=7K2A_clean.pdb
-INFO:2026-04-12 21:19:37,942:jax._src.xla_bridge:925: Unable to initialize backend 'rocm': module 'jaxlib.xla_extension' has no attribute 'GpuAllocatorConfig'
-2026-04-12 21:19:37,942 [INFO] Unable to initialize backend 'rocm': module 'jaxlib.xla_extension' has no attribute 'GpuAllocatorConfig'
-INFO:2026-04-12 21:19:37,943:jax._src.xla_bridge:925: Unable to initialize backend 'tpu': INTERNAL: Failed to open libtpu.so: libtpu.so: cannot open shared object file: No such file or directory
-2026-04-12 21:19:37,943 [INFO] Unable to initialize backend 'tpu': INTERNAL: Failed to open libtpu.so: libtpu.so: cannot open shared object file: No such file or directory
-2026-04-12 21:19:58,043 [ERROR] [AfCycDesign] 예측 실패: keap1_005 — 'pdb_string'
-predict models [0] recycles 3 hard 1 soft 0 temp 1 loss 4.37 i_con 4.29 plddt 0.18 ptm 0.10 i_ptm 0.09
-
-============================================================
-[CMD] /home/san/ai_projects/localcolabfold/.pixi/envs/default/bin/python3 /home/san/UPDD_proj/utils/run_cyclic_fold.py --input_csv /home/san/UPDD_proj/UPDD_benchmark/af2_inputs/keap1_005_input.csv --output_dir /home/san/UPDD_proj/UPDD_benchmark/af2_results/keap1_005 --target_pdb /home/san/UPDD_proj/UPDD_benchmark/preprocessed/7K2A_clean.pdb --target_chain B --topology_type cyclic_htc --num_models 5
-============================================================
-2026-04-12 21:21:10,404 [INFO] [AfCycDesign] keap1_005: target=301aa, binder=6aa (cyclic), pdb=7K2A_clean.pdb
-INFO:2026-04-12 21:21:11,148:jax._src.xla_bridge:925: Unable to initialize backend 'rocm': module 'jaxlib.xla_extension' has no attribute 'GpuAllocatorConfig'
-2026-04-12 21:21:11,148 [INFO] Unable to initialize backend 'rocm': module 'jaxlib.xla_extension' has no attribute 'GpuAllocatorConfig'
-INFO:2026-04-12 21:21:11,149:jax._src.xla_bridge:925: Unable to initialize backend 'tpu': INTERNAL: Failed to open libtpu.so: libtpu.so: cannot open shared object file: No such file or directory
-2026-04-12 21:21:11,149 [INFO] Unable to initialize backend 'tpu': INTERNAL: Failed to open libtpu.so: libtpu.so: cannot open shared object file: No such file or directory
-2026-04-12 21:21:41,685 [INFO]   rank 1: pLDDT=0.3, ipTM=0.000
-2026-04-12 21:21:41,721 [INFO]   rank 2: pLDDT=0.3, ipTM=0.000
-2026-04-12 21:21:41,756 [INFO]   rank 3: pLDDT=0.3, ipTM=0.000
-2026-04-12 21:21:41,791 [INFO]   rank 4: pLDDT=0.3, ipTM=0.000
-2026-04-12 21:21:41,827 [INFO]   rank 5: pLDDT=0.3, ipTM=0.000
-predict models [0] recycles 3 hard 1 soft 0 temp 1 loss 4.37 i_con 4.29 plddt 0.18 ptm 0.10 i_ptm 0.09
-predict models [0] recycles 3 hard 1 soft 0 temp 1 loss 4.37 i_con 4.29 plddt 0.18 ptm 0.10 i_ptm 0.09
-predict models [0] recycles 3 hard 1 soft 0 temp 1 loss 4.37 i_con 4.29 plddt 0.18 ptm 0.10 i_ptm 0.09
-predict models [0] recycles 3 hard 1 soft 0 temp 1 loss 4.37 i_con 4.29 plddt 0.18 ptm 0.10 i_ptm 0.09
-predict models [0] recycles 3 hard 1 soft 0 temp 1 loss 4.37 i_con 4.29 plddt 0.18 ptm 0.10 i_ptm 0.09
-
-============================================================
-[CMD] /home/san/ai_projects/localcolabfold/.pixi/envs/default/bin/python3 /home/san/UPDD_proj/utils/run_cyclic_fold.py --input_csv /home/san/UPDD_proj/UPDD_benchmark/af2_inputs/keap1_005_input.csv --output_dir /home/san/UPDD_proj/UPDD_benchmark/af2_results/keap1_005 --target_pdb /home/san/UPDD_proj/UPDD_benchmark/preprocessed/7K2A_clean.pdb --target_chain B --topology_type cyclic_htc --num_models 5
-============================================================
-2026-04-12 21:32:04,999 [INFO] [AfCycDesign] keap1_005: target=301aa, binder=6aa (cyclic), pdb=7K2A_clean.pdb
-INFO:2026-04-12 21:32:05,799:jax._src.xla_bridge:925: Unable to initialize backend 'rocm': module 'jaxlib.xla_extension' has no attribute 'GpuAllocatorConfig'
-2026-04-12 21:32:05,799 [INFO] Unable to initialize backend 'rocm': module 'jaxlib.xla_extension' has no attribute 'GpuAllocatorConfig'
-INFO:2026-04-12 21:32:05,800:jax._src.xla_bridge:925: Unable to initialize backend 'tpu': INTERNAL: Failed to open libtpu.so: libtpu.so: cannot open shared object file: No such file or directory
-2026-04-12 21:32:05,800 [INFO] Unable to initialize backend 'tpu': INTERNAL: Failed to open libtpu.so: libtpu.so: cannot open shared object file: No such file or directory
-2026-04-12 21:32:35,496 [INFO]   rank 1: pLDDT=0.3, ipTM=0.000
-2026-04-12 21:32:35,531 [INFO]   rank 2: pLDDT=0.3, ipTM=0.000
-2026-04-12 21:32:35,567 [INFO]   rank 3: pLDDT=0.3, ipTM=0.000
-2026-04-12 21:32:35,602 [INFO]   rank 4: pLDDT=0.3, ipTM=0.000
-2026-04-12 21:32:35,638 [INFO]   rank 5: pLDDT=0.3, ipTM=0.000
-predict models [0] recycles 3 hard 1 soft 0 temp 1 loss 4.37 i_con 4.29 plddt 0.18 ptm 0.10 i_ptm 0.09
-predict models [0] recycles 3 hard 1 soft 0 temp 1 loss 4.37 i_con 4.29 plddt 0.18 ptm 0.10 i_ptm 0.09
-predict models [0] recycles 3 hard 1 soft 0 temp 1 loss 4.37 i_con 4.29 plddt 0.18 ptm 0.10 i_ptm 0.09
-predict models [0] recycles 3 hard 1 soft 0 temp 1 loss 4.37 i_con 4.29 plddt 0.18 ptm 0.10 i_ptm 0.09
-predict models [0] recycles 3 hard 1 soft 0 temp 1 loss 4.37 i_con 4.29 plddt 0.18 ptm 0.10 i_ptm 0.09
-
-============================================================
-[CMD] conda run -n md_simulation --no-capture-output python /home/san/UPDD_proj/utils/run_restrained_md.py --inputdir /home/san/UPDD_proj/UPDD_benchmark/results/keap1_005/md_input --outputdir /home/san/UPDD_proj/UPDD_benchmark/results/keap1_005/md --steps 10000 --topology cyclic_htc --ncaa_label none --binder_chain B --seed 42 --platform CUDA
-============================================================
-
-[Restrained MD v28 - The Absolute Integrity]
-  대상 PDB  : 1개
-  스텝 수   : 10000 (20.0 ps)
-  토폴로지  : cyclic_htc
-  ncAA 라벨 : none (Code: (미지정: XML 이름 검증 생략))
-  바인더    : 체인 B
-  난수 시드 : 42
-  분산 보정 : auto
-  그래프정책: strict
-  플랫폼    : CUDA
-
-  처리 중: keap1_005_af2
-  [WT Mode] ncAA 라벨이 'none'입니다. 야생형(Wild-type) 단백질 일반 MD를 수행합니다.
-  [MD] PDBFixer로 AF2 구조 정리 중...
-  [MD] OpenMM addHydrogens 실행 (선형 구조 토폴로지 동기화)...
-  [INFO] 수소 추가 완료 (선형 캡핑 및 내부 결합 매핑 성공)
-  [Warning] HTC 예측 모호함: N-말단 N과 C-말단 C 거리가 5.67 Å 입니다.
-  [FAIL] 요청한 고리형 토폴로지('cyclic_htc') 형성 실패. 과학적 위험을 방지하기 위해 중단합니다.
-
-========================================
-  [MD 배치 완료 통계]
-  - 총 입력 파일 : 1 개
-  - 성공 (ncAA MD) : 0 개
-  - 스킵 (완료됨 등): 0 개
-  - 실패 (폭발 등) : 1 개
-========================================
-
-============================================================
-[CMD] /home/san/ai_projects/localcolabfold/.pixi/envs/default/bin/python3 /home/san/UPDD_proj/utils/run_cyclic_fold.py --input_csv /home/san/UPDD_proj/UPDD_benchmark/af2_inputs/keap1_005_input.csv --output_dir /home/san/UPDD_proj/UPDD_benchmark/af2_results/keap1_005 --target_pdb /home/san/UPDD_proj/UPDD_benchmark/preprocessed/7K2A_clean.pdb --target_chain B --topology_type cyclic_htc --num_models 5
-============================================================
-2026-04-12 21:34:41,064 [INFO] [AfCycDesign] keap1_005: target=301aa, binder=6aa (cyclic), pdb=7K2A_clean.pdb
-INFO:2026-04-12 21:34:41,865:jax._src.xla_bridge:925: Unable to initialize backend 'rocm': module 'jaxlib.xla_extension' has no attribute 'GpuAllocatorConfig'
-2026-04-12 21:34:41,865 [INFO] Unable to initialize backend 'rocm': module 'jaxlib.xla_extension' has no attribute 'GpuAllocatorConfig'
-INFO:2026-04-12 21:34:41,865:jax._src.xla_bridge:925: Unable to initialize backend 'tpu': INTERNAL: Failed to open libtpu.so: libtpu.so: cannot open shared object file: No such file or directory
-2026-04-12 21:34:41,865 [INFO] Unable to initialize backend 'tpu': INTERNAL: Failed to open libtpu.so: libtpu.so: cannot open shared object file: No such file or directory
-2026-04-12 21:35:11,680 [INFO]   rank 1: pLDDT=0.3, ipTM=0.000
-2026-04-12 21:35:11,716 [INFO]   rank 2: pLDDT=0.3, ipTM=0.000
-2026-04-12 21:35:11,753 [INFO]   rank 3: pLDDT=0.3, ipTM=0.000
-2026-04-12 21:35:11,789 [INFO]   rank 4: pLDDT=0.3, ipTM=0.000
-2026-04-12 21:35:11,825 [INFO]   rank 5: pLDDT=0.3, ipTM=0.000
-predict models [0] recycles 3 hard 1 soft 0 temp 1 loss 4.37 i_con 4.29 plddt 0.18 ptm 0.10 i_ptm 0.09
-predict models [0] recycles 3 hard 1 soft 0 temp 1 loss 4.37 i_con 4.29 plddt 0.18 ptm 0.10 i_ptm 0.09
-predict models [0] recycles 3 hard 1 soft 0 temp 1 loss 4.37 i_con 4.29 plddt 0.18 ptm 0.10 i_ptm 0.09
-predict models [0] recycles 3 hard 1 soft 0 temp 1 loss 4.37 i_con 4.29 plddt 0.18 ptm 0.10 i_ptm 0.09
-predict models [0] recycles 3 hard 1 soft 0 temp 1 loss 4.37 i_con 4.29 plddt 0.18 ptm 0.10 i_ptm 0.09
-
-============================================================
-[CMD] /home/san/ai_projects/localcolabfold/.pixi/envs/default/bin/colabfold_batch /home/san/UPDD_proj/UPDD_benchmark/af2_inputs/keap1_005_input.csv /home/san/UPDD_proj/UPDD_benchmark/af2_results/keap1_005 --num-recycle 3 --pair-mode unpaired_paired --msa-mode mmseqs2_uniref_env
-============================================================
-WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
-E0000 00:00:1775997312.447971 2343193 cuda_dnn.cc:8579] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
-E0000 00:00:1775997312.450371 2343193 cuda_blas.cc:1407] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
-W0000 00:00:1775997312.456944 2343193 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
-W0000 00:00:1775997312.456960 2343193 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
-W0000 00:00:1775997312.456961 2343193 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
-W0000 00:00:1775997312.456962 2343193 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
-
-WARNING: You are welcome to use the default MSA server, however keep in mind that it's a
-limited shared resource only capable of processing a few thousand MSAs per day. Please
-submit jobs only from a single IP address. We reserve the right to limit access to the
-server case-by-case when usage exceeds fair use. If you require more MSAs: You can 
-precompute all MSAs with `colabfold_search` or host your own API and pass it to `--host-url`
-
-W0000 00:00:1775997313.671350 2343193 gpu_device.cc:2430] TensorFlow was not built with CUDA kernel binaries compatible with compute capability 12.0. CUDA kernels will be jit-compiled from PTX, which could take 30 minutes or longer.
-2026-04-12 21:35:13,498 Running colabfold 1.5.5 (83ee93d262a99ad62d6f0897c5ddd37eb918d385)
-2026-04-12 21:35:13,639 Running on GPU
-2026-04-12 21:35:13,702 Found 5 citations for tools or databases
-2026-04-12 21:35:13,702 Query 1/1: keap1_005 (length 307)
-  0%|          | 0/300 [elapsed: 00:00 remaining: ?]SUBMIT:   0%|          | 0/300 [elapsed: 00:00 remaining: ?]COMPLETE:   0%|          | 0/300 [elapsed: 00:00 remaining: ?]COMPLETE: 100%|██████████| 300/300 [elapsed: 00:00 remaining: 00:00]COMPLETE: 100%|██████████| 300/300 [elapsed: 00:00 remaining: 00:00]
-  0%|          | 0/300 [elapsed: 00:00 remaining: ?]SUBMIT:   0%|          | 0/300 [elapsed: 00:00 remaining: ?]COMPLETE:   0%|          | 0/300 [elapsed: 00:00 remaining: ?]COMPLETE: 100%|██████████| 300/300 [elapsed: 00:00 remaining: 00:00]COMPLETE: 100%|██████████| 300/300 [elapsed: 00:00 remaining: 00:00]
-2026-04-12 21:35:14,815 Setting max_seq=508, max_extra_seq=1542
-2026-04-12 21:36:10,460 alphafold2_multimer_v3_model_1_seed_000 recycle=0 pLDDT=93.9 pTM=0.924 ipTM=0.682
-2026-04-12 21:36:34,744 alphafold2_multimer_v3_model_1_seed_000 recycle=1 pLDDT=94.5 pTM=0.932 ipTM=0.66 tol=0.412
-2026-04-12 21:36:34,744 alphafold2_multimer_v3_model_1_seed_000 took 78.1s (1 recycles)
-2026-04-12 21:36:37,140 alphafold2_multimer_v3_model_2_seed_000 recycle=0 pLDDT=95.9 pTM=0.933 ipTM=0.952
-2026-04-12 21:36:39,518 alphafold2_multimer_v3_model_2_seed_000 recycle=1 pLDDT=96.4 pTM=0.938 ipTM=0.957 tol=0.315
-2026-04-12 21:36:39,518 alphafold2_multimer_v3_model_2_seed_000 took 4.7s (1 recycles)
-2026-04-12 21:36:41,908 alphafold2_multimer_v3_model_3_seed_000 recycle=0 pLDDT=93.8 pTM=0.923 ipTM=0.686
-2026-04-12 21:36:44,290 alphafold2_multimer_v3_model_3_seed_000 recycle=1 pLDDT=96.1 pTM=0.936 ipTM=0.956 tol=0.521
-2026-04-12 21:36:46,654 alphafold2_multimer_v3_model_3_seed_000 recycle=2 pLDDT=96 pTM=0.935 ipTM=0.951 tol=0.0593
-2026-04-12 21:36:46,654 alphafold2_multimer_v3_model_3_seed_000 took 7.1s (2 recycles)
-2026-04-12 21:36:49,057 alphafold2_multimer_v3_model_4_seed_000 recycle=0 pLDDT=93.9 pTM=0.924 ipTM=0.664
-2026-04-12 21:36:51,433 alphafold2_multimer_v3_model_4_seed_000 recycle=1 pLDDT=96.1 pTM=0.936 ipTM=0.959 tol=0.496
-2026-04-12 21:36:51,434 alphafold2_multimer_v3_model_4_seed_000 took 4.8s (1 recycles)
-2026-04-12 21:36:53,835 alphafold2_multimer_v3_model_5_seed_000 recycle=0 pLDDT=93.7 pTM=0.925 ipTM=0.646
-2026-04-12 21:36:56,207 alphafold2_multimer_v3_model_5_seed_000 recycle=1 pLDDT=95.8 pTM=0.934 ipTM=0.947 tol=0.518
-2026-04-12 21:36:58,573 alphafold2_multimer_v3_model_5_seed_000 recycle=2 pLDDT=95.9 pTM=0.934 ipTM=0.956 tol=0.0992
-2026-04-12 21:36:58,573 alphafold2_multimer_v3_model_5_seed_000 took 7.1s (2 recycles)
-2026-04-12 21:36:58,602 reranking models by 'multimer' metric
-2026-04-12 21:36:58,602 rank_001_alphafold2_multimer_v3_model_4_seed_000 pLDDT=96.1 pTM=0.936 ipTM=0.959
-2026-04-12 21:36:58,602 rank_002_alphafold2_multimer_v3_model_2_seed_000 pLDDT=96.4 pTM=0.938 ipTM=0.957
-2026-04-12 21:36:58,602 rank_003_alphafold2_multimer_v3_model_5_seed_000 pLDDT=95.9 pTM=0.934 ipTM=0.956
-2026-04-12 21:36:58,602 rank_004_alphafold2_multimer_v3_model_3_seed_000 pLDDT=96 pTM=0.935 ipTM=0.951
-2026-04-12 21:36:58,602 rank_005_alphafold2_multimer_v3_model_1_seed_000 pLDDT=94.5 pTM=0.932 ipTM=0.66
-2026-04-12 21:36:58,957 Done
-
-============================================================
-[CMD] conda run -n md_simulation --no-capture-output python /home/san/UPDD_proj/utils/run_restrained_md.py --inputdir /home/san/UPDD_proj/UPDD_benchmark/results/keap1_005/md_input --outputdir /home/san/UPDD_proj/UPDD_benchmark/results/keap1_005/md --steps 10000 --topology linear --ncaa_label none --binder_chain B --seed 42 --platform CUDA
-============================================================
-
-[Restrained MD v28 - The Absolute Integrity]
-  대상 PDB  : 1개
-  스텝 수   : 10000 (20.0 ps)
-  토폴로지  : linear
-  ncAA 라벨 : none (Code: (미지정: XML 이름 검증 생략))
-  바인더    : 체인 B
-  난수 시드 : 42
-  분산 보정 : auto
-  그래프정책: strict
-  플랫폼    : CUDA
-
-  처리 중: keap1_005_af2
-  [WT Mode] ncAA 라벨이 'none'입니다. 야생형(Wild-type) 단백질 일반 MD를 수행합니다.
-  [MD] PDBFixer로 AF2 구조 정리 중...
-  [MD] OpenMM addHydrogens 실행 (선형 구조 토폴로지 동기화)...
-  [INFO] 수소 추가 완료 (선형 캡핑 및 내부 결합 매핑 성공)
-  원자 수 (용매화 후): 41992
-  [Physics] NonbondedForce Dispersion Correction: 활성화됨 (ON)
-  [Platform] CUDA 선택 (속도 지수 100x)
-  [Stage 1] Staged Minimization...
-    k=N/A: PE = -756154.21 kJ/mol
-  [Stage 2] NVT 워밍업 (10K → 300K, 60ps, dt=2fs)...
-  [Stage 3] NPT 전환...
-  NPT 전환 완료.
-  MD 실행 중 (10000 steps = 20.0 ps)...
-#"Progress (%)","Step","Potential Energy (kJ/mole)","Temperature (K)"
-310.0%,31000,-656313.7196631716,298.20243854743063
-320.0%,32000,-654743.693250603,299.0957097168402
-330.0%,33000,-654195.1804988277,301.531519011883
-340.0%,34000,-653490.1742512351,301.0371389187041
-350.0%,35000,-653888.6458922261,300.9866355452391
-360.0%,36000,-654475.2694029883,301.3159824662061
-370.0%,37000,-654959.9812927456,301.78091884359384
-380.0%,38000,-654654.5945355804,301.23681800182203
-390.0%,39000,-655198.37709864,300.1029675485699
-400.0%,40000,-655273.3156414744,299.84604232713957
-  최종 구조 저장 완료: keap1_005_af2_final.pdb
-
-========================================
-  [MD 배치 완료 통계]
-  - 총 입력 파일 : 1 개
-  - 성공 (ncAA MD) : 0 개
-  - 성공 (야생형 MD) : 1 개
-  - 스킵 (완료됨 등): 0 개
-  - 실패 (폭발 등) : 0 개
-========================================
-
-============================================================
-[CMD] conda run -n md_simulation --no-capture-output python /home/san/UPDD_proj/utils/extract_snapshots.py --md_dir /home/san/UPDD_proj/UPDD_benchmark/results/keap1_005/md --outputdir /home/san/UPDD_proj/UPDD_benchmark/results/keap1_005/snapshots --n_snapshots 5 --binder_chain B
-============================================================
-
-[Snapshot Extraction]
-  DCD 파일  : 1개
-  스냅샷 수 : 5개/궤적
-
-  처리: keap1_005_af2
-  궤적 로드: keap1_005_af2_restrained.dcd
-  프레임 수: 500
-  원자 수  : 41992
-  용매 제거 후 원자 수: 4602
-  바인더 체인 해석: 'B' → chainid 1 (CA 원자 6개)
-  클러스터링 기준 CA 원자: 6개
-  K-Means 클러스터링 (k=5)...
-  선택 프레임: [80, 187, 312, 408, 498]
-  RMSD drift 평균 : 0.650 Å
-  스냅샷 다양성   : 0.609 Å
-  스냅샷  1: 프레임    80 → keap1_005_af2_snap01_f80.pdb
-  스냅샷  2: 프레임   187 → keap1_005_af2_snap02_f187.pdb
-  스냅샷  3: 프레임   312 → keap1_005_af2_snap03_f312.pdb
-  스냅샷  4: 프레임   408 → keap1_005_af2_snap04_f408.pdb
-  스냅샷  5: 프레임   498 → keap1_005_af2_snap05_f498.pdb
-
-  총 5개 스냅샷 저장 완료
-  출력 디렉토리: /home/san/UPDD_proj/UPDD_benchmark/results/keap1_005/snapshots
-  목록 파일    : /home/san/UPDD_proj/UPDD_benchmark/results/keap1_005/snapshots/snapshots_manifest.txt
-dcdplugin) detected standard 32-bit DCD file of native endianness
-dcdplugin) CHARMM format DCD file (also NAMD 2.1 and later)
-
-============================================================
-[CMD] conda run -n md_simulation --no-capture-output python /home/san/UPDD_proj/utils/run_mmgbsa.py --md_dir /home/san/UPDD_proj/UPDD_benchmark/results/keap1_005/md --outputdir /home/san/UPDD_proj/UPDD_benchmark/results/keap1_005/mmgbsa --ncaa_elem none --receptor_chain A --binder_chain B
-============================================================
-
-[MM-GBSA ΔG Calculation]
-  대상 PDB  : 1개
-  GB 모델   : GBn2
-  ncAA 원소 : none
-  Si 반경   : 2.1 Å
-
-  계산: keap1_005_af2_final
-  [split_complex] implicit GB 호환: water/ion/metal 37390개 원자 제거
-  Complex  에너지 계산 중...
-  Receptor 에너지 계산 중...
-  Ligand   에너지 계산 중...
-  E_complex  :  -11899.4564 kcal/mol
-  E_receptor :  -11492.1566 kcal/mol
-  E_ligand   :    -364.2272 kcal/mol
-  ΔG_bind    :     -43.0726 kcal/mol  ✅ 결합 유리
-
-  [ΔG_bind 순위 (낮을수록 강한 결합)]
-  순위   스냅샷                                         ΔG (kcal/mol)
-  --------------------------------------------------------------
-  1    keap1_005_af2_final                            -43.0726  ✅
-
-  평균 ΔG : -43.0726 kcal/mol
-  최선 ΔG : -43.0726 kcal/mol
-  요약 저장: /home/san/UPDD_proj/UPDD_benchmark/results/keap1_005/mmgbsa/mmgbsa_summary.json

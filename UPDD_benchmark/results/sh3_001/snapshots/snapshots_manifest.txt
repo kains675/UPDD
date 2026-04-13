@@ -1,6 +1,0 @@
-# 추출된 스냅샷 목록
-sh3_001_af2_snap01_f37.pdb
-sh3_001_af2_snap02_f142.pdb
-sh3_001_af2_snap03_f388.pdb
-sh3_001_af2_snap04_f440.pdb
-sh3_001_af2_snap05_f496.pdb

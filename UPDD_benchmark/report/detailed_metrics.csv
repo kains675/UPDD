@@ -1,3 +1,0 @@
-peptide_id,target_name,topology,kd_nm,pkd,label,delta_g_kcal,delta_g_corrected,qmmm_interact_kcal,status,failed_stage
-keap1_005,KEAP1,cyclic_htc,20.0,7.699,1,-43.07261162862068,,,MISSING,
-brd4_001,BRD4-BD1,cyclic_htc,0.1,10.000,1,,,,MISSING,

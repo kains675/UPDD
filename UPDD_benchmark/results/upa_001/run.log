@@ -1,239 +1,0 @@
-
-============================================================
-[CMD] conda run -n md_simulation --no-capture-output python /home/san/UPDD_proj/utils/preprocess_target.py --input /home/san/UPDD_proj/UPDD_benchmark/pdbs/6A8N.pdb --output /home/san/UPDD_proj/UPDD_benchmark/preprocessed/6A8N_clean.pdb --chains A --hetatm_mode auto
-============================================================
-
-[+] PDBFixer를 통한 유실된 루프 및 원자 복구 시작...
-[+] PDBFixer 수술 완료: /home/san/UPDD_proj/UPDD_benchmark/preprocessed/6A8N_clean.pdb
-[+] 전처리 리포트 생성 완료: /home/san/UPDD_proj/UPDD_benchmark/preprocessed/6A8N_clean_preprocess_report.csv
-[+] 최종 출력: /home/san/UPDD_proj/UPDD_benchmark/preprocessed/6A8N_clean.pdb
-
-============================================================
-[CMD] /home/san/ai_projects/localcolabfold/.pixi/envs/default/bin/colabfold_batch /home/san/UPDD_proj/UPDD_benchmark/af2_inputs/upa_001_input.csv /home/san/UPDD_proj/UPDD_benchmark/af2_results/upa_001 --num-recycle 3 --pair-mode unpaired_paired --msa-mode mmseqs2_uniref_env
-============================================================
-WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
-E0000 00:00:1775984325.408044 2267479 cuda_dnn.cc:8579] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
-E0000 00:00:1775984325.410467 2267479 cuda_blas.cc:1407] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
-W0000 00:00:1775984325.417087 2267479 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
-W0000 00:00:1775984325.417103 2267479 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
-W0000 00:00:1775984325.417105 2267479 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
-W0000 00:00:1775984325.417106 2267479 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
-
-WARNING: You are welcome to use the default MSA server, however keep in mind that it's a
-limited shared resource only capable of processing a few thousand MSAs per day. Please
-submit jobs only from a single IP address. We reserve the right to limit access to the
-server case-by-case when usage exceeds fair use. If you require more MSAs: You can 
-precompute all MSAs with `colabfold_search` or host your own API and pass it to `--host-url`
-
-W0000 00:00:1775984326.572893 2267479 gpu_device.cc:2430] TensorFlow was not built with CUDA kernel binaries compatible with compute capability 12.0. CUDA kernels will be jit-compiled from PTX, which could take 30 minutes or longer.
-2026-04-12 17:58:46,369 Running colabfold 1.5.5 (83ee93d262a99ad62d6f0897c5ddd37eb918d385)
-2026-04-12 17:58:46,540 Running on GPU
-2026-04-12 17:58:46,663 Found 5 citations for tools or databases
-2026-04-12 17:58:46,663 Query 1/1: upa_001 (length 255)
-  0%|          | 0/300 [elapsed: 00:00 remaining: ?]SUBMIT:   0%|          | 0/300 [elapsed: 00:00 remaining: ?]PENDING:   0%|          | 0/300 [elapsed: 00:00 remaining: ?]                                                             PENDING:   0%|          | 0/300 [elapsed: 00:00 remaining: ?]PENDING:   0%|          | 0/300 [elapsed: 00:08 remaining: ?]                                                             PENDING:   0%|          | 0/300 [elapsed: 00:08 remaining: ?]RUNNING:   0%|          | 0/300 [elapsed: 00:14 remaining: ?]RUNNING:   2%|▏         | 6/300 [elapsed: 00:14 remaining: 11:40]                                                                 RUNNING:   2%|▏         | 6/300 [elapsed: 00:14 remaining: 11:40]RUNNING:   2%|▏         | 6/300 [elapsed: 00:23 remaining: 11:40]RUNNING:   5%|▌         | 15/300 [elapsed: 00:23 remaining: 06:51]                                                                  RUNNING:   5%|▌         | 15/300 [elapsed: 00:23 remaining: 06:51]RUNNING:   5%|▌         | 15/300 [elapsed: 00:32 remaining: 06:51]RUNNING:   8%|▊         | 24/300 [elapsed: 00:32 remaining: 05:39]                                                                  RUNNING:   8%|▊         | 24/300 [elapsed: 00:32 remaining: 05:39]RUNNING:   8%|▊         | 24/300 [elapsed: 00:40 remaining: 05:39]RUNNING:  11%|█         | 32/300 [elapsed: 00:40 remaining: 05:06]                                                                  RUNNING:  11%|█         | 32/300 [elapsed: 00:40 remaining: 05:06]RUNNING:  11%|█         | 32/300 [elapsed: 00:47 remaining: 05:06]RUNNING:  13%|█▎        | 39/300 [elapsed: 00:47 remaining: 04:47]                                                                  RUNNING:  13%|█▎        | 39/300 [elapsed: 00:47 remaining: 04:47]RUNNING:  13%|█▎        | 39/300 [elapsed: 00:56 remaining: 04:47]RUNNING:  16%|█▌        | 48/300 [elapsed: 00:56 remaining: 04:28]                                                                  RUNNING:  16%|█▌        | 48/300 [elapsed: 00:56 remaining: 04:28]RUNNING:  16%|█▌        | 48/300 [elapsed: 01:02 remaining: 04:28]RUNNING:  18%|█▊        | 54/300 [elapsed: 01:02 remaining: 04:18]                                                                  RUNNING:  18%|█▊        | 54/300 [elapsed: 01:02 remaining: 04:18]RUNNING:  18%|█▊        | 54/300 [elapsed: 01:08 remaining: 04:18]RUNNING:  20%|██        | 60/300 [elapsed: 01:08 remaining: 04:09]                                                                  RUNNING:  20%|██        | 60/300 [elapsed: 01:08 remaining: 04:09]RUNNING:  20%|██        | 60/300 [elapsed: 01:15 remaining: 04:09]RUNNING:  22%|██▏       | 67/300 [elapsed: 01:15 remaining: 04:00]                                                                  RUNNING:  22%|██▏       | 67/300 [elapsed: 01:15 remaining: 04:00]RUNNING:  22%|██▏       | 67/300 [elapsed: 01:20 remaining: 04:00]RUNNING:  24%|██▍       | 72/300 [elapsed: 01:20 remaining: 03:53]                                                                  RUNNING:  24%|██▍       | 72/300 [elapsed: 01:20 remaining: 03:53]RUNNING:  24%|██▍       | 72/300 [elapsed: 01:25 remaining: 03:53]RUNNING:  26%|██▌       | 77/300 [elapsed: 01:25 remaining: 03:48]                                                                  RUNNING:  26%|██▌       | 77/300 [elapsed: 01:26 remaining: 03:48]RUNNING:  26%|██▌       | 77/300 [elapsed: 01:35 remaining: 03:48]RUNNING:  29%|██▊       | 86/300 [elapsed: 01:35 remaining: 03:38]                                                                  RUNNING:  29%|██▊       | 86/300 [elapsed: 01:35 remaining: 03:38]RUNNING:  29%|██▊       | 86/300 [elapsed: 01:42 remaining: 03:38]RUNNING:  31%|███       | 93/300 [elapsed: 01:42 remaining: 03:30]                                                                  RUNNING:  31%|███       | 93/300 [elapsed: 01:42 remaining: 03:30]RUNNING:  31%|███       | 93/300 [elapsed: 01:48 remaining: 03:30]RUNNING:  33%|███▎      | 99/300 [elapsed: 01:48 remaining: 03:24]                                                                  RUNNING:  33%|███▎      | 99/300 [elapsed: 01:48 remaining: 03:24]COMPLETE:  33%|███▎      | 99/300 [elapsed: 01:56 remaining: 03:24]COMPLETE: 100%|██████████| 300/300 [elapsed: 01:56 remaining: 00:00]COMPLETE: 100%|██████████| 300/300 [elapsed: 01:56 remaining: 00:00]
-2026-04-12 17:58:46,780 Sleeping for 8s. Reason: PENDING
-2026-04-12 17:58:54,861 Sleeping for 6s. Reason: PENDING
-2026-04-12 17:59:00,950 Sleeping for 9s. Reason: RUNNING
-2026-04-12 17:59:10,024 Sleeping for 9s. Reason: RUNNING
-2026-04-12 17:59:19,089 Sleeping for 8s. Reason: RUNNING
-2026-04-12 17:59:27,166 Sleeping for 7s. Reason: RUNNING
-2026-04-12 17:59:34,248 Sleeping for 9s. Reason: RUNNING
-2026-04-12 17:59:43,313 Sleeping for 6s. Reason: RUNNING
-2026-04-12 17:59:49,373 Sleeping for 6s. Reason: RUNNING
-2026-04-12 17:59:55,448 Sleeping for 7s. Reason: RUNNING
-2026-04-12 18:00:02,513 Sleeping for 5s. Reason: RUNNING
-2026-04-12 18:00:07,569 Sleeping for 5s. Reason: RUNNING
-2026-04-12 18:00:12,691 Sleeping for 9s. Reason: RUNNING
-2026-04-12 18:00:21,758 Sleeping for 7s. Reason: RUNNING
-2026-04-12 18:00:28,819 Sleeping for 6s. Reason: RUNNING
-2026-04-12 18:00:34,919 Sleeping for 8s. Reason: RUNNING
-  0%|          | 0/300 [elapsed: 00:00 remaining: ?]SUBMIT:   0%|          | 0/300 [elapsed: 00:00 remaining: ?]PENDING:   0%|          | 0/300 [elapsed: 00:00 remaining: ?]                                                             PENDING:   0%|          | 0/300 [elapsed: 00:00 remaining: ?]RUNNING:   0%|          | 0/300 [elapsed: 00:06 remaining: ?]RUNNING:   2%|▏         | 6/300 [elapsed: 00:06 remaining: 05:03]                                                                 RUNNING:   2%|▏         | 6/300 [elapsed: 00:06 remaining: 05:03]RUNNING:   2%|▏         | 6/300 [elapsed: 00:16 remaining: 05:03]RUNNING:   5%|▌         | 16/300 [elapsed: 00:16 remaining: 04:47]                                                                  RUNNING:   5%|▌         | 16/300 [elapsed: 00:16 remaining: 04:47]RUNNING:   5%|▌         | 16/300 [elapsed: 00:25 remaining: 04:47]RUNNING:   8%|▊         | 25/300 [elapsed: 00:25 remaining: 04:38]                                                                  RUNNING:   8%|▊         | 25/300 [elapsed: 00:25 remaining: 04:38]RUNNING:   8%|▊         | 25/300 [elapsed: 00:31 remaining: 04:38]RUNNING:  10%|█         | 31/300 [elapsed: 00:31 remaining: 04:31]                                                                  RUNNING:  10%|█         | 31/300 [elapsed: 00:31 remaining: 04:31]RUNNING:  10%|█         | 31/300 [elapsed: 00:41 remaining: 04:31]RUNNING:  14%|█▎        | 41/300 [elapsed: 00:41 remaining: 04:21]                                                                  RUNNING:  14%|█▎        | 41/300 [elapsed: 00:41 remaining: 04:21]RUNNING:  14%|█▎        | 41/300 [elapsed: 00:47 remaining: 04:21]RUNNING:  16%|█▌        | 47/300 [elapsed: 00:47 remaining: 04:15]                                                                  RUNNING:  16%|█▌        | 47/300 [elapsed: 00:47 remaining: 04:15]COMPLETE:  16%|█▌        | 47/300 [elapsed: 00:56 remaining: 04:15]COMPLETE: 100%|██████████| 300/300 [elapsed: 00:56 remaining: 00:00]COMPLETE: 100%|██████████| 300/300 [elapsed: 00:56 remaining: 00:00]
-2026-04-12 18:00:43,316 Sleeping for 6s. Reason: PENDING
-2026-04-12 18:00:49,415 Sleeping for 10s. Reason: RUNNING
-2026-04-12 18:00:59,471 Sleeping for 9s. Reason: RUNNING
-2026-04-12 18:01:08,548 Sleeping for 6s. Reason: RUNNING
-2026-04-12 18:01:14,615 Sleeping for 10s. Reason: RUNNING
-2026-04-12 18:01:24,696 Sleeping for 6s. Reason: RUNNING
-2026-04-12 18:01:30,765 Sleeping for 9s. Reason: RUNNING
-2026-04-12 18:01:40,400 Setting max_seq=508, max_extra_seq=1542
-2026-04-12 18:02:34,195 alphafold2_multimer_v3_model_1_seed_000 recycle=0 pLDDT=94.1 pTM=0.933 ipTM=0.795
-2026-04-12 18:02:57,740 alphafold2_multimer_v3_model_1_seed_000 recycle=1 pLDDT=95.7 pTM=0.94 ipTM=0.885 tol=0.276
-2026-04-12 18:02:57,740 alphafold2_multimer_v3_model_1_seed_000 took 75.5s (1 recycles)
-2026-04-12 18:02:59,441 alphafold2_multimer_v3_model_2_seed_000 recycle=0 pLDDT=94.1 pTM=0.934 ipTM=0.815
-2026-04-12 18:03:01,081 alphafold2_multimer_v3_model_2_seed_000 recycle=1 pLDDT=96.3 pTM=0.941 ipTM=0.918 tol=0.223
-2026-04-12 18:03:01,082 alphafold2_multimer_v3_model_2_seed_000 took 3.3s (1 recycles)
-2026-04-12 18:03:02,783 alphafold2_multimer_v3_model_3_seed_000 recycle=0 pLDDT=91.9 pTM=0.914 ipTM=0.345
-2026-04-12 18:03:04,463 alphafold2_multimer_v3_model_3_seed_000 recycle=1 pLDDT=94.1 pTM=0.934 ipTM=0.683 tol=0.553
-2026-04-12 18:03:06,098 alphafold2_multimer_v3_model_3_seed_000 recycle=2 pLDDT=96.5 pTM=0.946 ipTM=0.919 tol=0.154
-2026-04-12 18:03:06,098 alphafold2_multimer_v3_model_3_seed_000 took 5.0s (2 recycles)
-2026-04-12 18:03:07,795 alphafold2_multimer_v3_model_4_seed_000 recycle=0 pLDDT=91.3 pTM=0.907 ipTM=0.216
-2026-04-12 18:03:09,479 alphafold2_multimer_v3_model_4_seed_000 recycle=1 pLDDT=96.2 pTM=0.943 ipTM=0.922 tol=3.06
-2026-04-12 18:03:11,159 alphafold2_multimer_v3_model_4_seed_000 recycle=2 pLDDT=96.8 pTM=0.945 ipTM=0.943 tol=0.145
-2026-04-12 18:03:11,159 alphafold2_multimer_v3_model_4_seed_000 took 5.0s (2 recycles)
-2026-04-12 18:03:12,834 alphafold2_multimer_v3_model_5_seed_000 recycle=0 pLDDT=92 pTM=0.915 ipTM=0.37
-2026-04-12 18:03:14,515 alphafold2_multimer_v3_model_5_seed_000 recycle=1 pLDDT=94 pTM=0.937 ipTM=0.73 tol=3.49
-2026-04-12 18:03:16,193 alphafold2_multimer_v3_model_5_seed_000 recycle=2 pLDDT=96.6 pTM=0.947 ipTM=0.927 tol=0.23
-2026-04-12 18:03:16,194 alphafold2_multimer_v3_model_5_seed_000 took 5.0s (2 recycles)
-2026-04-12 18:03:16,214 reranking models by 'multimer' metric
-2026-04-12 18:03:16,214 rank_001_alphafold2_multimer_v3_model_4_seed_000 pLDDT=96.8 pTM=0.945 ipTM=0.943
-2026-04-12 18:03:16,214 rank_002_alphafold2_multimer_v3_model_5_seed_000 pLDDT=96.6 pTM=0.947 ipTM=0.927
-2026-04-12 18:03:16,215 rank_003_alphafold2_multimer_v3_model_3_seed_000 pLDDT=96.5 pTM=0.946 ipTM=0.919
-2026-04-12 18:03:16,215 rank_004_alphafold2_multimer_v3_model_2_seed_000 pLDDT=96.3 pTM=0.941 ipTM=0.918
-2026-04-12 18:03:16,215 rank_005_alphafold2_multimer_v3_model_1_seed_000 pLDDT=95.7 pTM=0.94 ipTM=0.885
-2026-04-12 18:03:16,548 Done
-
-============================================================
-[CMD] conda run -n md_simulation --no-capture-output python /home/san/UPDD_proj/utils/run_restrained_md.py --inputdir /home/san/UPDD_proj/UPDD_benchmark/results/upa_001/md_input --outputdir /home/san/UPDD_proj/UPDD_benchmark/results/upa_001/md --steps 50000 --topology cyclic_ss --ncaa_label none --binder_chain B --seed 42 --platform CUDA
-============================================================
-
-[Restrained MD v28 - The Absolute Integrity]
-  대상 PDB  : 1개
-  스텝 수   : 50000 (100.0 ps)
-  토폴로지  : cyclic_ss
-  ncAA 라벨 : none (Code: (미지정: XML 이름 검증 생략))
-  바인더    : 체인 B
-  난수 시드 : 42
-  분산 보정 : auto
-  그래프정책: strict
-  플랫폼    : CUDA
-
-  처리 중: upa_001_af2
-  [WT Mode] ncAA 라벨이 'none'입니다. 야생형(Wild-type) 단백질 일반 MD를 수행합니다.
-  [MD] PDBFixer로 AF2 구조 정리 중...
-  [MD] OpenMM addHydrogens 실행 (선형 구조 토폴로지 동기화)...
-  [INFO] 수소 추가 완료 (선형 캡핑 및 내부 결합 매핑 성공)
-  [Warning] HTC 예측 모호함: N-말단 N과 C-말단 C 거리가 6.35 Å 입니다.
-  [cyclic_ss] Disulfide bond 이미 존재함: CYS1.SG ↔ CYS10.SG
-  원자 수 (용매화 후): 34763
-  [Physics] NonbondedForce Dispersion Correction: 활성화됨 (ON)
-  [Platform] CUDA 선택 (속도 지수 100x)
-  [Stage 1] Staged Minimization...
-    k=N/A: PE = -612475.02 kJ/mol
-  [Stage 2] NVT 워밍업 (10K → 300K, 60ps, dt=2fs)...
-  [Stage 3] NPT 전환...
-  NPT 전환 완료.
-  MD 실행 중 (50000 steps = 100.0 ps)...
-#"Progress (%)","Step","Potential Energy (kJ/mole)","Temperature (K)"
-70.0%,35000,-528308.6213462122,300.7596143844671
-80.0%,40000,-530067.4526314198,301.85883860831916
-90.0%,45000,-529252.057450677,297.1378121004261
-100.0%,50000,-529720.3135443334,300.89607649466313
-110.0%,55000,-530280.800517973,299.25772070135343
-120.0%,60000,-529106.7496233224,301.11790386134743
-130.0%,65000,-530818.0726178621,299.3111429735553
-140.0%,70000,-529552.8916847478,300.3301234057297
-150.0%,75000,-529409.8157622879,302.1231949466727
-160.0%,80000,-529489.2916825234,302.34891405397184
-  최종 구조 저장 완료: upa_001_af2_final.pdb
-  [Visual] SS CONECT 추가 완료 (SG1=3793, SG2=3930)
-
-========================================
-  [MD 배치 완료 통계]
-  - 총 입력 파일 : 1 개
-  - 성공 (ncAA MD) : 0 개
-  - 성공 (야생형 MD) : 1 개
-  - 스킵 (완료됨 등): 0 개
-  - 실패 (폭발 등) : 0 개
-========================================
-
-============================================================
-[CMD] conda run -n md_simulation --no-capture-output python /home/san/UPDD_proj/utils/extract_snapshots.py --md_dir /home/san/UPDD_proj/UPDD_benchmark/results/upa_001/md --outputdir /home/san/UPDD_proj/UPDD_benchmark/results/upa_001/snapshots --n_snapshots 5 --binder_chain B
-============================================================
-
-[Snapshot Extraction]
-  DCD 파일  : 1개
-  스냅샷 수 : 5개/궤적
-
-  처리: upa_001_af2
-  궤적 로드: upa_001_af2_restrained.dcd
-  프레임 수: 500
-  원자 수  : 34763
-  용매 제거 후 원자 수: 3930
-  바인더 체인 해석: 'B' → chainid 1 (CA 원자 10개)
-  클러스터링 기준 CA 원자: 10개
-  K-Means 클러스터링 (k=5)...
-  선택 프레임: [49, 75, 194, 245, 407]
-  RMSD drift 평균 : 17.127 Å
-  스냅샷 다양성   : 0.661 Å
-  스냅샷  1: 프레임    49 → upa_001_af2_snap01_f49.pdb
-  스냅샷  2: 프레임    75 → upa_001_af2_snap02_f75.pdb
-  스냅샷  3: 프레임   194 → upa_001_af2_snap03_f194.pdb
-  스냅샷  4: 프레임   245 → upa_001_af2_snap04_f245.pdb
-  스냅샷  5: 프레임   407 → upa_001_af2_snap05_f407.pdb
-
-  총 5개 스냅샷 저장 완료
-  출력 디렉토리: /home/san/UPDD_proj/UPDD_benchmark/results/upa_001/snapshots
-  목록 파일    : /home/san/UPDD_proj/UPDD_benchmark/results/upa_001/snapshots/snapshots_manifest.txt
-dcdplugin) detected standard 32-bit DCD file of native endianness
-dcdplugin) CHARMM format DCD file (also NAMD 2.1 and later)
-
-============================================================
-[CMD] conda run -n qmmm --no-capture-output python /home/san/UPDD_proj/utils/run_qmmm.py --snapdir /home/san/UPDD_proj/UPDD_benchmark/results/upa_001/snapshots --outputdir /home/san/UPDD_proj/UPDD_benchmark/results/upa_001/qmmm --mode fast --cutoff 5.0 --qm_basis 6-31G* --qm_xc wb97x-d3 --ncaa_elem none --binder_chain B
-============================================================
-[amber_charges] WARN: ff14SB 부분전하 합산이 기대값에서 벗어났습니다 (편차 > 0.05 e):
-  - HID: 합=+0.0632, 기대=+0, 편차=0.0632
-  - HIP: 합=+1.1377, 기대=+1, 편차=0.1377
-  - PHE: 합=-0.0954, 기대=+0, 편차=0.0954
-  → 이는 일부 양성자화 H 원자 누락에 기인한 것으로 추정됩니다.
-  → 파이프라인 동작은 정상이며, 데이터 정밀도 개선을 권고합니다.
-
-[QM/MM Calculation]
-  스냅샷 수 : 5개
-  수준      : wb97x-d3/6-31G*
-  QM cutoff : 5.0 Å
-  ncAA 원소 : none
-
-  [Skip] 구조 붕괴 감지: RMSD 17.127Å (기준 4.0Å 초과)
-  [!] upa_001_af2_snap01_f49.pdb의 QM/MM을 0점 처리하고 스킵합니다.
-
-  [Skip] 구조 붕괴 감지: RMSD 17.127Å (기준 4.0Å 초과)
-  [!] upa_001_af2_snap02_f75.pdb의 QM/MM을 0점 처리하고 스킵합니다.
-
-  [Skip] 구조 붕괴 감지: RMSD 17.127Å (기준 4.0Å 초과)
-  [!] upa_001_af2_snap03_f194.pdb의 QM/MM을 0점 처리하고 스킵합니다.
-
-  [Skip] 구조 붕괴 감지: RMSD 17.127Å (기준 4.0Å 초과)
-  [!] upa_001_af2_snap04_f245.pdb의 QM/MM을 0점 처리하고 스킵합니다.
-
-  [Skip] 구조 붕괴 감지: RMSD 17.127Å (기준 4.0Å 초과)
-  [!] upa_001_af2_snap05_f407.pdb의 QM/MM을 0점 처리하고 스킵합니다.
-
-  완료: 5/5 수렴
-
-  [에너지 순위 (낮을수록 안정)]
-   1. upa_001_af2_snap01_f49                    E=        0.0000 kcal/mol  QM-MM=+0.00 kcal/mol
-   2. upa_001_af2_snap02_f75                    E=        0.0000 kcal/mol  QM-MM=+0.00 kcal/mol
-   3. upa_001_af2_snap03_f194                   E=        0.0000 kcal/mol  QM-MM=+0.00 kcal/mol
-   4. upa_001_af2_snap04_f245                   E=        0.0000 kcal/mol  QM-MM=+0.00 kcal/mol
-   5. upa_001_af2_snap05_f407                   E=        0.0000 kcal/mol  QM-MM=+0.00 kcal/mol
-
-  요약 저장: /home/san/UPDD_proj/UPDD_benchmark/results/upa_001/qmmm/qmmm_summary.json
-
-============================================================
-[CMD] conda run -n md_simulation --no-capture-output python /home/san/UPDD_proj/utils/run_mmgbsa.py --md_dir /home/san/UPDD_proj/UPDD_benchmark/results/upa_001/md --outputdir /home/san/UPDD_proj/UPDD_benchmark/results/upa_001/mmgbsa --ncaa_elem none --receptor_chain A --binder_chain B
-============================================================
-
-[MM-GBSA ΔG Calculation]
-  대상 PDB  : 1개
-  GB 모델   : GBn2
-  ncAA 원소 : none
-  Si 반경   : 2.1 Å
-
-  계산: upa_001_af2_final
-  [split_complex] implicit GB 호환: water/ion/metal 30833개 원자 제거
-  Complex  에너지 계산 중...
-  Receptor 에너지 계산 중...
-  Ligand   에너지 계산 중...
-  E_complex  :   -7601.2670 kcal/mol
-  E_receptor :   -7134.8532 kcal/mol
-  E_ligand   :    -389.5891 kcal/mol
-  ΔG_bind    :     -76.8247 kcal/mol  ✅ 결합 유리
-
-  [ΔG_bind 순위 (낮을수록 강한 결합)]
-  순위   스냅샷                                         ΔG (kcal/mol)
-  --------------------------------------------------------------
-  1    upa_001_af2_final                              -76.8247  ✅
-
-  평균 ΔG : -76.8247 kcal/mol
-  최선 ΔG : -76.8247 kcal/mol
-  요약 저장: /home/san/UPDD_proj/UPDD_benchmark/results/upa_001/mmgbsa/mmgbsa_summary.json

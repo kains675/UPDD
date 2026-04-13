@@ -1,6 +1,0 @@
-# 추출된 스냅샷 목록
-cam_002_af2_snap01_f101.pdb
-cam_002_af2_snap02_f210.pdb
-cam_002_af2_snap03_f236.pdb
-cam_002_af2_snap04_f287.pdb
-cam_002_af2_snap05_f354.pdb

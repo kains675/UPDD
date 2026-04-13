@@ -1,4 +1,0 @@
-section,chain,resid,icode,resname,value
-kept_het,D,601,,NAG,distance<=5A
-kept_het,D,602,,NAG,distance<=5A
-pdbfixer,,,,,applied

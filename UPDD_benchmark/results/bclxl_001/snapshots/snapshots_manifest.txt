@@ -1,6 +1,0 @@
-# 추출된 스냅샷 목록
-bclxl_001_af2_snap01_f13.pdb
-bclxl_001_af2_snap02_f73.pdb
-bclxl_001_af2_snap03_f150.pdb
-bclxl_001_af2_snap04_f316.pdb
-bclxl_001_af2_snap05_f425.pdb

@@ -1,8 +1,0 @@
-- inference.input_pdb=/home/san/UPDD_proj/target/6WGN.pdb
-- inference.output_prefix=/home/san/UPDD_proj/outputs/6WGN_cyclic_htc_NMA_10_20-25/designs/design_w4
-- inference.num_designs=2
-- contigmap.contigs=['A1-34/A38-169/0 20-25']
-- diffuser.T=50
-- inference.ckpt_override_path=/home/san/ai_projects/RFdiffusion/models/Complex_base_ckpt.pt
-- +inference.cyclic_peptide=True
-- ppi.hotspot_res=[A60,A61,A62,A63,A64,A65]

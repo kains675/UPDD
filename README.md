@@ -44,4 +44,5 @@ This project is proprietary. All rights reserved.
 
 ## Author
 
-PotionMaker — Computational Peptide Chemistry & AI-driven Drug Design
+PotionMaker — Independent Researcher
+Bio-Organic Chemistry & Computational Peptide Chemistry & AI-driven Drug Design

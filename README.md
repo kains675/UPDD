@@ -50,10 +50,16 @@ Current AI-driven peptide design pipelines typically stop at structure predictio
 
 ## Hardware Requirements
 
-Developed and tested on:
-- **GPU**: NVIDIA RTX 5070 Ti (16GB VRAM)
-- **CPU**: AMD Ryzen 9800X3D (8C/16T)
-- **RAM**: 32GB
+UPDD is designed to run on a **single consumer-grade workstation** — no HPC cluster or cloud GPU required.
+
+| Component | Spec | Note |
+|-----------|------|------|
+| OS | Ubuntu 24.04.4 LTS | |
+| GPU | NVIDIA RTX 5070 Ti (16GB) | Single consumer GPU — adaptive parallelism handles VRAM constraints |
+| CPU | AMD Ryzen 9800X3D (8C/16T) | MM-GBSA runs on CPU in parallel while GPU handles DFT |
+| RAM | 32GB | Sufficient for all pipeline stages |
+
+Most existing pipelines (RFdiffusion [[2]](#references), ProteinDJ) are benchmarked on A100/A30 HPC clusters. UPDD achieves the same workflow — including QM/MM DFT — on hardware accessible to independent researchers and small labs.
 
 ## References
 

@@ -22,6 +22,23 @@ RFdiffusion → ProteinMPNN → AlphaFold2 → ncAA Substitution → MD → QM/M
 | Electronic Structure | gpu4pyscf (ωB97X-D/6-31G*) | QM/MM single-point energy with adaptive GPU parallelism |
 | Binding Energy | OpenMM (GBn2) | MM-GBSA ΔG estimation |
 
+## Why UPDD?
+
+Current AI-driven peptide design pipelines typically stop at structure prediction, relying on experimental validation to assess binding. Furthermore, state-of-the-art tools like RFdiffusion and ProteinMPNN were trained exclusively on canonical amino acids and **cannot model ncAAs** [[1]](#references). UPDD addresses both gaps:
+
+| Capability | RFdiffusion | NCFlow | CyclicChamp | **UPDD** |
+|------------|:---:|:---:|:---:|:---:|
+| *De novo* backbone generation | ✅ | — | ✅ | ✅ |
+| Protein binder design | ✅ | — | — | ✅ |
+| ncAA integration | — | ✅ | ✅ | ✅ |
+| Force field parametrization | — | — | Rosetta | GAFF2 |
+| Molecular dynamics | — | — | validation only | ✅ |
+| QM/MM (DFT) | — | — | — | **✅** |
+| MM-GBSA ΔG | — | — | — | **✅** |
+| End-to-end automation | — | — | — | **✅** |
+
+**UPDD is, to our knowledge, the first pipeline that integrates AI-driven generative design with ncAA substitution, MD simulation, and quantum-mechanical binding validation in a single automated workflow.**
+
 ## Key Features
 
 - **ncAA Support**: 13+ non-canonical amino acids (N-methylalanine, silaproline, halogenated phenylalanines, D-amino acids, etc.)
@@ -37,6 +54,14 @@ Developed and tested on:
 - **GPU**: NVIDIA RTX 5070 Ti (16GB VRAM)
 - **CPU**: AMD Ryzen 9800X3D (8C/16T)
 - **RAM**: 32GB
+
+## References
+
+1. Lee & Kim, "Design of peptides with non-canonical amino acids using flow matching," *bioRxiv* (2025). — Documents that RFdiffusion/BindCraft cannot model ncAAs.
+2. Watson et al., "De novo design of protein structure and function with RFdiffusion," *Nature* **620**, 1089–1100 (2023).
+3. Dauparas et al., "Robust deep learning–based protein sequence design using ProteinMPNN," *Science* **378**, 49–56 (2022).
+4. Zhu et al., "Heuristic energy-based cyclic peptide design," *PLoS Comput Biol* **21**(4), e1012290 (2025). — Rosetta-based ncAA cyclic peptide design (no binder design, no DFT).
+5. Rettie et al., "Cyclic peptide design with RFpeptides," *Nat Chem Biol* (2025).
 
 ## License
 

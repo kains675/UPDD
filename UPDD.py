@@ -1248,9 +1248,21 @@ def execute_qmmm(snap_dir: str, qmmm_mode: str, ncaa_element: str, af2_out_dir: 
 
             if oom_failed:
                 pending_ids = [r["id"] for r in oom_failed]
-                # OOM 실패 디자인의 기존 결과 JSON 정리 (재계산 위해)
+                # [#14 v0.2] OOM 실패 디자인의 기존 JSON 정리 — 단, 유효 결과는 보존.
+                # 유효성 기준: converged=True AND interaction_kcal not in (None, 0.0).
+                # 무효(0.0/None/converged=False) JSON 만 제거하여 재계산 대상으로 돌린다.
                 for r in oom_failed:
                     for stale in glob.glob(os.path.join(qmmm_out, f"{r['id']}*_qmmm_*.json")):
+                        try:
+                            with open(stale, "r", encoding="utf-8") as _sf:
+                                _sdata = json.load(_sf)
+                            _ie = _sdata.get("interaction_kcal")
+                            _cv = _sdata.get("converged", False)
+                            if _cv and _ie not in (None, 0.0):
+                                print(f"  [Resume] 유효 JSON 보존: {stale}")
+                                continue
+                        except (json.JSONDecodeError, IOError, KeyError, TypeError):
+                            pass
                         os.remove(stale)
                 new_workers = max(1, current_workers - 1)
                 print(f"\n  [Adaptive] OOM {len(oom_failed)}개 감지. "
@@ -1530,7 +1542,8 @@ def main() -> None:
     mmgbsa_out = os.path.join(target_out_dir, "mmgbsa_results")
     os.makedirs(mmgbsa_out, exist_ok=True)
     mmgbsa_args = [
-        "--md_dir",          os.path.join(target_out_dir, "mdresult"),
+        # [#18 v0.2] MD 최종 PDB 1개 → MD 스냅샷 다수로 변경 (ensemble ΔG).
+        "--md_dir",          snap_dir,
         "--outputdir",       mmgbsa_out,
         "--ncaa_elem",       ncaa_def.element if ncaa_def else "none",
         "--receptor_chain",  target_chain,

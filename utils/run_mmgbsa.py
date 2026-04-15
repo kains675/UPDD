@@ -546,6 +546,35 @@ def calc_mmgbsa(pdb_path, output_dir, ff, ncaa_elem, si_radius, receptor_chain="
 
 
 # ==========================================
+# CPU 병렬 워커 (v0.2 — multiprocessing.Pool)
+# ==========================================
+def _mmgbsa_worker(worker_args):
+    """multiprocessing.Pool 워커. ForceField 는 pickle 불가능할 수 있어
+    경로만 전달받고 워커 내부에서 재구성한다. 한 스냅샷의 실패가 다른
+    스냅샷을 중단시키지 않도록 예외를 포착하여 None 을 반환한다.
+    """
+    (pdb_path, outputdir, ff_files, ncaa_xmls, ncaa_hydrogens,
+     ncaa_elem, si_radius, receptor_chain, binder_chain) = worker_args
+    try:
+        # ncAA Hydrogens 는 프로세스별로 한 번만 로드
+        for h_xml in ncaa_hydrogens:
+            try:
+                app.Modeller.loadHydrogenDefinitions(h_xml)
+            except Exception:
+                pass
+        try:
+            ff = ForceField(*ff_files, *ncaa_xmls)
+        except Exception:
+            ff = ForceField(*ff_files)
+        return calc_mmgbsa(
+            pdb_path, outputdir, ff, ncaa_elem, si_radius, receptor_chain, binder_chain
+        )
+    except Exception as _werr:
+        print(f"  [!] 워커 실패 ({os.path.basename(pdb_path)}): {_werr}")
+        return None
+
+
+# ==========================================
 # CLI 메인
 # ==========================================
 def main():
@@ -618,11 +647,36 @@ def main():
     print(f"  ncAA 원소 : {args.ncaa_elem}")
     print(f"  Si 반경   : {args.si_radius} Å")
 
+    # [v0.2] CPU 멀티프로세싱 — ForceField 객체는 pickle 불가능할 수 있으므로
+    # ff_files/ncaa_xmls/ncaa_hydrogens 경로 리스트를 워커에 전달하여
+    # 각 워커가 독립적으로 ForceField 를 재구성한다. 한 스냅샷 실패가 전체를
+    # 중단시키지 않도록 try/except 로 감싼다.
+    import multiprocessing as _mp
+
+    _worker_args_list = [
+        (
+            pdb_path, args.outputdir,
+            list(ff_files), list(ncaa_xmls), list(ncaa_hydrogens),
+            args.ncaa_elem, args.si_radius, args.receptor_chain, args.binder_chain,
+        )
+        for pdb_path in pdb_files
+    ]
+
+    n_workers = min(4, len(pdb_files)) or 1
+    print(f"  병렬 워커 : {n_workers} (multiprocessing.Pool)")
+
     all_results = []
-    for pdb_path in pdb_files:
-        result = calc_mmgbsa(pdb_path, args.outputdir, ff, args.ncaa_elem, args.si_radius, args.receptor_chain, args.binder_chain)
-        if result:
-            all_results.append(result)
+    try:
+        with _mp.Pool(processes=n_workers) as pool:
+            for res in pool.imap_unordered(_mmgbsa_worker, _worker_args_list):
+                if res is not None:
+                    all_results.append(res)
+    except Exception as _pool_err:
+        print(f"  [!] 병렬 처리 실패 ({_pool_err}). 순차 실행으로 폴백합니다.")
+        for wa in _worker_args_list:
+            res = _mmgbsa_worker(wa)
+            if res is not None:
+                all_results.append(res)
 
     if not all_results:
         print("\n[!] 계산된 결과 없음")

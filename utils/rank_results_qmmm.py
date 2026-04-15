@@ -185,6 +185,37 @@ def fuzzy_match(name, candidates):
     return None
 
 
+def fuzzy_match_all(name, candidates):
+    """[#29 v0.2] 설계 이름에 매칭되는 **모든** 스냅샷을 리스트로 반환.
+
+    fuzzy_match 는 첫 매치 1개만 반환하므로 디자인당 스냅샷 E_int 평균 랭킹을
+    위해 다중 매칭 버전을 추가했다. 매칭 규칙은 fuzzy_match 와 동일:
+        - 정확히 이름이 일치하거나
+        - "{name}_snap" 으로 시작하거나
+        - "_snap" 이전 prefix 가 서로 startswith 관계
+    """
+    matches = []
+    # 정확 일치
+    if name in candidates:
+        matches.append(name)
+    # _snap 접두 일치
+    for cand in candidates:
+        if cand == name:
+            continue
+        if cand.startswith(name + "_snap"):
+            if cand not in matches:
+                matches.append(cand)
+    # prefix 양방향 매칭
+    for cand in candidates:
+        if cand in matches or cand == name:
+            continue
+        if "_snap" in cand:
+            cand_prefix = cand.split("_snap")[0]
+            if cand_prefix.startswith(name) or name.startswith(cand_prefix):
+                matches.append(cand)
+    return matches
+
+
 # ==========================================
 # 정규화
 # ==========================================
@@ -298,29 +329,62 @@ def compute_ranking(af2_scores, qmmm_scores, mmgbsa_scores,
         entry["ptm"]    = af2.get("ptm")
         entry["iptm"]   = af2.get("iptm")
 
-        # QM/MM: 이름 매칭
-        qm_match = fuzzy_match(name, list(qmmm_scores.keys()))
-        if qm_match:
-            qm = qmmm_scores[qm_match]
-            entry["qmmm_interact_kcal"] = qm.get("qmmm_interact_kcal")
-            entry["qmmm_converged"]     = qm.get("converged", False)
-            # [v4 S-4] 불확실성 필드 (per-design 분포가 있을 때만)
-            entry["qmmm_energy_std"]    = qm.get("qmmm_energy_std")
+        # [#29 + #36 v0.2] QM/MM: 다중 스냅샷 평균 랭킹
+        # - converged=True AND interaction_kcal is not None 인 스냅샷만 필터
+        # - N >= 2: 단순 산술평균 (등간격 스냅샷이므로 가중평균 금지)
+        # - N >= 3: σ = np.std(ddof=1)
+        # - N < 2: 랭킹 제외 (converged=False, qmmm_interact_kcal=None)
+        qm_matches = fuzzy_match_all(name, list(qmmm_scores.keys()))
+        qm_valid_vals = []
+        for m in qm_matches:
+            qm = qmmm_scores.get(m, {})
+            ie = qm.get("qmmm_interact_kcal")
+            if qm.get("converged", False) and ie is not None:
+                qm_valid_vals.append(float(ie))
+        n_qmmm_snaps = len(qm_valid_vals)
+        entry["qmmm_n_snapshots"] = n_qmmm_snaps
+        if n_qmmm_snaps >= 2:
+            entry["qmmm_interact_kcal"] = float(np.mean(qm_valid_vals))
+            entry["qmmm_converged"]     = True
+            entry["qmmm_energy_std"]    = (
+                float(np.std(qm_valid_vals, ddof=1)) if n_qmmm_snaps >= 3 else None
+            )
         else:
+            # N=0 또는 N=1 — SciVal #29 조건: 랭킹 제외
             entry["qmmm_interact_kcal"] = None
             entry["qmmm_converged"]     = False
             entry["qmmm_energy_std"]    = None
 
-        # MM-GBSA: 이름 매칭
-        gb_match = fuzzy_match(name, list(mmgbsa_scores.keys()))
-        if gb_match:
-            gb = mmgbsa_scores[gb_match]
-            entry["delta_g_kcal"] = gb.get("delta_g_kcal")
-            entry["favorable"]    = gb.get("favorable", False)
-            # [v4 S-1 / S-4] Interaction Entropy 보정 ΔG 와 표준편차 (있을 때만)
-            entry["delta_g_corrected_kcal"] = gb.get("delta_g_corrected_kcal")
-            entry["delta_g_std"]            = gb.get("delta_g_std") or gb.get("std_delta_g_kcal")
-            entry["minus_TdS_kcal"]         = gb.get("minus_TdS_kcal")
+        # [#29 v0.2] MM-GBSA: 다중 스냅샷 평균 (QM/MM 과 동일 패턴)
+        gb_matches = fuzzy_match_all(name, list(mmgbsa_scores.keys()))
+        gb_valid_vals = []
+        gb_valid_corr = []
+        gb_favorable_any = False
+        gb_minus_TdS = None
+        for m in gb_matches:
+            gb = mmgbsa_scores.get(m, {})
+            dg = gb.get("delta_g_kcal")
+            if dg is not None:
+                gb_valid_vals.append(float(dg))
+                if gb.get("favorable", False):
+                    gb_favorable_any = True
+                dgc = gb.get("delta_g_corrected_kcal")
+                if dgc is not None:
+                    gb_valid_corr.append(float(dgc))
+                if gb_minus_TdS is None:
+                    gb_minus_TdS = gb.get("minus_TdS_kcal")
+        n_gb_snaps = len(gb_valid_vals)
+        entry["mmgbsa_n_snapshots"] = n_gb_snaps
+        if n_gb_snaps >= 2:
+            entry["delta_g_kcal"] = float(np.mean(gb_valid_vals))
+            entry["favorable"]    = gb_favorable_any
+            entry["delta_g_corrected_kcal"] = (
+                float(np.mean(gb_valid_corr)) if gb_valid_corr else None
+            )
+            entry["delta_g_std"] = (
+                float(np.std(gb_valid_vals, ddof=1)) if n_gb_snaps >= 3 else None
+            )
+            entry["minus_TdS_kcal"] = gb_minus_TdS
         else:
             entry["delta_g_kcal"] = None
             entry["favorable"]    = False
@@ -432,8 +496,10 @@ def save_ranking_csv(entries, output_csv):
         "rank", "design",
         "composite_score",
         "plddt", "ptm", "iptm",
-        "qmmm_interact_kcal", "qmmm_converged", "qmmm_energy_std",
+        # [#29 v0.2] 다중 스냅샷 개수 필드 추가
+        "qmmm_interact_kcal", "qmmm_converged", "qmmm_energy_std", "qmmm_n_snapshots",
         "delta_g_kcal", "delta_g_corrected_kcal", "delta_g_std", "minus_TdS_kcal", "favorable",
+        "mmgbsa_n_snapshots",
         "score_plddt_norm", "score_qmmm_norm", "score_dg_norm",
     ]
 

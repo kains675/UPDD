@@ -373,7 +373,11 @@ from amber_charges import AMBER_FF14SB, BACKBONE_FALLBACK_CHARGES  # noqa: E402
 def get_mm_charges(mm_atoms):
     """
     [FIX2] AMBER ff14SB 잔기별·원자별 전하 테이블로 MM 점전하 할당
-    Returns: np.array shape (n_mm, 4) — [x, y, z, q] (Bohr)
+    Returns: np.array shape (n_mm, 4) — [x, y, z, q] (Angstrom)
+
+    [#13 v0.2] PySCF add_mm_charges 는 mol.unit(Å) 기준으로 자동 Bohr 변환을
+    수행하므로 (https://pyscf.org/pyscf_api_docs/pyscf.qmmm.html) 여기에서
+    Å→Bohr 수동 변환을 수행하면 이중 변환이 발생한다. 좌표를 Å 그대로 반환.
     """
     mm_charge_array = []
     n_unknown = 0
@@ -382,10 +386,8 @@ def get_mm_charges(mm_atoms):
         q = res_q.get(a["name"], BACKBONE_FALLBACK_CHARGES.get(a["name"], 0.0))
         if q == 0.0 and a["name"] not in BACKBONE_FALLBACK_CHARGES and not res_q:
             n_unknown += 1
-        x = a["x"] / 0.52917721092
-        y = a["y"] / 0.52917721092
-        z = a["z"] / 0.52917721092
-        mm_charge_array.append([x, y, z, q])
+        # [#13] Å 좌표 그대로 전달 — PySCF 가 mol.unit 기준 자동 변환.
+        mm_charge_array.append([a["x"], a["y"], a["z"], q])
     if n_unknown:
         print(f"  [MM charges] 테이블 미등록 원자 {n_unknown}개 → 전하=0.0")
     return np.array(mm_charge_array)
@@ -396,6 +398,9 @@ def get_mm_charges(mm_atoms):
 # ==========================================
 def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.0, mode="full", binder_chain="B"):
     """단일 스냅샷 PDB에 대한 QM/MM 계산"""
+
+    # [#40 v0.2] max_memory 를 환경 변수 UPDD_QM_MAX_MEMORY(MB) 로 주입 (기본 16000 = 16GB).
+    _max_mem = int(os.environ.get("UPDD_QM_MAX_MEMORY", "16000"))
 
     basename = os.path.basename(pdb_path).replace(".pdb", "")
     out_json = os.path.join(output_dir, f"{basename}_qmmm_{mode}.json")
@@ -432,17 +437,31 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
             except Exception:
                 pass
             print(f"  [!] 도망자 발견: 펩타이드가 {min_dist:.1f}Å 우주로 떠나갔습니다.{pbc_hint}")
+            # [#36 v0.2] 도망자는 converged=False + interaction_kcal=None 으로
+            # 랭킹에서 제외. reason/min_dist_A 로 사후 분석 가능.
             return {
-                "snapshot": basename, "energy_total_hartree": 0.0, "energy_qmmm_kcal": 0.0,
-                "interaction_kcal": 0.0, "converged": True, "is_run_mmgbsa": False
+                "snapshot": basename, "energy_total_hartree": None, "energy_qmmm_kcal": None,
+                "interaction_kcal": None, "converged": False, "is_run_mmgbsa": False,
+                "reason": "binder_escaped", "min_dist_A": round(float(min_dist), 1),
             }
 
     qm_atoms, mm_atoms = partition_qmmm(atoms, qm_cutoff, mode=mode, binder_chain=binder_chain)
 
+    # [#38 v0.2] QM 원자 수 상한 가드 — QM-only 계산 발산 및 GPU OOM 예방.
+    MAX_QM_ATOMS = 500
     if len(qm_atoms) == 0:
+        # [#36] QM 원자 0개는 converged=False 로 표시하여 랭킹 제외.
         return {
-            "snapshot": basename, "energy_total_hartree": 0.0, "energy_qmmm_kcal": 0.0,
-            "interaction_kcal": 0.0, "converged": True, "is_run_mmgbsa": False
+            "snapshot": basename, "energy_total_hartree": None, "energy_qmmm_kcal": None,
+            "interaction_kcal": None, "converged": False, "is_run_mmgbsa": False,
+            "reason": "no_qm_atoms",
+        }
+    if len(qm_atoms) > MAX_QM_ATOMS:
+        print(f"  [!] QM 원자 {len(qm_atoms)}개 > 상한 {MAX_QM_ATOMS}")
+        return {
+            "snapshot": basename, "energy_total_hartree": None, "energy_qmmm_kcal": None,
+            "interaction_kcal": None, "converged": False, "is_run_mmgbsa": False,
+            "reason": "qm_atoms_exceeded", "n_qm_atoms": len(qm_atoms),
         }
 
     # [v4 S-2] QM/MM 경계 H-cap link atom 추가 (Senn & Thiel 2009)
@@ -465,7 +484,7 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
     mf = dft.RKS(mol)
     mf.xc = qm_xc
     mf.verbose = 4 
-    mf.max_memory = 16000
+    mf.max_memory = _max_mem
     mf.grids.level = 3
     mf.max_cycle   = 300
     mf.conv_tol    = 1e-8
@@ -492,7 +511,7 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
         mf = dft.RKS(mol)
         mf.xc = qm_xc
         mf.verbose = 4 
-        mf.max_memory = 16000
+        mf.max_memory = _max_mem
         mf.grids.level = 3
         mf.max_cycle   = 300
         mf.conv_tol    = 1e-8
@@ -515,7 +534,7 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
         mf_qm.verbose = 4
         mf_qm.max_cycle = 300  
         mf_qm.conv_tol = 1e-8  
-        mf_qm.max_memory = 16000
+        mf_qm.max_memory = _max_mem
                 
         # 2라운드는 점전하 짐칸이 없으므로 그냥 변신만 시키면 됩니다!
         if gpu_success:

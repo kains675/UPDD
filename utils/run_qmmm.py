@@ -256,17 +256,21 @@ def partition_qmmm(atoms, qm_cutoff=5.0, mode="full", binder_chain="B"):
 
     # [Plaid 초고속 다이어트 모드] — 3.0 Å 임계값
     if mode == "plaid":
-        print("  [Mode: PLAID] 3.0 Å 이내 인터페이스 핵심 잔기만 QM 영역으로 추출합니다.")
-        qm_atoms, mm_atoms = _partition_by_interface_distance(atoms, cutoff=3.0, binder_chain=binder_chain)
+        # [v0.3 #4] cutoff 값을 단일 변수로 관리하여 print/연산 일치 보장
+        _cutoff = 3.0
+        print(f"  [Calculate Mode: PLAID] {_cutoff} Å 이내 인터페이스 핵심 잔기만 QM 영역으로 추출합니다.")
+        qm_atoms, mm_atoms = _partition_by_interface_distance(atoms, cutoff=_cutoff, binder_chain=binder_chain)
         print(f"  [PLAID] 추출된 핵심 QM 원자 수: {len(qm_atoms)}개")
         if len(qm_atoms) == 0:
             print("  [!] 경고: 펩타이드가 단백질에서 90Å 이상 멀어졌습니다! (결합 붕괴)")
         return qm_atoms, mm_atoms
 
-    # [Fast 다이어트 모드] — 4.0 Å 임계값
+    # [Fast 다이어트 모드]
     if mode == "fast":
-        print("  [Mode: FAST] 4.0 Å 이내 인터페이스 핵심 잔기만 QM 영역으로 추출합니다.")
-        qm_atoms, mm_atoms = _partition_by_interface_distance(atoms, cutoff=4.0, binder_chain=binder_chain)
+        # [v0.3 #4] cutoff 값을 단일 변수로 관리하여 print/연산 일치 보장
+        _cutoff = 4.0
+        print(f"  [Calculate Mode: FAST] {_cutoff} Å 이내 인터페이스 핵심 잔기만 QM 영역으로 추출합니다.")
+        qm_atoms, mm_atoms = _partition_by_interface_distance(atoms, cutoff=_cutoff, binder_chain=binder_chain)
         print(f"  [FAST] 추출된 핵심 QM 원자 수: {len(qm_atoms)}개")
         return qm_atoms, mm_atoms
 
@@ -274,7 +278,7 @@ def partition_qmmm(atoms, qm_cutoff=5.0, mode="full", binder_chain="B"):
     if len(ncaa_atoms) == 0:
         qm_atoms = [a for a in atoms if a["chain"] == binder_chain]
         mm_atoms = [a for a in atoms if a["chain"] != binder_chain]
-        print(f"  [Mode: FULL] Chain {binder_chain} 전체를 QM 영역으로 ({len(qm_atoms)}개 원자)")
+        print(f"  [Calculate Mode: FULL] Chain {binder_chain} 전체를 QM 영역으로 ({len(qm_atoms)}개 원자)")
         return qm_atoms, mm_atoms
 
     qm_resnums = set()
@@ -406,9 +410,32 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
     out_json = os.path.join(output_dir, f"{basename}_qmmm_{mode}.json")
 
     if os.path.exists(out_json):
-        print(f"\n  [Skip] 이미 완료된 [{mode.upper()}] 모드 결과가 존재합니다: {basename}")
-        with open(out_json, "r", encoding="utf-8") as f:
-            return json.load(f)
+        # [v0.3 #1+#5] resume 무결성 강화:
+        #   - converged=True AND energy_total_hartree 유효 → 스킵 (정상 완료)
+        #   - converged=True 인데 interaction_kcal=None → QM-only 만 실패한 케이스
+        #     → JSON 삭제 후 전체 재계산 (SciVal 승인: 독립 SCF 재계산이 신뢰성 보장)
+        #   - 그 외 (converged=False / energy_total=None / 손상) → 삭제 후 재계산
+        try:
+            with open(out_json, "r", encoding="utf-8") as f:
+                existing = json.load(f)
+            if existing.get("converged") and existing.get("energy_total_hartree") is not None:
+                # QM-only 만 실패한 경우 → 전체 재계산
+                if existing.get("interaction_kcal") is None:
+                    print(f"\n  [Retry] QM-only 미완료 → 전체 재계산: {basename}")
+                    os.remove(out_json)
+                else:
+                    print(f"\n  [Skip] 이미 완료: {basename}")
+                    return existing
+            else:
+                reason = existing.get("reason", "null_energy")
+                print(f"\n  [Cleanup] 미수렴 결과 삭제 ({reason}): {basename}")
+                os.remove(out_json)
+        except (json.JSONDecodeError, IOError):
+            print(f"\n  [Cleanup] 손상된 JSON 삭제: {basename}")
+            try:
+                os.remove(out_json)
+            except OSError:
+                pass
 
     print(f"\n  계산: {basename}")
 
@@ -483,13 +510,13 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
     # ── 4. DFT 계산 (QM/MM 임베딩) ──────────────────────────
     mf = dft.RKS(mol)
     mf.xc = qm_xc
-    mf.verbose = 4 
+    # [v0.3 #3] verbose=3: cycle별 E/grad 만 출력 (4의 SCF 설정 덤프 ~20줄 제거)
+    mf.verbose = 3
     mf.max_memory = _max_mem
     mf.grids.level = 3
     mf.max_cycle   = 300
     mf.conv_tol    = 1e-8
 
-    # 🚨 [최종 보스 격파] 완벽한 분기 로직: GPU 전용 QM/MM 적용
     gpu_success = False
     try:
         # 1. 먼저 평범한 계산기를 GPU 로켓으로 변신!
@@ -510,7 +537,8 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
         # GPU 변신이 실패하면 CPU 장갑차(QMMMRKS)로 우회 탑재
         mf = dft.RKS(mol)
         mf.xc = qm_xc
-        mf.verbose = 4 
+        # [v0.3 #3] verbose=3: cycle별 E/grad 만 출력
+        mf.verbose = 3
         mf.max_memory = _max_mem
         mf.grids.level = 3
         mf.max_cycle   = 300
@@ -531,8 +559,9 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
     if energy_total is not None and len(mm_coords_charges) > 0:
         mf_qm = dft.RKS(mol)
         mf_qm.xc = qm_xc
-        mf_qm.verbose = 4
-        mf_qm.max_cycle = 300  
+        # [v0.3 #3] verbose=3: cycle별 E/grad 만 출력
+        mf_qm.verbose = 3
+        mf_qm.max_cycle = 300
         mf_qm.conv_tol = 1e-8  
         mf_qm.max_memory = _max_mem
                 
@@ -547,10 +576,14 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
         mf_qm.grids.level = 3
         try:
             e_qm_only  = mf_qm.kernel()
-            e_interact = (energy_total - e_qm_only) * 627.509  
+            e_interact = (energy_total - e_qm_only) * 627.509
             print(f"  QM 단독 에너지: {e_qm_only:.8f} Hartree")
             print(f"  QM-MM 상호작용: {e_interact:.4f} kcal/mol")
-        except Exception:
+        except Exception as e_qm_err:
+            # [v0.3 #5] QM-only 실패 진단 — QM/MM E_total 은 유효하므로 converged=True 유지.
+            # interaction_kcal=None 으로 기록되며, 다음 resume 시 QM-only 재시도 분기로
+            # 진입한다 (run_qmmm_calc 의 resume 로직 #1+#5 참조).
+            print(f"  [!] QM-only 계산 실패: {e_qm_err}")
             e_interact = None
     else:
         e_interact = None

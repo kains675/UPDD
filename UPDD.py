@@ -1257,6 +1257,7 @@ def execute_qmmm(snap_dir: str, qmmm_mode: str, ncaa_element: str, af2_out_dir: 
             try:
                 # [v0.3 #2] PYTHONUNBUFFERED=1 — PIPE 통과 시 블록 버퍼링 방지.
                 # [v0.3.1] fix(pipeline): write QM/MM subprocess output to qmmm_live.log for watchdog
+                # [v0.3.2] fix(pipeline): align qmmm_live.log path with watchdog 
                 # DFT cycle 로그가 즉시 [tag] prefix 와 함께 표시되어 watchdog 파싱과
                 # 운영자 모니터링이 동시 가능.
                 proc = subprocess.Popen(
@@ -1264,7 +1265,8 @@ def execute_qmmm(snap_dir: str, qmmm_mode: str, ncaa_element: str, af2_out_dir: 
                     text=True, bufsize=1, env=_CHILD_ENV_UNBUFFERED,
                 )
                 oom_detected = False
-                qmmm_log_path = os.path.join(qmmm_out, "qmmm_live.log")
+                _log_dir = os.path.dirname(_config.current_log_file) if _config.current_log_file else LOG_DIR
+                qmmm_log_path = os.path.join(_log_dir, "qmmm_live.log")
                 for line in proc.stdout:
                     stripped = line.rstrip()
                     if stripped:

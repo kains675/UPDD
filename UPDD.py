@@ -121,6 +121,15 @@ ENV_NAMES = {
     "ncaa": "ncaa",
 }
 
+# [v0.3 #2] 자식 프로세스 stdout 즉시 flush — PYTHONUNBUFFERED=1.
+# subprocess.Popen 이 PIPE 를 사용하면 자식 Python 의 stdout 이 블록 버퍼링
+# (~8KB) 으로 전환되어 DFT cycle 로그가 실시간으로 보이지 않는다. 이 환경
+# 변수를 자식에 주입하면 print 호출이 줄 단위로 즉시 flush 되어 tee/리다이렉션
+# 없이도 실시간 로그가 보장된다. 모듈 레벨에서 한 번 생성하여 모든 호출부에서
+# 재사용한다 (CLAUDE.md v0.3 #2).
+_CHILD_ENV_UNBUFFERED = os.environ.copy()
+_CHILD_ENV_UNBUFFERED["PYTHONUNBUFFERED"] = "1"
+
 SCRIPT_PATHS = {
     "rf_inference": os.path.join(PROJECT_DIR, "RFdiffusion/scripts/run_inference.py"),
     "mpnn_parse":   os.path.join(PROJECT_DIR, "ProteinMPNN/helper_scripts/parse_multiple_chains.py"),
@@ -213,7 +222,9 @@ def run_conda_command(script_path: str, args: List[str], description: str, env_k
     env_name = ENV_NAMES.get(env_key)
     cmd = ["conda", "run", "-n", env_name, "--no-capture-output", "python", script_path] + args
     try:
-        subprocess.run(cmd, check=True)
+        # [v0.3 #2] PYTHONUNBUFFERED=1 주입 — 자식 Python 의 stdout 즉시 flush.
+        # 콘솔/리다이렉션/tee 어느 경로든 실시간 로그가 보장된다.
+        subprocess.run(cmd, check=True, env=_CHILD_ENV_UNBUFFERED)
         print(f" {description} 완료.")
     except subprocess.CalledProcessError as e:
         check_error(e.returncode, description)
@@ -1088,6 +1099,62 @@ def _run_md_and_snapshots(struct_dir, params_manifest, target_out_dir, ncaa_labe
 
     return md_out_dir, snap_dir
 
+# ==========================================
+# [v0.3 #6] VRAM Watchdog 헬퍼 (자동 시작/정리)
+# ==========================================
+# proactive_oom watchdog 을 별도 프로세스로 띄워 cycle 로그를 모니터링한다.
+# v0.3 에서는 --dry-run 으로만 실행하여 kill 행위는 하지 않고 데이터 수집만 한다.
+# v0.4 에서 --dry-run 제거 + 실제 kill 활성화 예정.
+def _start_qmmm_watchdog(parallel_workers: int) -> Optional[subprocess.Popen]:
+    """qmmm_proactive_oom.py 를 dry-run 모드로 시작한다.
+
+    조건: 워커가 2개 이상이고 watchdog 스크립트가 존재할 때만 가동.
+    실패 경로(예: pynvml/nvidia-smi 부재)는 모두 무시하며, 어떠한 예외도
+    파이프라인 본체에 전파하지 않는다.
+    """
+    watchdog_script = os.path.join(UPDD_DIR, "utils", "qmmm_proactive_oom.py")
+    if not (os.path.exists(watchdog_script) and parallel_workers > 1):
+        return None
+    log_base_dir = (
+        os.path.dirname(_config.current_log_file)
+        if _config.current_log_file else LOG_DIR
+    )
+    watchdog_log = os.path.join(log_base_dir, "qmmm_live.log")
+    try:
+        cmd = [
+            sys.executable, watchdog_script,
+            "--log", watchdog_log,
+            "--vram-threshold", "90",
+            "--interval", "30",
+            "--dry-run",  # v0.3: 모니터링 only — kill 비활성화 (v0.4 에서 해제)
+        ]
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            env=_CHILD_ENV_UNBUFFERED,
+        )
+        print(f"  🛡️  VRAM Watchdog 시작 (PID: {proc.pid}, dry-run, log={watchdog_log})")
+        return proc
+    except (OSError, FileNotFoundError) as _wd_err:
+        print(f"  [!] Watchdog 시작 실패 (무시하고 진행): {_wd_err}")
+        return None
+
+
+def _stop_qmmm_watchdog(proc: Optional[subprocess.Popen]) -> None:
+    """Watchdog 프로세스를 안전하게 종료한다 (정상/예외 경로 모두 호출 가능)."""
+    if proc is None:
+        return
+    try:
+        proc.terminate()
+        proc.wait(timeout=5)
+        print(f"  🛡️  VRAM Watchdog 종료")
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        print(f"  🛡️  VRAM Watchdog 강제 종료")
+    except OSError:
+        pass
+
+
 def execute_qmmm(snap_dir: str, qmmm_mode: str, ncaa_element: str, af2_out_dir: str,
                  parallel_workers: int, target_out_dir: str, binder_chain: str = "B") -> str:
     print_step("Step 11: QM/MM — wB97X-D / PySCF")
@@ -1160,6 +1227,10 @@ def execute_qmmm(snap_dir: str, qmmm_mode: str, ncaa_element: str, af2_out_dir: 
         print(f"  [우선순위] {len(need_calc)}개 디자인 계산 예정 "
               f"(전체 {len(valid_ids)}개 중 {len(already_done)}개 완료)")
 
+        # [v0.3 #6] VRAM Watchdog 자동 시작 (Phase 3 직전, dry-run 모드).
+        # Phase 3 종료 후 (정상/예외 경로 모두) finally 블록에서 정리한다.
+        watchdog_proc = _start_qmmm_watchdog(parallel_workers)
+
         # ── QM/MM 워커 정의 (태그 + OOM 감지) ────────────────
         base_cmd = [
             "conda", "run", "-n", ENV_NAMES.get("qmmm", "qmmm"),
@@ -1184,9 +1255,12 @@ def execute_qmmm(snap_dir: str, qmmm_mode: str, ncaa_element: str, af2_out_dir: 
                 tag = tag[:10]
 
             try:
+                # [v0.3 #2] PYTHONUNBUFFERED=1 — PIPE 통과 시 블록 버퍼링 방지.
+                # DFT cycle 로그가 즉시 [tag] prefix 와 함께 표시되어 watchdog 파싱과
+                # 운영자 모니터링이 동시 가능.
                 proc = subprocess.Popen(
                     cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                    text=True, bufsize=1
+                    text=True, bufsize=1, env=_CHILD_ENV_UNBUFFERED,
                 )
                 oom_detected = False
                 for line in proc.stdout:
@@ -1281,6 +1355,11 @@ def execute_qmmm(snap_dir: str, qmmm_mode: str, ncaa_element: str, af2_out_dir: 
         n_error = total - n_success - n_oom
         print(f"\n  [QM/MM 요약] 총 {total}개 | "
               f"✅ 성공 {n_success} | ⚠️ OOM {n_oom} | ❌ 에러 {n_error}")
+
+        # [v0.3 #6] Phase 3 종료 — Watchdog 정리.
+        # KeyboardInterrupt 는 위 inner try 에서 break 으로 처리되어 정상 흐름으로 도달한다.
+        # 비정상 예외 시는 부모 프로세스가 종료되며 OS 가 자식(watchdog) 을 회수한다.
+        _stop_qmmm_watchdog(watchdog_proc)
 
     # ── [v55 유지] 개별 JSON → 통합 summary 병합 ─────────────
     all_results = []

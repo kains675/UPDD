@@ -510,8 +510,8 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
     # ── 4. DFT 계산 (QM/MM 임베딩) ──────────────────────────
     mf = dft.RKS(mol)
     mf.xc = qm_xc
-    # [v0.3 #3] verbose=3: cycle별 E/grad 만 출력 (4의 SCF 설정 덤프 ~20줄 제거)
-    mf.verbose = 3
+    # [v0.3.3] verbose=4: v0.1 롤백
+    mf.verbose = 4
     mf.max_memory = _max_mem
     mf.grids.level = 3
     mf.max_cycle   = 300
@@ -537,8 +537,8 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
         # GPU 변신이 실패하면 CPU 장갑차(QMMMRKS)로 우회 탑재
         mf = dft.RKS(mol)
         mf.xc = qm_xc
-        # [v0.3 #3] verbose=3: cycle별 E/grad 만 출력
-        mf.verbose = 3
+        # [v0.3.3] verbose=4: v0.1 롤백
+        mf.verbose = 4
         mf.max_memory = _max_mem
         mf.grids.level = 3
         mf.max_cycle   = 300
@@ -559,8 +559,8 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
     if energy_total is not None and len(mm_coords_charges) > 0:
         mf_qm = dft.RKS(mol)
         mf_qm.xc = qm_xc
-        # [v0.3 #3] verbose=3: cycle별 E/grad 만 출력
-        mf_qm.verbose = 3
+        # [v0.3.3] verbose=4: v0.1 롤백
+        mf_qm.verbose = 4
         mf_qm.max_cycle = 300
         mf_qm.conv_tol = 1e-8  
         mf_qm.max_memory = _max_mem

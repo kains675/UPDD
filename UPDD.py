@@ -45,6 +45,36 @@ try:
 except ImportError:
     sys.exit("[!] utils/ncaa_registry.py 파일을 찾을 수 없습니다. 경로를 확인하세요.")
 
+# [v0.4] Dashboard / State / Config — UI 탈바꿈 (과학 로직 불변)
+# 세 유틸리티는 utils/ 에 있으며 UTILS_DIR 이 이미 sys.path 에 추가되어 있다.
+# ImportError 발생 시 대시보드를 비활성화하고 v0.3.3 레거시 모드로 자동 폴백한다.
+try:
+    from updd_state import PipelineState, check_outputs_exist  # type: ignore
+    from updd_dashboard import run_dashboard as _run_dashboard_standalone  # type: ignore
+    from updd_dashboard import run_dashboard_in_thread  # type: ignore
+    from updd_config import get_workers  # type: ignore
+    _V04_DASHBOARD_AVAILABLE = True
+except ImportError as _v04_imp_err:
+    _V04_DASHBOARD_AVAILABLE = False
+    _V04_IMPORT_ERROR = str(_v04_imp_err)
+    PipelineState = None  # type: ignore
+    run_dashboard_in_thread = None  # type: ignore
+    def check_outputs_exist(step, inputs=None, outputs_dir=""):  # type: ignore
+        return False
+    def get_workers(step, inputs=None):  # type: ignore
+        """v0.4 모듈 불가 시 fallback — parallel_workers 또는 1 반환."""
+        if inputs and "parallel_workers" in inputs:
+            try:
+                return max(1, int(inputs["parallel_workers"]))
+            except (ValueError, TypeError):
+                return 1
+        return 1
+
+# [v0.4.1] 모듈 글로벌 PipelineState 참조 — main() 에서 설정되며,
+# run_rfdiffusion / execute_qmmm 등 장시간 실행 함수가 진행도를 업데이트할 때 사용.
+# main() 밖에서는 None 이 기본이므로 UPDD 를 라이브러리로 import 해도 영향 없음.
+_pipeline_state: Optional["PipelineState"] = None
+
 # [v42 FIX] run_cyclic_fold.py 는 colabdesign (JAX) 의존성을 가지므로 직접
 # import 하면 md_simulation conda 환경에서 ImportError 가 발생한다.
 # subprocess 호출로 변경하여 colabfold/pixi 환경에서 실행한다.
@@ -430,15 +460,34 @@ def run_rfdiffusion(work_pdb: str, topology: Dict[str, Any], hotspots: str, fina
         run_conda_command(SCRIPT_PATHS["rf_inference"], w_rf_args, f"RFdiffusion (Worker {worker_id})", env_key="rf")
 
     if parallel_workers > 1:
+        # [v0.4.1 B] as_completed 로 변환하여 worker 완료 개수를 state 에 반영.
+        # 예외 동작은 legacy (wait) 와 동일하게 — worker 실패는 warn 만 하고 계속 진행.
+        _ps = _pipeline_state
         with concurrent.futures.ThreadPoolExecutor(max_workers=parallel_workers) as executor:
             futures = []
             for i in range(parallel_workers):
                 w_designs = total_designs // parallel_workers + (1 if i < total_designs % parallel_workers else 0)
                 if w_designs > 0:
                     futures.append(executor.submit(run_rfd_worker, i + 1, w_designs))
-            concurrent.futures.wait(futures)
+            n_workers_actual = len(futures)
+            if _ps is not None and n_workers_actual > 0:
+                _ps.update_step("rfdiff", completed=0,
+                                detail=f"0/{n_workers_actual} workers done")
+            _done_workers = 0
+            for fut in concurrent.futures.as_completed(futures):
+                try:
+                    fut.result()
+                except Exception as _we:  # legacy: worker 실패 무시
+                    print(f"  [!] RFdiffusion worker 실패: {_we}")
+                _done_workers += 1
+                if _ps is not None:
+                    _ps.update_step("rfdiff", completed=_done_workers,
+                                    detail=f"{_done_workers}/{n_workers_actual} workers done")
     else:
         run_rfd_worker(1, total_designs)
+        _ps = _pipeline_state
+        if _ps is not None:
+            _ps.update_step("rfdiff", completed=1, detail="1/1 workers done")
 
 def run_proteinmpnn(design_dir: str, target_chain: str, topology: Dict[str, Any], valid_only: bool = False):
     print_step("Step 5: ProteinMPNN — Sequence Design")
@@ -1219,6 +1268,16 @@ def execute_qmmm(snap_dir: str, qmmm_mode: str, ncaa_element: str, af2_out_dir: 
         else:
             need_calc.append(d_id)
 
+    # [v0.4.1 B] 정확한 total (valid design 수) 로 state 갱신 →
+    # dashboard 가 "running 3/8" 같이 진행도를 정확히 표시.
+    _ps = _pipeline_state
+    if _ps is not None:
+        _ps.update_step(
+            "qmmm",
+            completed=len(already_done),
+            detail=f"{len(already_done)}/{len(valid_ids)} designs",
+        )
+
     if already_done:
         print(f"  [Resume] 이미 완료된 디자인 {len(already_done)}개 스킵")
     if not need_calc:
@@ -1234,7 +1293,7 @@ def execute_qmmm(snap_dir: str, qmmm_mode: str, ncaa_element: str, af2_out_dir: 
         # ── QM/MM 워커 정의 (태그 + OOM 감지) ────────────────
         base_cmd = [
             "conda", "run", "-n", ENV_NAMES.get("qmmm", "qmmm"),
-            "--no-capture-output", "python", SCRIPT_PATHS["run_qmmm"],
+            "--no-capture-output", "python", "-u", SCRIPT_PATHS["run_qmmm"],
         ]
 
         def qmmm_worker(design_id: str) -> dict:
@@ -1292,7 +1351,8 @@ def execute_qmmm(snap_dir: str, qmmm_mode: str, ncaa_element: str, af2_out_dir: 
 
         # ── Phase 3: Adaptive 병렬 실행 (4→3→2→1) ────────────
         pending_ids = list(need_calc)
-        current_workers = min(parallel_workers, len(pending_ids))
+        _qmmm_cap = int(os.environ.get("UPDD_QMMM_MAX_WORKERS", 1))
+        current_workers = min(_qmmm_cap, parallel_workers, len(pending_ids))
         all_success_ids = list(already_done)
         max_passes = 4
 
@@ -1310,6 +1370,15 @@ def execute_qmmm(snap_dir: str, qmmm_mode: str, ncaa_element: str, af2_out_dir: 
                         executor.submit(qmmm_worker, d_id): d_id
                         for d_id in pending_ids
                     }
+                    # [v0.4.1 B] 현재 pass 의 worker 수 / pending 수를 이벤트로 안내.
+                    # (Step.workers 를 직접 갱신하려면 update_step API 확장 필요 —
+                    #  detail 문자열로 pass 번호를 담고 이벤트 로그에 남기는 것으로 충분.)
+                    if _ps is not None:
+                        _ps.emit_event(
+                            "info",
+                            f"🔥 QM/MM Pass {pass_num} — workers={current_workers}, "
+                            f"pending={len(pending_ids)}",
+                        )
                     for future in concurrent.futures.as_completed(future_map):
                         result = future.result()
                         pass_results.append(result)
@@ -1319,6 +1388,17 @@ def execute_qmmm(snap_dir: str, qmmm_mode: str, ncaa_element: str, af2_out_dir: 
                             print(f"  ⚠️  {result['id']} OOM — 다음 pass에서 재시도")
                         else:
                             print(f"  ❌ {result['id']} 에러: {result['msg']}")
+                        # [v0.4.1 B] 한 design 완료 시점에 dashboard 진행도 갱신.
+                        if _ps is not None:
+                            _ok_count = (
+                                len(already_done)
+                                + sum(1 for r in pass_results if r["status"] == "SUCCESS")
+                            )
+                            _ps.update_step(
+                                "qmmm", completed=_ok_count,
+                                detail=f"{_ok_count}/{len(valid_ids)} designs "
+                                       f"(pass {pass_num})",
+                            )
             except KeyboardInterrupt:
                 print(f"\n  [!] 🛑 수동 개입! 병렬 작업을 강제 중단합니다.\n")
                 break
@@ -1442,15 +1522,43 @@ def validate_pipeline(base_name, design_dir, mpnn_out_dir, af2_out_dir,
 # 메인 실행부
 # ==========================================
 def main() -> None:
-    _parser = argparse.ArgumentParser(add_help=False)
-    _parser.add_argument("--validate", action="store_true", help="실행 없이 결과 파일 검증만 수행")
+    # [v0.4] argparse — v0.3.3 호환 + dashboard/observer 플래그
+    _parser = argparse.ArgumentParser(add_help=False,
+        description="UPDD Pipeline v0.4 (btop-style dashboard)")
+    _parser.add_argument("--validate", action="store_true",
+        help="실행 없이 결과 파일 검증만 수행")
+    _parser.add_argument("--no-dashboard", action="store_true",
+        help="Dashboard UI 비활성화 (v0.3.3 레거시 print 모드)")
+    _parser.add_argument("--dashboard-only", action="store_true",
+        help="Pipeline 실행 없이 기존 state.json 을 관찰 (SSH 재접속/모니터링 용)")
+    _parser.add_argument("--log-dir", type=str, default=None,
+        help="--dashboard-only 모드에서 관찰할 로그 디렉토리 (생략 시 최신 자동 탐색)")
     _args, _ = _parser.parse_known_args()
     VALIDATE_ONLY = _args.validate
+    NO_DASHBOARD = _args.no_dashboard or (not _V04_DASHBOARD_AVAILABLE)
+    DASHBOARD_ONLY = _args.dashboard_only
+
+    # ── [v0.4] --dashboard-only: 파이프라인 우회, 관찰 전용 ──
+    if DASHBOARD_ONLY:
+        if not _V04_DASHBOARD_AVAILABLE:
+            sys.exit(f"[!] --dashboard-only 사용 불가 (v0.4 모듈 로드 실패: {_V04_IMPORT_ERROR})")
+        target_log = _args.log_dir
+        if not target_log:
+            _cands = [c for c in glob.glob(os.path.join(LOG_DIR, "*"))
+                      if os.path.isdir(c)
+                      and os.path.exists(os.path.join(c, "state.json"))]
+            if not _cands:
+                sys.exit(f"[!] state.json 이 있는 로그 디렉토리 없음. --log-dir 지정 필요.\n    검색 대상: {LOG_DIR}")
+            target_log = max(_cands, key=os.path.getmtime)
+            print(f"[dashboard-only] 자동 탐색 결과: {target_log}")
+        _run_dashboard_standalone(log_dir=target_log)
+        return
 
     setup_logger("session_start")
     _builtins.input = logged_input
 
-    print_step("UPDD Pipeline v28: Architectural & Logic Fusion")
+    _header_label = "UPDD Pipeline v0.4 (btop dashboard)" if not NO_DASHBOARD else "UPDD Pipeline v0.4 (legacy mode)"
+    print_step(_header_label)
 
     if not _config.af2_bin:
         print(" [!] colabfold_batch 바이너리를 찾을 수 없습니다.")
@@ -1563,9 +1671,132 @@ def main() -> None:
         except (IOError, OSError, json.JSONDecodeError) as _persist_err:
             log(f"[grafting] status_file grafted 플래그 갱신 실패(무시): {_persist_err}", level="warning")
 
-    # ── [RESTORED] save_step 헬퍼 (resume 시 skip 판단용) ──
+    # ── [v0.4] 완료 step 이름 → PipelineState step 이름 매핑 ──
+    # updd_status.json 의 legacy key → updd_state 의 11단계 key 매핑.
+    # 일부 save_step 호출 하나가 state 2개를 완료시키는 경우도 있음 (md_snapshots).
+    _STATE_STEP_MAP: Dict[str, List[str]] = {
+        "rfdiffusion":   ["rfdiff"],
+        "proteinmpnn":   ["proteinmpnn"],
+        "alphafold":     ["af2"],
+        "ncaa_mutation": ["ncaa_mutation"],
+        "md_snapshots":  ["md", "snapshots"],
+        "qmmm":          ["qmmm"],
+        "mmgbsa":        ["mmgbsa"],
+        "final_ranking": ["rank"],
+    }
+
+    # ── [v0.4] Dashboard 시작 (사용자 입력 완료 후, pipeline 실행 직전) ──
+    # rich.Live(screen=True) 가 alternate screen 을 점유하므로, arrow_menu /
+    # gather_all_inputs 등 대화형 입력이 끝난 뒤에만 dashboard 를 띄운다.
+    # stdout/stderr 은 <log_dir>/pipeline.log 로 리다이렉트 → print() 가 dashboard
+    # 아래 화면을 오염시키지 않고 로그 파일에 구조화되어 저장된다.
+    state = None
+    dashboard_thread = None
+    dashboard_stop = None
+    pipeline_log_fh = None
+    _orig_stdout = sys.stdout
+    _orig_stderr = sys.stderr
+    use_dashboard = (not NO_DASHBOARD) and (not VALIDATE_ONLY) and _V04_DASHBOARD_AVAILABLE
+
+    log_dir_for_state = os.path.join(LOG_DIR, _target_name)
+
+    if use_dashboard:
+        try:
+            os.makedirs(log_dir_for_state, exist_ok=True)
+            state = PipelineState(
+                log_dir=log_dir_for_state,
+                project_name=os.path.basename(target_out_dir),
+            )
+            # [v0.4.1] Resume 초기 상태: "completed_steps 플래그" AND "실제 산출물 존재"
+            # 두 조건 모두 만족해야 SKIPPED 로 표시. 한쪽이라도 false 면 PENDING 유지하여
+            # 아래 step wrapper 가 start_step → 실행 → complete_step 으로 자연스럽게 흐름.
+            _already_done = inputs.get("completed_steps", []) if isinstance(inputs, dict) else []
+            for _cs in _already_done:
+                for _sn in _STATE_STEP_MAP.get(_cs, []):
+                    if check_outputs_exist(_sn, inputs, target_out_dir):
+                        state.complete_step(_sn, skipped=True)
+                    # 산출물 없으면 SKIPPED 마킹하지 않음 → wrapper 가 재실행 분기 진입.
+            # preprocess 는 사용자 입력 단계에서 이미 완료되었다 (gather_all_inputs).
+            state.complete_step("preprocess", skipped=True)
+
+            # stdout 리다이렉트 "전에" dashboard 용 Console 을 캡처한다.
+            # (Console 이 sys.stdout 을 나중에 읽으면 pipeline.log 로 빨려 들어감.)
+            from rich.console import Console as _RichConsole
+            _dashboard_console = _RichConsole(file=sys.__stdout__, force_terminal=True)
+
+            pipeline_log_path = os.path.join(log_dir_for_state, "pipeline.log")
+            pipeline_log_fh = open(pipeline_log_path, "a", encoding="utf-8", buffering=1)
+            pipeline_log_fh.write(f"\n{'='*60}\n")
+            pipeline_log_fh.write(f"UPDD v0.4 started at {_datetime.datetime.now().isoformat()}\n")
+            pipeline_log_fh.write(f"Project: {os.path.basename(target_out_dir)}\n")
+            pipeline_log_fh.write(f"{'='*60}\n")
+            sys.stdout = pipeline_log_fh
+            sys.stderr = pipeline_log_fh
+
+            dashboard_thread, dashboard_stop = run_dashboard_in_thread(
+                log_dir_for_state, console=_dashboard_console,
+            )
+            state.emit_event("info", f"📦 Project: {os.path.basename(target_out_dir)}")
+
+            # [v0.4.1] 모듈 글로벌 state 참조 공개 → run_rfdiffusion/execute_qmmm
+            # 같은 장시간 실행 함수가 진행도를 업데이트할 때 읽는다.
+            global _pipeline_state
+            _pipeline_state = state
+
+            # atexit: 예외/정상 종료 모두에서 stdout 복원 보장 (finally 대체).
+            import atexit as _atexit
+            def _v04_final_cleanup():
+                try:
+                    if dashboard_stop is not None:
+                        dashboard_stop.set()
+                    if dashboard_thread is not None:
+                        dashboard_thread.join(timeout=3)
+                except (OSError, RuntimeError):
+                    pass
+                try:
+                    sys.stdout = _orig_stdout
+                    sys.stderr = _orig_stderr
+                except (OSError, ValueError):
+                    pass
+                try:
+                    if pipeline_log_fh is not None and not pipeline_log_fh.closed:
+                        pipeline_log_fh.close()
+                except (OSError, ValueError):
+                    pass
+            _atexit.register(_v04_final_cleanup)
+
+            # signal handler: Ctrl+C → dashboard 정리 후 exit 130.
+            import signal as _signal
+            def _on_interrupt(signum=None, frame=None):
+                if state is not None:
+                    state.emit_event("warn", f"⚠️  Signal {signum} — shutting down")
+                _v04_final_cleanup()
+                sys.exit(130)
+            try:
+                _signal.signal(_signal.SIGINT, _on_interrupt)
+                _signal.signal(_signal.SIGTERM, _on_interrupt)
+            except (ValueError, OSError):
+                # non-main thread 등에서는 signal 설정 불가 — 무시하고 atexit 에 의존.
+                pass
+        except (OSError, RuntimeError, ImportError) as _dash_err:
+            # 실패 시 v0.3.3 legacy 모드로 안전 폴백.
+            print(f"[!] Dashboard 시작 실패, legacy 모드로 전환: {_dash_err}",
+                  file=_orig_stdout)
+            use_dashboard = False
+            state = None
+            dashboard_thread = None
+            dashboard_stop = None
+            try:
+                if pipeline_log_fh is not None and not pipeline_log_fh.closed:
+                    pipeline_log_fh.close()
+            except (OSError, ValueError):
+                pass
+            sys.stdout = _orig_stdout
+            sys.stderr = _orig_stderr
+
+    # ── [v0.4.1] save_step 은 JSON 기록 전용 (state 관리는 wrapper 에서) ──
     def save_step(step_name):
-        """완료된 단계를 updd_status.json에 기록한다 (resume 시 skip 판단용)."""
+        """완료된 단계를 updd_status.json 에 기록한다 (resume skip 판단용)."""
         try:
             with open(status_file, "r", encoding="utf-8") as f:
                 _st = json.load(f)
@@ -1576,23 +1807,111 @@ def main() -> None:
         with open(status_file, "w", encoding="utf-8") as f:
             json.dump(_st, f, indent=4)
 
+    # ── [v0.4.1] step wrapper: completed_steps ∩ outputs_exist → skipped ──
+    def _step_really_done(legacy_name: str) -> bool:
+        """completed_steps 플래그와 실제 산출물 둘 다 있을 때만 True."""
+        if not isinstance(inputs, dict):
+            return False
+        if legacy_name not in inputs.get("completed_steps", []):
+            return False
+        # legacy key 에 매핑된 state key 중 하나라도 산출물이 있어야 완료로 간주.
+        state_names = _STATE_STEP_MAP.get(legacy_name, [legacy_name])
+        return any(check_outputs_exist(sn, inputs, target_out_dir) for sn in state_names)
+
+    def _mark_skipped(legacy_name: str) -> None:
+        if state is None:
+            return
+        for _sn in _STATE_STEP_MAP.get(legacy_name, [legacy_name]):
+            # 이미 resume 초기화에서 SKIPPED 로 표시됐을 수 있음. complete_step 은
+            # 멱등이므로 재호출해도 안전 (같은 SKIPPED 유지).
+            state.complete_step(_sn, skipped=True)
+
+    def _mark_running(legacy_name: str, total: int = 0, workers: int = 1,
+                      detail: str = "") -> None:
+        if state is None:
+            return
+        for _sn in _STATE_STEP_MAP.get(legacy_name, [legacy_name]):
+            state.start_step(_sn, total=total, workers=workers, detail=detail)
+
+    def _mark_complete(legacy_name: str) -> None:
+        if state is None:
+            return
+        for _sn in _STATE_STEP_MAP.get(legacy_name, [legacy_name]):
+            state.complete_step(_sn)
+
+    def _mark_failed(legacy_name: str, err: str) -> None:
+        if state is None:
+            return
+        for _sn in _STATE_STEP_MAP.get(legacy_name, [legacy_name]):
+            state.fail_step(_sn, err)
+
+    # ── [v0.4] step-independent worker 수 resolve (legacy parallel_workers 유지) ──
+    # backward-compat: parallel_workers 가 각 run_* 에 그대로 전달되어 기존 동작 보존.
+    # 추가로 rfdiff / qmmm / af2 / mmgbsa / md 에 대해 step 별 worker 를 resolve 한다.
+    rfdiff_workers = get_workers("rfdiff", inputs)
+    qmmm_workers = get_workers("qmmm", inputs)
+    mmgbsa_workers = get_workers("mmgbsa", inputs)
+    af2_workers = get_workers("af2", inputs)
+
     # ── [코어 파 파이프라인 가동] ──
     if not VALIDATE_ONLY:
         safe_contig = get_continuous_contigs(work_pdb, target_chain)
         final_contig = "'" + safe_contig + "/0 " + inputs.get("binder_len", "10-40") + "'"
-        run_rfdiffusion(work_pdb, topology_mode, inputs.get("hotspots", ""), final_contig, design_dir, int(inputs.get("n_designs", 5)), parallel_workers, target_chain)
+        # Step: RFdiffusion
+        if _step_really_done("rfdiffusion"):
+            _mark_skipped("rfdiffusion")
+        else:
+            # [v0.4.1 B] total = worker 수 (run_rfdiffusion 내부에서 worker 완료 때마다 update)
+            _mark_running("rfdiffusion",
+                          total=max(1, min(rfdiff_workers, int(inputs.get("n_designs", 5)))),
+                          workers=rfdiff_workers)
+            try:
+                run_rfdiffusion(work_pdb, topology_mode, inputs.get("hotspots", ""), final_contig, design_dir, int(inputs.get("n_designs", 5)), parallel_workers, target_chain)
+                _mark_complete("rfdiffusion")
+            except Exception as _e:
+                _mark_failed("rfdiffusion", str(_e))
+                raise
         save_step("rfdiffusion")
 
-    mpnn_out_dir, jsonl_path = run_proteinmpnn(design_dir, target_chain, topology_mode, valid_only=VALIDATE_ONLY)
+    # Step: ProteinMPNN
+    if _step_really_done("proteinmpnn"):
+        _mark_skipped("proteinmpnn")
+        mpnn_out_dir, jsonl_path = run_proteinmpnn(design_dir, target_chain, topology_mode, valid_only=VALIDATE_ONLY)
+    else:
+        _mark_running("proteinmpnn", total=0, workers=1)
+        try:
+            mpnn_out_dir, jsonl_path = run_proteinmpnn(design_dir, target_chain, topology_mode, valid_only=VALIDATE_ONLY)
+            _mark_complete("proteinmpnn")
+        except Exception as _e:
+            _mark_failed("proteinmpnn", str(_e))
+            raise
     save_step("proteinmpnn")
-    # [v5 해법 C] topology_mode/work_pdb/binder_chain 을 전달하여 cyclic 분기를 활성화한다.
-    af2_out_dir = run_alphafold(
-        design_dir, mpnn_out_dir, jsonl_path, target_chain, msa_mode, USE_LOCAL_MSA,
-        valid_only=VALIDATE_ONLY,
-        topology_mode=topology_mode,
-        work_pdb=work_pdb,
-        binder_chain=binder_chain,
-    )
+
+    # Step: AF2 (alphafold) — [v5 해법 C] topology_mode/work_pdb/binder_chain 전달
+    if _step_really_done("alphafold"):
+        _mark_skipped("alphafold")
+        af2_out_dir = run_alphafold(
+            design_dir, mpnn_out_dir, jsonl_path, target_chain, msa_mode, USE_LOCAL_MSA,
+            valid_only=VALIDATE_ONLY,
+            topology_mode=topology_mode,
+            work_pdb=work_pdb,
+            binder_chain=binder_chain,
+        )
+    else:
+        _mark_running("alphafold", total=0, workers=af2_workers,
+                      detail="ColabFold / CyclicFold")
+        try:
+            af2_out_dir = run_alphafold(
+                design_dir, mpnn_out_dir, jsonl_path, target_chain, msa_mode, USE_LOCAL_MSA,
+                valid_only=VALIDATE_ONLY,
+                topology_mode=topology_mode,
+                work_pdb=work_pdb,
+                binder_chain=binder_chain,
+            )
+            _mark_complete("alphafold")
+        except Exception as _e:
+            _mark_failed("alphafold", str(_e))
+            raise
     save_step("alphafold")
 
     if VALIDATE_ONLY:
@@ -1606,25 +1925,76 @@ def main() -> None:
     _iptm_cutoff = float(inputs.get("iptm_cutoff", 0.3))
     _filter_by_iptm(af2_out_dir, min_iptm=_iptm_cutoff)
 
+    # Step: ncAA Mutation
     print_step("Step 7: ncAA Configuration & Mutation")
-    struct_dir = _run_ncaa_mutation(af2_out_dir, ncaa_def.code if ncaa_def else "none", ncaa_def.label if ncaa_def else "none", ncaa_positions, target_out_dir, binder_chain, target_chain)
+    if _step_really_done("ncaa_mutation"):
+        _mark_skipped("ncaa_mutation")
+        struct_dir = _run_ncaa_mutation(af2_out_dir, ncaa_def.code if ncaa_def else "none", ncaa_def.label if ncaa_def else "none", ncaa_positions, target_out_dir, binder_chain, target_chain)
+    else:
+        _mark_running("ncaa_mutation", total=0, workers=1)
+        try:
+            struct_dir = _run_ncaa_mutation(af2_out_dir, ncaa_def.code if ncaa_def else "none", ncaa_def.label if ncaa_def else "none", ncaa_positions, target_out_dir, binder_chain, target_chain)
+            _mark_complete("ncaa_mutation")
+        except Exception as _e:
+            _mark_failed("ncaa_mutation", str(_e))
+            raise
     save_step("ncaa_mutation")
 
+    # Step: Parameterize (save_step 레거시 엔트리 없음 — state 훅만 직접 관리)
     print_step("Step 8: ncAA Parameterization")
     param_dir = os.path.join(target_out_dir, "params")
-    params_manifest = _run_parameterization(struct_dir, param_dir, ncaa_def)
+    _param_really_done = check_outputs_exist("parameterize", inputs, target_out_dir)
+    if _param_really_done:
+        _mark_skipped("parameterize")
+        params_manifest = _run_parameterization(struct_dir, param_dir, ncaa_def)
+    else:
+        _mark_running("parameterize", total=0, workers=1)
+        try:
+            params_manifest = _run_parameterization(struct_dir, param_dir, ncaa_def)
+            _mark_complete("parameterize")
+        except Exception as _e:
+            _mark_failed("parameterize", str(_e))
+            raise
 
     _run_admet(struct_dir, admet_mode, target_out_dir, status if not resume_mode else inputs, status_file)
 
+    # Step: MD + Snapshots (save_step 한 번에 state 2 개 complete 처리)
     print_step("Step 9: Restrained MD")
     canonical_topo = topology_mode.get("canonical", topology_mode.get("abbr", "linear"))
-    md_out_dir, snap_dir = _run_md_and_snapshots(struct_dir, params_manifest, target_out_dir, ncaa_def.label if ncaa_def else "none", ncaa_def.code if ncaa_def else "", canonical_topo, binder_chain, graph_policy="strict", dcd_backup_path=dcd_backup_path)
+    if _step_really_done("md_snapshots"):
+        _mark_skipped("md_snapshots")
+        md_out_dir, snap_dir = _run_md_and_snapshots(struct_dir, params_manifest, target_out_dir, ncaa_def.label if ncaa_def else "none", ncaa_def.code if ncaa_def else "", canonical_topo, binder_chain, graph_policy="strict", dcd_backup_path=dcd_backup_path)
+    else:
+        _mark_running("md_snapshots", total=0, workers=get_workers("md", inputs),
+                      detail="OpenMM restrained MD")
+        try:
+            md_out_dir, snap_dir = _run_md_and_snapshots(struct_dir, params_manifest, target_out_dir, ncaa_def.label if ncaa_def else "none", ncaa_def.code if ncaa_def else "", canonical_topo, binder_chain, graph_policy="strict", dcd_backup_path=dcd_backup_path)
+            _mark_complete("md_snapshots")
+        except Exception as _e:
+            _mark_failed("md_snapshots", str(_e))
+            raise
     save_step("md_snapshots")
 
-    qmmm_out = execute_qmmm(snap_dir, qmmm_mode, ncaa_def.element if ncaa_def else "", af2_out_dir, parallel_workers, target_out_dir, binder_chain)
+    # Step: QM/MM — [v0.4.1 B] total = snap_dir 의 PDB 개수
+    _snap_count = 0
+    if os.path.isdir(snap_dir):
+        _snap_count = len([f for f in os.listdir(snap_dir) if f.endswith(".pdb")])
+    if _step_really_done("qmmm"):
+        _mark_skipped("qmmm")
+        qmmm_out = execute_qmmm(snap_dir, qmmm_mode, ncaa_def.element if ncaa_def else "", af2_out_dir, parallel_workers, target_out_dir, binder_chain)
+    else:
+        _mark_running("qmmm", total=_snap_count, workers=qmmm_workers,
+                      detail="DFT QM/MM (gpu4pyscf)")
+        try:
+            qmmm_out = execute_qmmm(snap_dir, qmmm_mode, ncaa_def.element if ncaa_def else "", af2_out_dir, parallel_workers, target_out_dir, binder_chain)
+            _mark_complete("qmmm")
+        except Exception as _e:
+            _mark_failed("qmmm", str(_e))
+            raise
     save_step("qmmm")
 
     # ── [RESTORED] Step 12: MM-GBSA 결합 자유에너지 계산 ──
+    # [v0.4.1 B] polling thread 로 5s 마다 mmgbsa_results/*.json 개수 → state.update_step.
     print_step("Step 12: MM-GBSA Binding Free Energy")
     mmgbsa_out = os.path.join(target_out_dir, "mmgbsa_results")
     os.makedirs(mmgbsa_out, exist_ok=True)
@@ -1636,7 +2006,36 @@ def main() -> None:
         "--receptor_chain",  target_chain,
         "--binder_chain",    binder_chain,
     ]
-    run_conda_command(SCRIPT_PATHS["run_mmgbsa"], mmgbsa_args, "MM-GBSA ΔG 계산", env_key="md")
+    if _step_really_done("mmgbsa"):
+        _mark_skipped("mmgbsa")
+        run_conda_command(SCRIPT_PATHS["run_mmgbsa"], mmgbsa_args, "MM-GBSA ΔG 계산", env_key="md")
+    else:
+        _mark_running("mmgbsa", total=_snap_count, workers=mmgbsa_workers,
+                      detail="AMBER/OpenMM ensemble ΔG")
+        # [v0.4.1] polling thread — blocking subprocess 인 run_mmgbsa 의 진행도를
+        # mmgbsa_results/*.json 개수로 추정 (과학 로직 건드리지 않음).
+        import threading as _thr
+        _mmgbsa_stop = _thr.Event()
+        def _mmgbsa_poll():
+            while not _mmgbsa_stop.wait(5.0):
+                try:
+                    _n = sum(1 for f in os.listdir(mmgbsa_out)
+                             if f.endswith(".json") or f.endswith(".csv"))
+                except OSError:
+                    _n = 0
+                if state is not None:
+                    state.update_step("mmgbsa", completed=_n)
+        _mmgbsa_poller = _thr.Thread(target=_mmgbsa_poll, daemon=True)
+        _mmgbsa_poller.start()
+        try:
+            run_conda_command(SCRIPT_PATHS["run_mmgbsa"], mmgbsa_args, "MM-GBSA ΔG 계산", env_key="md")
+            _mark_complete("mmgbsa")
+        except Exception as _e:
+            _mark_failed("mmgbsa", str(_e))
+            raise
+        finally:
+            _mmgbsa_stop.set()
+            _mmgbsa_poller.join(timeout=2)
     save_step("mmgbsa")
 
     # ── [RESTORED] Step 13: Final Ranking (pLDDT + QM/MM + ΔG 종합) ──
@@ -1649,7 +2048,17 @@ def main() -> None:
         "--topology",   topology_mode.get("abbr", "linear"),
         "--outputcsv",  final_csv,
     ]
-    run_conda_command(SCRIPT_PATHS["rank_qmmm"], rank_args, "최종 후보 Ranking", env_key="qmmm")
+    if _step_really_done("final_ranking"):
+        _mark_skipped("final_ranking")
+        run_conda_command(SCRIPT_PATHS["rank_qmmm"], rank_args, "최종 후보 Ranking", env_key="qmmm")
+    else:
+        _mark_running("final_ranking", total=0, workers=1)
+        try:
+            run_conda_command(SCRIPT_PATHS["rank_qmmm"], rank_args, "최종 후보 Ranking", env_key="qmmm")
+            _mark_complete("final_ranking")
+        except Exception as _e:
+            _mark_failed("final_ranking", str(_e))
+            raise
     save_step("final_ranking")
 
     print_step("UPDD Pipeline 완료")
@@ -1664,6 +2073,28 @@ def main() -> None:
     if dcd_backup_path:
         print(f"  DCD 백업 : {dcd_backup_path}")
     print()
+
+    # ── [v0.4] 정상 종료: dashboard 마지막 상태 반영 후 깔끔히 정리 ──
+    if use_dashboard and state is not None:
+        try:
+            state.emit_event("pipeline_complete", "🎉 Pipeline finished")
+            time.sleep(2)  # 마지막 상태가 dashboard 에 렌더되도록
+            if dashboard_stop is not None:
+                dashboard_stop.set()
+            if dashboard_thread is not None:
+                dashboard_thread.join(timeout=5)
+        except (OSError, RuntimeError):
+            pass
+        finally:
+            sys.stdout = _orig_stdout
+            sys.stderr = _orig_stderr
+            try:
+                if pipeline_log_fh is not None and not pipeline_log_fh.closed:
+                    pipeline_log_fh.close()
+            except (OSError, ValueError):
+                pass
+            # 복원된 터미널에 요약 1줄 출력 (사용자 피드백용)
+            print(f"✅ UPDD v0.4 완료 — 최종 산출: {final_csv}")
 
 if __name__ == "__main__":
     main()

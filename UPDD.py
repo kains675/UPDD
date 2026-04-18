@@ -45,6 +45,15 @@ try:
 except ImportError:
     sys.exit("[!] utils/ncaa_registry.py 파일을 찾을 수 없습니다. 경로를 확인하세요.")
 
+# [v0.5] Per-design MD status SSOT
+try:
+    from utils_common import (load_md_status, write_md_status,  # type: ignore
+                              classify_md_outcome, get_design_tier,
+                              EXPLOSION_MARKER_PATTERNS, PARTIAL_PLACEHOLDERS)
+    _V05_MD_STATUS_AVAILABLE = True
+except ImportError:
+    _V05_MD_STATUS_AVAILABLE = False
+
 # [v0.4] Dashboard / State / Config — UI 탈바꿈 (과학 로직 불변)
 # 세 유틸리티는 utils/ 에 있으며 UTILS_DIR 이 이미 sys.path 에 추가되어 있다.
 # ImportError 발생 시 대시보드를 비활성화하고 v0.3.3 레거시 모드로 자동 폴백한다.
@@ -1088,14 +1097,23 @@ def _run_md_and_snapshots(struct_dir, params_manifest, target_out_dir, ncaa_labe
         if n_retry > 0 and canonical_topo in ("cyclic_htc", "cyclic_nm"):
             print(f"\n  [2-Pass] {n_retry}개 디자인이 2fs에서 실패. 1fs로 재시도합니다.")
             print(f"    (EXPLODED: {len(exploded_2fs)}개, NVT/기타 실패: {len(failed_no_final)}개)")
-            # 기존 EXPLODED 마커 정리 + _final.pdb 삭제 로직은 유지
-            for elog in exploded_2fs:
-                base = os.path.basename(elog).replace("_EXPLODED_dt2fs.log", "")
-                for ext in ["_restrained.dcd", "_final.pdb", "_md.log"]:
-                    target_f = os.path.join(md_out_dir, base + ext)
-                    if os.path.exists(target_f):
-                        os.remove(target_f)
-                os.remove(elog)
+            # [v0.5 Bug 1 fix] 모든 explosion marker + partial placeholder를 archive로 이동
+            _archive_ts = _datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            _archive_dir = os.path.join(md_out_dir, "_archive", _archive_ts)
+            os.makedirs(_archive_dir, exist_ok=True)
+            _marker_patterns = EXPLOSION_MARKER_PATTERNS if _V05_MD_STATUS_AVAILABLE else [
+                "_EXPLODED_dt2fs.log", "_EXPLODED_dt1fs.log",
+                "_EXPLODED_MD.log", "_EXPLODED_NVT.log", "_EXPLODED_COLD_NVT.log",
+                "_EXPLODED_MIN.log", "_EXPLODED_CYCLIC_MIN.log", "_EXPLODED_CYCLIC_RELAX.log",
+            ]
+            _partial_patterns = PARTIAL_PLACEHOLDERS if _V05_MD_STATUS_AVAILABLE else [
+                "_partial_md.pdb", "_partial_nvt.pdb",
+            ]
+            for stem in retry_targets:
+                for pat in _marker_patterns + _partial_patterns:
+                    src = os.path.join(md_out_dir, stem + pat)
+                    if os.path.exists(src):
+                        shutil.move(src, os.path.join(_archive_dir, stem + pat))
 
             retry_args = list(md_args)
             dt_idx = retry_args.index("--dt_fs")
@@ -1111,6 +1129,26 @@ def _run_md_and_snapshots(struct_dir, params_manifest, target_out_dir, ncaa_labe
         md_manifest = {"status": "SUCCESS_OR_WARNING", "topology": canonical_topo, "graph_policy": graph_policy, "ncaa_code": ncaa_code_check}
         with open(manifest_path, "w", encoding="utf-8") as f:
             json.dump(md_manifest, f, indent=2)
+
+        # [v0.5] _md_status.json 생성/갱신 — per-design MD tier SSOT
+        if _V05_MD_STATUS_AVAILABLE:
+            md_status = load_md_status(target_out_dir) or {
+                "schema_version": "0.5.0",
+                "project": os.path.basename(target_out_dir),
+                "topology": canonical_topo,
+                "created_by": "UPDD.py",
+                "designs": {},
+            }
+            for inp_pdb in all_input_pdbs:
+                stem = os.path.splitext(os.path.basename(inp_pdb))[0]
+                outcome = classify_md_outcome(md_out_dir, stem)
+                md_status["designs"][stem] = outcome
+            write_md_status(target_out_dir, md_status)
+            _n_tiers = {}  # type: Dict[str, int]
+            for d in md_status["designs"].values():
+                t = d.get("tier", "UNKNOWN")
+                _n_tiers[t] = _n_tiers.get(t, 0) + 1
+            print(f"  [v0.5] _md_status.json 갱신: {_n_tiers}")
 
     if dcd_backup_path and os.path.exists(dcd_backup_path):
         print_step("Step 9.5: Symlink Setup for MDtraj")
@@ -1205,11 +1243,30 @@ def _stop_qmmm_watchdog(proc: Optional[subprocess.Popen]) -> None:
 
 
 def execute_qmmm(snap_dir: str, qmmm_mode: str, ncaa_element: str, af2_out_dir: str,
-                 parallel_workers: int, target_out_dir: str, binder_chain: str = "B") -> str:
+                 parallel_workers: int, target_out_dir: str, binder_chain: str = "B",
+                 target_id: Optional[str] = None) -> str:
+    """QM/MM 단계 orchestrator.
+
+    [v0.6.1] ``target_id`` 가 주어지고 ``target_cards/{target_id}.json`` 이 존재하면
+    ``run_qmmm.py`` 에 ``--target-id`` 를 전달하여 topology mode (snapshot-invariant
+    QM region) 로 실행된다. 카드가 없으면 legacy distance-based mode (fast/plaid/full)
+    로 폴백하여 이전 워크플로우와의 호환을 유지한다.
+    """
     print_step("Step 11: QM/MM — wB97X-D / PySCF")
     qmmm_out = os.path.join(target_out_dir, "qmmm_results")
     os.makedirs(qmmm_out, exist_ok=True)
     elem_arg = ncaa_element if ncaa_element else "none"
+
+    # [v0.6.1] target_card 존재 여부 확인 → topology mode 활성화 가드.
+    # target_id 가 None 이거나 카드 JSON 이 없으면 legacy mode 유지 (backward compat).
+    _effective_target_id: Optional[str] = None
+    if target_id:
+        _card_path = os.path.join(UPDD_DIR, "target_cards", f"{target_id}.json")
+        if os.path.exists(_card_path):
+            _effective_target_id = target_id
+            print(f"  [v0.6.1] Topology mode 활성화 — target_card: {_card_path}")
+        else:
+            print(f"  [v0.6.1] target_card 미발견 ({_card_path}) — legacy mode ({qmmm_mode}) 유지")
 
     # ── Phase 1: 스냅샷 존재 디자인만 필터링 ──────────────────
     af2_ranking_path = os.path.join(af2_out_dir, "af2_ranking.csv")
@@ -1240,7 +1297,14 @@ def execute_qmmm(snap_dir: str, qmmm_mode: str, ncaa_element: str, af2_out_dir: 
 
     # ── Phase 2: Resume — 이미 정상 완료된 디자인 스킵 ────────
     def _is_qmmm_done(design_id: str) -> bool:
-        """해당 디자인의 모든 스냅샷 QM/MM이 정상 완료되었는지 확인."""
+        """해당 디자인의 모든 스냅샷 QM/MM이 정상 완료되었는지 확인.
+
+        [v0.5 Bug 5 fix] FAIL tier 디자인은 QM/MM 계산 불필요 (ranking_include=false).
+        """
+        if _V05_MD_STATUS_AVAILABLE:
+            _tier = get_design_tier(target_out_dir, design_id)
+            if _tier == "FAIL":
+                return True
         snap_pdbs = sorted(glob.glob(os.path.join(snap_dir, f"{design_id}*.pdb")))
         if not snap_pdbs:
             return False
@@ -1306,6 +1370,11 @@ def execute_qmmm(snap_dir: str, qmmm_mode: str, ncaa_element: str, af2_out_dir: 
                 "--filter",       design_id,
                 "--binder_chain", binder_chain,
             ]
+            # [v0.6.1] Topology mode wiring — target card 존재 시에만 주입.
+            # run_qmmm.py 의 --target-id 가 설정되면 --mode 는 무시되고
+            # target_cards/{id}.json 의 QM partitioning 정책이 적용된다.
+            if _effective_target_id is not None:
+                qmmm_args += ["--target-id", _effective_target_id]
             cmd = base_cmd + qmmm_args
 
             # 짧은 태그: "design_w4_1_s2" → "w4_1_s2"
@@ -1979,14 +2048,17 @@ def main() -> None:
     _snap_count = 0
     if os.path.isdir(snap_dir):
         _snap_count = len([f for f in os.listdir(snap_dir) if f.endswith(".pdb")])
+    # [v0.6.1] target_id 배선 — PDB stem (base_name) 이 target_cards/{id}.json 과 매칭.
+    # 카드가 있으면 execute_qmmm 내부에서 topology mode 로 전환, 없으면 legacy mode 유지.
+    _qmmm_target_id = inputs.get("target_id") or inputs.get("pdb_id") or base_name
     if _step_really_done("qmmm"):
         _mark_skipped("qmmm")
-        qmmm_out = execute_qmmm(snap_dir, qmmm_mode, ncaa_def.element if ncaa_def else "", af2_out_dir, parallel_workers, target_out_dir, binder_chain)
+        qmmm_out = execute_qmmm(snap_dir, qmmm_mode, ncaa_def.element if ncaa_def else "", af2_out_dir, parallel_workers, target_out_dir, binder_chain, target_id=_qmmm_target_id)
     else:
         _mark_running("qmmm", total=_snap_count, workers=qmmm_workers,
                       detail="DFT QM/MM (gpu4pyscf)")
         try:
-            qmmm_out = execute_qmmm(snap_dir, qmmm_mode, ncaa_def.element if ncaa_def else "", af2_out_dir, parallel_workers, target_out_dir, binder_chain)
+            qmmm_out = execute_qmmm(snap_dir, qmmm_mode, ncaa_def.element if ncaa_def else "", af2_out_dir, parallel_workers, target_out_dir, binder_chain, target_id=_qmmm_target_id)
             _mark_complete("qmmm")
         except Exception as _e:
             _mark_failed("qmmm", str(_e))

@@ -34,6 +34,22 @@ from utils_common import KNOWN_COFACTORS, parse_pdb_atom_line  # noqa: E402
 
 
 # ==========================================
+# [v0.6.3 Phase 2] 예외 클래스 — Policy A fail-fast
+# ==========================================
+class OddElectronError(ValueError):
+    """Raised when the QM region has an odd number of electrons.
+
+    Policy A (v0.6): fail-fast — no silent charge=-1 correction.
+    The caller (run_qmmm_calc) should catch this, record the failure in the
+    snapshot JSON, and skip this snapshot without aborting the whole design.
+
+    Inherits from ``ValueError`` for backward compatibility with existing
+    ``except ValueError`` handlers upstream.
+    """
+    pass
+
+
+# ==========================================
 # 상수 및 원소 정보
 # ==========================================
 ELEMENT_CHARGE = {
@@ -143,9 +159,63 @@ def _partition_by_interface_distance(atoms, cutoff, binder_chain):
 
 
 # ==========================================
+# [v0.6.1] Sidechain atom selector — topology mode helper
+# ==========================================
+_BACKBONE_NAMES = frozenset({
+    'N', 'CA', 'C', 'O',
+    'H', 'HA', 'OXT',
+    'H1', 'H2', 'H3',
+    'HA2', 'HA3',
+})
+
+
+# ==========================================
+# [v0.6.5 Phase 4] Atomic proton lookup — supermolecular subsystem parity check
+# ==========================================
+# Used by Phase 4 (qm_int_kcal_frozen) to determine binder subsystem charge
+# from proton parity (Policy A: fail-fast on odd-electron subsystems).
+# Includes biologically/structurally relevant elements; ELEMENT_CHARGE above is
+# the legacy QM-region table (kept verbatim for backward compatibility).
+_ELEMENT_PROTONS = {
+    "H": 1, "C": 6, "N": 7, "O": 8, "S": 16, "P": 15,
+    "F": 9, "Cl": 17, "Br": 35, "I": 53, "Si": 14, "Se": 34,
+    "Fe": 26, "Zn": 30, "Mg": 12, "Ca": 20, "Na": 11, "K": 19,
+}
+
+
+def _select_sidechain_atoms(residue_atoms):
+    """Return the sidechain-only subset of a residue's atom list.
+
+    Used by ``partition_qmmm(mode="topology")`` to place target contact residue
+    sidechains into the QM region while leaving their backbone in MM. This keeps
+    the QM cluster chemically well-defined (Cα–Cβ bond is the clean break) and
+    avoids dragging the whole backbone chain through the QM/MM boundary.
+
+    Special cases:
+        - GLY has no chemically meaningful sidechain → empty list.
+        - PRO's pyrrolidine ring is fused to the backbone; splitting it creates
+          a non-physical fragment → keep the whole residue.
+
+    Args:
+        residue_atoms: List of atom dicts belonging to a single residue
+            (order/membership as produced by :func:`parse_pdb_atoms`).
+
+    Returns:
+        list[dict]: Subset of ``residue_atoms`` containing only sidechain atoms.
+    """
+    resname = residue_atoms[0].get('resname', '') if residue_atoms else ''
+    if resname == 'GLY':
+        return []
+    if resname == 'PRO':
+        return list(residue_atoms)
+    return [a for a in residue_atoms if a.get('name', '').strip() not in _BACKBONE_NAMES]
+
+
+# ==========================================
 # [v4 S-2] QM/MM Link Atom (H-cap) 경계 보정
 # ==========================================
-def _add_link_atoms(qm_atoms, mm_atoms, all_atoms, cn_max_distance=1.7):
+def _add_link_atoms(qm_atoms, mm_atoms, all_atoms, cn_max_distance=1.7,
+                    include_cb_breaks=False, binder_topology="linear", binder_chain="B"):
     """[v4 S-2] QM/MM 경계에서 절단된 펩타이드 결합 (C-N) 에 H-cap link atom 을 삽입한다.
 
     배경:
@@ -164,6 +234,22 @@ def _add_link_atoms(qm_atoms, mm_atoms, all_atoms, cn_max_distance=1.7):
         mm_atoms:  partition_qmmm 가 산출한 MM 원자 dict 리스트
         all_atoms: 전체 원자 (parse_pdb_atoms 결과)
         cn_max_distance: 펩타이드 결합으로 인정할 C-N 거리 임계값 (Å). 기본 1.7 Å.
+        include_cb_breaks: [v0.6.1] True 이면 Cα-Cβ 경계에도 H-cap 을 삽입한다.
+            topology mode (sidechain-only QM) 에서 target contact residue 의
+            Cβ (+sidechain) 가 QM, Cα (+backbone) 가 MM 인 경우에 사용된다.
+            방향은 Cβ→Cα 이며 거리는 C-H 평균 1.09 Å 이다.
+        binder_topology: [v0.6.3 Phase 3] Binder 의 위상 구조.
+            - ``"linear"`` (기본): 선형 peptide, 추가 처리 없음.
+            - ``"cyclic_htc"`` / ``"cyclic_cc"``: Head-to-Tail / C-to-C cyclization.
+              binder chain 내 마지막 잔기의 C 와 첫 잔기의 N 사이 peptide bond 를
+              검사하여 QM/MM 경계에 걸치면 H-cap link atom 을 삽입한다.
+            - ``"cyclic_ss"``: Disulfide bond. binder chain 내 Cys Sγ-Sγ
+              (≤ 2.1 Å) 쌍이 QM/MM 경계를 가로지르면 H-cap 을 삽입한다.
+            topology mode (binder whole-QM) 에서는 cyclic bond 가 QM 내부에 있어
+            추가 link atom 이 생성되지 않는다. legacy FAST/PLAID 모드에서 binder
+            가 분할될 때에만 유효하다.
+        binder_chain: [v0.6.3 Phase 3] Binder chain ID. cyclic topology 처리 시
+            대상 chain 을 특정하기 위해 사용된다 (기본 "B").
 
     Returns:
         list[dict]: 추가될 link H 원자 dict 리스트. build_qm_mol 가 본 리스트를
@@ -215,6 +301,94 @@ def _add_link_atoms(qm_atoms, mm_atoms, all_atoms, cn_max_distance=1.7):
             link = _make_link_h(n_next, c_atom, BOND_LEN_CH)
             link_atoms.append(link)
 
+    # [v0.6.3 Phase 3] Cyclic topology: last residue C → first residue N bond
+    #   Head-to-Tail (cyclic_htc) / C-to-C (cyclic_cc) cyclization 에서 선형 루프가
+    #   놓치는 마지막→첫 peptide bond 를 보정한다. binder 가 QM/MM 경계를 가로지르는
+    #   legacy FAST/PLAID 모드에서만 유효 (topology mode 는 binder whole-QM).
+    if binder_topology in ("cyclic_htc", "cyclic_cc"):
+        binder_resnums = sorted(
+            set(a["resnum"] for a in all_atoms if a["chain"] == binder_chain)
+        )
+        if len(binder_resnums) >= 2:
+            first_res = binder_resnums[0]
+            last_res = binder_resnums[-1]
+            c_last = next(
+                (a for a in all_atoms
+                 if a["chain"] == binder_chain and a["resnum"] == last_res
+                 and a["name"] == "C"),
+                None,
+            )
+            n_first = next(
+                (a for a in all_atoms
+                 if a["chain"] == binder_chain and a["resnum"] == first_res
+                 and a["name"] == "N"),
+                None,
+            )
+            if c_last and n_first:
+                d_cyc = np.linalg.norm(
+                    np.array([c_last["x"], c_last["y"], c_last["z"]])
+                    - np.array([n_first["x"], n_first["y"], n_first["z"]])
+                )
+                if d_cyc <= cn_max_distance:
+                    c_key = (c_last["chain"], c_last["resnum"], "C")
+                    n_key = (n_first["chain"], n_first["resnum"], "N")
+                    # C ∈ QM, N ∈ MM 경계
+                    if c_key in qm_keys and n_key in mm_keys:
+                        lk = _make_link_h(c_last, n_first, BOND_LEN_CH)
+                        lk["link_type"] = "cyclic_htc_c_to_n"
+                        link_atoms.append(lk)
+                    # N ∈ QM, C ∈ MM 경계
+                    if n_key in qm_keys and c_key in mm_keys:
+                        lk = _make_link_h(n_first, c_last, BOND_LEN_CH)
+                        lk["link_type"] = "cyclic_htc_n_to_c"
+                        link_atoms.append(lk)
+
+    # [v0.6.3 Phase 3] Disulfide cyclization: Cys Sγ-Sγ 경계 처리
+    #   binder 내부 SS bond 이 QM 내부에 완전히 포함되면 추가 처리 불필요.
+    #   QM/MM 경계를 가로지르는 SS bond 에만 H-cap 삽입 (C-S 근사 거리 1.34 Å).
+    if binder_topology == "cyclic_ss":
+        qm_sg = [a for a in qm_atoms
+                 if a["chain"] == binder_chain and a["name"] == "SG"]
+        mm_sg = [a for a in mm_atoms
+                 if a["chain"] == binder_chain and a["name"] == "SG"]
+        for qm_s in qm_sg:
+            for mm_s in mm_sg:
+                d_ss = np.linalg.norm(
+                    np.array([qm_s["x"], qm_s["y"], qm_s["z"]])
+                    - np.array([mm_s["x"], mm_s["y"], mm_s["z"]])
+                )
+                if d_ss <= 2.1:  # SS bond 상한 2.1 Å
+                    lk = _make_link_h(qm_s, mm_s, 1.34)  # C-S 근사 결합길이
+                    lk["link_type"] = "cyclic_ss"
+                    link_atoms.append(lk)
+
+    # [v0.6.1] Cα-Cβ 경계 H-cap (topology mode 에서 sidechain-only QM 시 사용)
+    #   - Target contact residue 의 Cβ+sidechain 이 QM, Cα+backbone 이 MM 인 경우
+    #   - 방향: Cβ→Cα, 거리: 1.09 Å (C-H 평균)
+    if include_cb_breaks:
+        n_cb_breaks = 0
+        for atom in qm_atoms:
+            if atom.get("name", "").strip() != "CB":
+                continue
+            cb_chain = atom["chain"]
+            cb_resnum = atom["resnum"]
+            # 같은 잔기의 CA 를 MM 측에서 탐색
+            ca = next(
+                (a for a in mm_atoms
+                 if a["chain"] == cb_chain and a["resnum"] == cb_resnum
+                 and a.get("name", "").strip() == "CA"),
+                None,
+            )
+            if ca is None:
+                continue
+            # _make_link_h 와 동일한 규약: qm_atom(=CB) 에서 mm_atom(=CA) 방향으로 bond_len
+            link = _make_link_h(atom, ca, BOND_LEN_CH)
+            link["link_type"] = "ca_cb"  # 진단용 flag (기존 peptide C-N 절단과 구분)
+            link_atoms.append(link)
+            n_cb_breaks += 1
+        if n_cb_breaks:
+            print(f"  [Link Atom] Cα-Cβ 경계 {n_cb_breaks}개 → H-cap 삽입 (topology mode)")
+
     if link_atoms:
         print(f"  [Link Atom] QM/MM 경계 절단 결합 {len(link_atoms)}개 → H-cap 삽입 (Senn & Thiel 2009)")
     return link_atoms
@@ -242,16 +416,100 @@ def _make_link_h(qm_atom, mm_atom, bond_len):
         "z": float(h_pos[2]),
         "element": "H",
         "is_ncaa": False,
-        "is_link": True,                    # build_qm_mol 진단용 플래그
+        "is_link": True,                    # build_qm_mol 진단용 플래그 (legacy)
+        "is_link_atom": True,               # [v0.6.5 Phase 4] subsystem 분리용 표준 플래그
     }
 
 
-def partition_qmmm(atoms, qm_cutoff=5.0, mode="full", binder_chain="B"):
+def partition_qmmm(atoms, qm_cutoff=5.0, mode="full", binder_chain="B", target_card=None):
     """
     mode="full": 바인더 전체를 QM으로.
     mode="fast": 타겟과 바인더가 맞닿은 4.0 Å 이내 핵심 인터페이스 잔기만 추출하여 QM으로.
     mode="plaid" : 타겟과 바인더가 맞닿은 3.0 Å 이내 핵심 인터페이스 잔기만 추출하여 QM으로.
+    mode="topology" : [v0.6.1] ``target_card`` 에 사전 정의된 contact residue 만 QM 으로.
+        - binder chain 의 모든 잔기는 whole-residue QM.
+        - target chain 중 ``target_contact_residues`` 에 나열된 잔기만 sidechain-only QM
+          (GLY 는 제외, PRO 는 whole residue).
+        - ``cofactor_residues`` 에 선언된 잔기는 MM point charge 처리.
+        - ``qm_atom_budget.max_n_qm`` 을 초과하면 RuntimeError 로 즉시 실패한다.
+        - Snapshot 간 QM region 이 topology 에 고정되어 n_qm variance = 0 을 보장한다.
     """
+    # [v0.6.1] Topology mode — 사전 정의 contact residue 기반 QM 영역 (snapshot-invariant)
+    if mode == "topology":
+        if target_card is None:
+            raise ValueError("topology mode requires target_card argument")
+
+        rules = target_card.get("partition_rules", {})
+        contact_resnums = set(target_card.get("target_contact_residues", []))
+        # [v0.6.1+SciVal] whole_residue_exceptions: target contact residues that
+        # must be treated as whole-residue QM despite the default sidechain_only
+        # policy (e.g. GLY_60 DxxGQ motif backbone N-H contributes to KD2 binding).
+        whole_res_exceptions = set(target_card.get("whole_residue_exceptions", []))
+        cofactor_residues = target_card.get("cofactor_residues", [])
+        cofactor_resnames = {c.get("resname") for c in cofactor_residues if c.get("resname")}
+        tc_binder_chain = target_card.get("binder_chain", binder_chain)
+        target_chain = target_card.get("target_chain", "A")
+        max_n_qm = target_card.get("qm_atom_budget", {}).get("max_n_qm", 600)
+        if "qm_atom_budget" not in target_card:
+            import warnings
+            warnings.warn(
+                f"target_card '{target_card.get('target_id')}' missing qm_atom_budget — "
+                "using fallback max_n_qm=600. Regenerate with generate_target_card.py.",
+                stacklevel=2,
+            )
+
+        # (chain, resnum) 로 원자를 잔기 단위로 그룹화
+        from collections import defaultdict
+        by_res = defaultdict(list)
+        for a in atoms:
+            by_res[(a["chain"], a["resnum"])].append(a)
+
+        qm_atoms = []
+        mm_atoms = []
+
+        for (chain, resnum), res_atoms in by_res.items():
+            resname = res_atoms[0].get("resname", "")
+
+            if resname in cofactor_resnames:
+                # Cofactor → MM point charge (GNP, MG 등)
+                mm_atoms.extend(res_atoms)
+            elif chain == tc_binder_chain:
+                # Binder 는 whole residue QM (ncAA 포함 전체 잔기)
+                qm_atoms.extend(res_atoms)
+            elif chain == target_chain and resnum in contact_resnums:
+                if resnum in whole_res_exceptions:
+                    # Whole-residue QM (e.g., GLY backbone-mediated DxxGQ contact).
+                    # Entire residue (backbone + sidechain) enters QM region.
+                    qm_atoms.extend(res_atoms)
+                else:
+                    # Target contact 잔기 → sidechain 만 QM, backbone 은 MM
+                    sc = _select_sidechain_atoms(res_atoms)
+                    sc_ids = {id(a) for a in sc}
+                    backbone = [a for a in res_atoms if id(a) not in sc_ids]
+                    qm_atoms.extend(sc)
+                    mm_atoms.extend(backbone)
+            else:
+                # 그 외 target 잔기 / 다른 chain → 전부 MM
+                mm_atoms.extend(res_atoms)
+
+        # QM atom budget 검증 — 초과 시 명시적 실패 (v0.6 Fail-fast 정책)
+        if len(qm_atoms) > max_n_qm:
+            raise RuntimeError(
+                "QM atom count {} exceeds max_n_qm={} (target_card: {}). "
+                "Reduce target_contact_residues or adjust qm_atom_budget.".format(
+                    len(qm_atoms), max_n_qm, target_card.get("target_id")
+                )
+            )
+
+        print(
+            "  [Calculate Mode: TOPOLOGY] target_card={} | binder_chain={} | "
+            "contacts={} | n_qm={} (budget {})".format(
+                target_card.get("target_id"), tc_binder_chain,
+                len(contact_resnums), len(qm_atoms), max_n_qm,
+            )
+        )
+        return qm_atoms, mm_atoms
+
     ncaa_atoms = [a for a in atoms if a["is_ncaa"]]
 
     # [Plaid 초고속 다이어트 모드] — 3.0 Å 임계값
@@ -336,22 +594,39 @@ def build_qm_mol(qm_atoms, charge=0, spin=0, basis="6-31G*"):
     if not atom_str:
         raise ValueError("QM 영역에 원자가 없습니다.")
 
-    # 홀수 전자 보정 (정책은 함수 docstring 참조)
+    # [v0.6.3 Phase 2] Policy A (fail-fast): 홀수 전자 → 즉시 예외 발생.
+    # v0.5 까지의 silent charge=-1 보정은 서로 다른 quantum system 의 에너지
+    # 혼용 원인이었으므로 제거한다. caller 는 OddElectronError 를 catch 하여
+    # snapshot FAILED 로 기록하고 skip 해야 한다 (design abort 금지).
     if total_protons % 2 != 0:
-        charge = -1
-        print(f"    [!] 홀수 전자 감지 (Protons: {total_protons}) -> Charge를 -1로 자동 조정하여 Spin=0 붕괴 방어")
+        raise OddElectronError(
+            f"Odd-electron QM region detected (total_protons={total_protons}). "
+            f"n_qm_atoms={len(qm_atoms)}. "
+            f"QM/MM boundary produces a chemically ambiguous open-shell fragment. "
+            f"Recommended actions: (1) adjust target_contact_residues in target_card.json, "
+            f"(2) check binder link-atom placement (binder_topology setting), "
+            f"(3) verify titratable residue protonation states. "
+            f"[Policy A: fail-fast — no silent charge correction applied]"
+        )
 
     # Si 등 비표준 원소는 def2-SVP로 fallback
     # [FIX1] 모든 원소 포함 (H 포함), H는 6-31G** 사용
+    # [v0.6.4] DF mode (Phase 5a): def2-* 계열 basis 가 전달되면 모든 원소에 일괄 적용.
+    # 이유: def2-universal-jfit auxbasis 는 Karlsruhe family 와 매칭되어야 하며,
+    # H 만 6-31G** 로 섞으면 Pople/Karlsruhe 혼합으로 DF 보조함수 정합성이 깨진다.
+    # 비-DF (Pople) 경로는 기존 H=6-31G**, Si/Br/I=def2-SVP 특수처리 유지 (backward-compat).
     all_elements = set(a["element"] for a in qm_atoms if a["element"])
-    basis_dict = {}
-    for elem in all_elements:
-        if elem in ("Si", "Br", "I"):
-            basis_dict[elem] = "def2-SVP"
-        elif elem == "H":
-            basis_dict[elem] = "6-31G**"
-        else:
-            basis_dict[elem] = basis
+    if basis.startswith("def2"):
+        basis_dict = {elem: basis for elem in all_elements}
+    else:
+        basis_dict = {}
+        for elem in all_elements:
+            if elem in ("Si", "Br", "I"):
+                basis_dict[elem] = "def2-SVP"
+            elif elem == "H":
+                basis_dict[elem] = "6-31G**"
+            else:
+                basis_dict[elem] = basis
 
     mol = gto.M(
         atom    = atom_str.rstrip(";"),
@@ -398,16 +673,67 @@ def get_mm_charges(mm_atoms):
 
 
 # ==========================================
+# [v0.6.5 Phase 4] DFT 객체 설정 헬퍼 — 중복 제거
+# ==========================================
+def _make_dft_mf(mol, qm_xc, max_memory, use_df, df_auxbasis):
+    """Configure RKS DFT object with optional density fitting.
+
+    Phase 4 (qm_int_kcal_frozen) 의 binder/target 단독 SCF 와 main QM/MM
+    SCF 모두에 동일한 DFT 설정을 적용하기 위해 추출한 헬퍼.
+
+    GPU 변환(``to_gpu()``) 및 MM 점전하 부착(``mm_charge``)은 호출부 책임이며,
+    본 함수는 순수 RKS 객체만 반환한다. 이는 ``density_fit()`` decorator chain
+    이 GPU 변환·점전하 부착 *이전* 에 적용되어야 한다는 Phase 5a 제약 (UPDATE.md
+    v0.6.4 참조) 을 호출부에서 명시 제어할 수 있도록 하기 위함이다.
+
+    Args:
+        mol: PySCF ``gto.M`` 분자 객체
+        qm_xc: 교환-상관 범함수 이름 (예: ``"wb97x-d3"``)
+        max_memory: PySCF ``max_memory`` (MB)
+        use_df: density fitting 활성화 여부
+        df_auxbasis: 보조 기저함수 (use_df=True 시 사용)
+
+    Returns:
+        pyscf.dft.RKS 객체 (density_fit 적용 후, GPU 변환·MM 부착 미적용)
+    """
+    mf = dft.RKS(mol)
+    mf.xc = qm_xc
+    mf.verbose = 1
+    mf.max_memory = max_memory
+    mf.grids.level = 3
+    mf.max_cycle = 300
+    mf.conv_tol = 1e-8
+    if use_df:
+        mf = mf.density_fit(auxbasis=df_auxbasis)
+    return mf
+
+
+# ==========================================
 # QM/MM 계산 실행
 # ==========================================
-def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.0, mode="full", binder_chain="B"):
-    """단일 스냅샷 PDB에 대한 QM/MM 계산"""
+def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.0, mode="full", binder_chain="B", target_id=None, use_df=True, df_auxbasis="def2-universal-jfit"):
+    """단일 스냅샷 PDB에 대한 QM/MM 계산.
+
+    [v0.6.1] ``target_id`` 가 지정되면 target_card JSON 을 로드하여
+    topology mode 로 QM region 을 구성한다. 이 경우 ``mode`` 인자는 무시되고
+    항상 topology 경로를 사용한다 (Phase 1: snapshot-invariant QM region).
+    ``target_id=None`` 이면 기존 distance-based mode (full/fast/plaid) 유지.
+    """
 
     # [#40 v0.2] max_memory 를 환경 변수 UPDD_QM_MAX_MEMORY(MB) 로 주입 (기본 16000 = 16GB).
     _max_mem = int(os.environ.get("UPDD_QM_MAX_MEMORY", "16000"))
 
+    # [v0.6.1] Target card 로드 (topology mode 활성화 조건)
+    target_card = None
+    if target_id is not None:
+        from utils_common import load_target_card
+        target_card = load_target_card(target_id)
+
+    # [v0.6.1] topology mode 여부 결정 — target_card 있으면 topology, 없으면 legacy mode 유지
+    use_mode = "topology" if target_card is not None else mode
+
     basename = os.path.basename(pdb_path).replace(".pdb", "")
-    out_json = os.path.join(output_dir, f"{basename}_qmmm_{mode}.json")
+    out_json = os.path.join(output_dir, f"{basename}_qmmm_{use_mode}.json")
 
     if os.path.exists(out_json):
         # [v0.3 #1+#5] resume 무결성 강화:
@@ -472,7 +798,15 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
                 "reason": "binder_escaped", "min_dist_A": round(float(min_dist), 1),
             }
 
-    qm_atoms, mm_atoms = partition_qmmm(atoms, qm_cutoff, mode=mode, binder_chain=binder_chain)
+    # [v0.6.1] topology mode: target_card 의 binder_chain 을 우선 사용
+    effective_binder_chain = target_card["binder_chain"] if target_card else binder_chain
+    qm_atoms, mm_atoms = partition_qmmm(
+        atoms,
+        qm_cutoff=qm_cutoff,
+        mode=use_mode,
+        binder_chain=effective_binder_chain,
+        target_card=target_card,
+    )
 
     # [#38 v0.2] QM 원자 수 상한 가드 — QM-only 계산 발산 및 GPU OOM 예방.
     MAX_QM_ATOMS = 500
@@ -492,12 +826,49 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
         }
 
     # [v4 S-2] QM/MM 경계 H-cap link atom 추가 (Senn & Thiel 2009)
-    link_atoms = _add_link_atoms(qm_atoms, mm_atoms, atoms)
+    # [v0.6.1] topology mode 에서는 Cα-Cβ 경계에도 H-cap 삽입 (sidechain-only QM)
+    # [v0.6.3 Phase 3] binder_topology 전달 — cyclic peptide 의 last→first bond 처리
+    include_cb = (use_mode == "topology")
+    _binder_topo = (target_card.get("binder_topology", "linear")
+                    if target_card else "linear")
+    _binder_chain_for_link = (target_card.get("binder_chain", effective_binder_chain)
+                              if target_card else effective_binder_chain)
+    link_atoms = _add_link_atoms(
+        qm_atoms, mm_atoms, atoms,
+        include_cb_breaks=include_cb,
+        binder_topology=_binder_topo,
+        binder_chain=_binder_chain_for_link,
+    )
     if link_atoms:
         qm_atoms = qm_atoms + link_atoms
 
     try:
         mol = build_qm_mol(qm_atoms, basis=qm_basis)
+    except OddElectronError as e:
+        # [v0.6.3 Phase 2] Policy A: snapshot 실패 기록 후 skip (design abort 금지).
+        # 결과 JSON 에 status/reason 을 명시 기록하여 downstream ranking 에서 격리.
+        print(f"  [POLICY-A] OddElectronError → snapshot skipped: {basename}")
+        print(f"  [POLICY-A] detail: {e}")
+        failure_result = {
+            "snapshot":            basename,
+            "pdb_path":            pdb_path,
+            "qm_method":           f"{qm_xc}/{qm_basis}",
+            "n_qm_atoms":          len(qm_atoms),
+            "n_mm_atoms":          len(mm_atoms),
+            "ncaa_element":        ncaa_elem,
+            "energy_total_hartree": None,
+            "energy_qm_hartree":    None,
+            "energy_qmmm_kcal":     None,
+            "interaction_kcal":     None,
+            "converged":            False,
+            "is_run_mmgbsa":        False,
+            "status":               "FAILED",
+            "reason":               "odd_electron",
+            "odd_electron_detail":  str(e),
+        }
+        with open(out_json, "w", encoding="utf-8") as f:
+            json.dump(failure_result, f, indent=2)
+        return failure_result
     except Exception as e:
         print(f"  [!] QM 분자 빌드 실패: {e}")
         return None
@@ -516,6 +887,13 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
     mf.grids.level = 3
     mf.max_cycle   = 300
     mf.conv_tol    = 1e-8
+
+    # [v0.6.4] Phase 5a: DF-J/K density fitting (16GB VRAM 실행 가능성 복구).
+    # 560-atom QM region direct-SCF → ~266GB VRAM 필요 → 16GB RTX 5070 Ti 불가.
+    # density_fit() 는 반드시 to_gpu() / mm_charge() 이전에 호출해야 한다 (decorator chain 순서).
+    if use_df:
+        mf = mf.density_fit(auxbasis=df_auxbasis)
+        print(f"  [DF-J/K] density_fit 활성화 (auxbasis={df_auxbasis})")
 
     gpu_success = False
     try:
@@ -543,6 +921,10 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
         mf.grids.level = 3
         mf.max_cycle   = 300
         mf.conv_tol    = 1e-8
+        # [v0.6.4] Phase 5a: CPU fallback 에도 동일하게 DF-J/K 적용 (mm_charge 이전).
+        # GPU/CPU 경로 간 method 동일성 보장 → interaction_kcal 일관성.
+        if use_df:
+            mf = mf.density_fit(auxbasis=df_auxbasis)
         if len(mm_coords_charges) > 0:
             mf = qmmm_itrf.mm_charge(mf, mm_coords_charges[:, :3], mm_coords_charges[:, 3])
             print(f"  [+] MM 점전하: {len(mm_coords_charges)}개 포함 (CPU 상태)")
@@ -562,9 +944,13 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
         # [v0.3.3] verbose=4: v0.1 롤백
         mf_qm.verbose = 4
         mf_qm.max_cycle = 300
-        mf_qm.conv_tol = 1e-8  
+        mf_qm.conv_tol = 1e-8
         mf_qm.max_memory = _max_mem
-                
+        # [v0.6.4] Phase 5a: QM-only 도 동일 DF-J/K 적용 (mf 와 method 일치 보장).
+        # interaction_kcal = (E_QMMM - E_QM) 의 일관된 차분 → DF 오차 cancel.
+        if use_df:
+            mf_qm = mf_qm.density_fit(auxbasis=df_auxbasis)
+
         # 2라운드는 점전하 짐칸이 없으므로 그냥 변신만 시키면 됩니다!
         if gpu_success:
             try:
@@ -588,7 +974,100 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
     else:
         e_interact = None
 
-    # ── 6. 결과 저장 ─────────────────────────────────────────
+    # ── 6. Phase 4 (v0.6.5): qm_int_kcal_frozen — 초분자 Morokuma-style 분해 ──
+    # ΔE_int = E(AB) − E(A) − E(B) (frozen geometry, no relaxation).
+    # SciVal 2026-04-18 조건부 승인: link atom 일관성, charge 명시, BSSE 진단 필수.
+    # topology mode 한정 — distance-based mode 에서는 binder/target 분리가 모호.
+    qm_int_kcal_frozen = None
+    e_binder_iso = None
+    e_target_iso = None
+    phase4_diagnostic = {
+        "bsse_corrected": False,
+        "bsse_uncertainty_kcal": "+3 to +8 (def2-SVP estimate)",
+        "geometry": "frozen_md_snapshot",
+        "relaxation_neglected": True,
+        "link_atom_consistency": "shared_between_complex_and_target_iso",
+        "interaction_definition": "supermolecular_morokuma_frozen",
+    }
+
+    if e_qm_only is not None and target_card is not None:
+        tc_binder_chain_p4 = target_card.get("binder_chain", binder_chain)
+        tc_target_chain_p4 = target_card.get("target_chain", "A")
+        target_iso_net_charge = target_card.get("target_iso_net_charge", None)
+
+        # qm_atoms 는 link_atoms 합산본 (L792). subsystem 분리 시 link 원자는
+        # E_complex 와 E_target_iso 에만 포함, E_binder_iso 에는 포함 안 함.
+        binder_qm = [a for a in qm_atoms
+                     if a.get("chain") == tc_binder_chain_p4 and not a.get("is_link_atom")]
+        target_qm_raw = [a for a in qm_atoms
+                         if a.get("chain") == tc_target_chain_p4 and not a.get("is_link_atom")]
+        link_atoms_in_qm = [a for a in qm_atoms if a.get("is_link_atom")]
+
+        if target_iso_net_charge is None:
+            import warnings as _warnings
+            _warnings.warn(
+                "target_card missing 'target_iso_net_charge' — qm_int_kcal_frozen skipped. "
+                "Add this field to target_cards/{}.json".format(target_card.get("target_id")),
+                stacklevel=2,
+            )
+        elif len(binder_qm) > 0 and len(target_qm_raw) > 0:
+            try:
+                # Binder subsystem charge — proton parity (Policy A: fail-fast)
+                binder_protons = sum(
+                    _ELEMENT_PROTONS.get(a["element"].capitalize(), 0)
+                    for a in binder_qm if a.get("element")
+                )
+                if binder_protons % 2 != 0:
+                    raise OddElectronError(
+                        f"Binder subsystem odd-electron (protons={binder_protons}). "
+                        "Cannot compute qm_int_kcal_frozen."
+                    )
+                binder_charge = 0  # even protons → standard whole-peptide charge 0
+
+                # E_binder_iso: binder atoms only, no link atoms (whole-residue,
+                # no Cα-Cβ cuts → no H-cap needed for binder side).
+                mol_binder = build_qm_mol(binder_qm, charge=binder_charge,
+                                           spin=0, basis=qm_basis)
+                mf_binder = _make_dft_mf(mol_binder, qm_xc, _max_mem, use_df, df_auxbasis)
+                if gpu_success:
+                    try:
+                        mf_binder = mf_binder.to_gpu()
+                    except Exception:
+                        pass
+                print(f"  [Phase4] E_binder_iso SCF "
+                      f"({mol_binder.natm} atoms, charge={binder_charge})")
+                e_binder_iso = mf_binder.kernel()
+
+                # E_target_iso: target sidechains + SAME H-cap link atoms used in
+                # E_complex. This is the SciVal mandate — link atom set must be
+                # identical between E_complex and E_target_iso to cancel boundary
+                # artefacts in the difference.
+                target_with_hcaps = target_qm_raw + link_atoms_in_qm
+                mol_target = build_qm_mol(target_with_hcaps,
+                                           charge=target_iso_net_charge, spin=0,
+                                           basis=qm_basis)
+                mf_target = _make_dft_mf(mol_target, qm_xc, _max_mem, use_df, df_auxbasis)
+                if gpu_success:
+                    try:
+                        mf_target = mf_target.to_gpu()
+                    except Exception:
+                        pass
+                print(f"  [Phase4] E_target_iso SCF "
+                      f"({mol_target.natm} atoms, charge={target_iso_net_charge})")
+                e_target_iso = mf_target.kernel()
+
+                if e_binder_iso is not None and e_target_iso is not None:
+                    qm_int_kcal_frozen = (e_qm_only - e_binder_iso - e_target_iso) * 627.509
+                    print(f"  [Phase4] qm_int_kcal_frozen = "
+                          f"{qm_int_kcal_frozen:.4f} kcal/mol")
+
+            except OddElectronError as _oe:
+                print(f"  [Phase4] OddElectronError in subsystem → "
+                      f"qm_int_kcal_frozen=None: {_oe}")
+            except Exception as _e4:
+                print(f"  [Phase4] qm_int_kcal_frozen failed: {_e4}")
+
+    # ── 7. 결과 저장 ─────────────────────────────────────────
     result = {
         "snapshot":       basename,
         "pdb_path":       pdb_path,
@@ -601,7 +1080,37 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
         "energy_qmmm_kcal":       float(energy_total * 627.509) if energy_total else None,
         "interaction_kcal":       e_interact,
         "converged":              energy_total is not None,
+        # [v0.6.4] Phase 5a: DF-J/K 진단 필드 — Path 진단 투명성 (어떤 DF mode/auxbasis 인지 추적).
+        "df_mode":                use_df,
+        "df_auxbasis":            df_auxbasis if use_df else None,
+        # [v0.6.5] Phase 4: 초분자 QM interaction energy (frozen geometry).
+        # topology mode 에서만 계산됨 — legacy mode 는 None.
+        "qm_int_kcal_frozen":     qm_int_kcal_frozen,
+        "e_binder_iso_hartree":   e_binder_iso,
+        "e_target_iso_hartree":   e_target_iso,
+        **phase4_diagnostic,
     }
+
+    # [v0.6.1] Topology mode diagnostic fields — Path 진단 투명성 확보.
+    # target_card 로드 경로를 명시 기록하여 snapshot 별 QM region 구성 추적 가능.
+    if target_card is not None:
+        tc_target_chain = target_card.get("target_chain", "A")
+        tc_binder_chain = target_card["binder_chain"]
+        result.update({
+            "partitioning_mode":      "topology",
+            "target_card_id":         target_card["target_id"],
+            "target_card_version":    target_card["schema_version"],
+            "n_qm_binder":            sum(
+                1 for a in qm_atoms
+                if a.get("chain") == tc_binder_chain and not a.get("is_link")
+            ),
+            "n_qm_target_sidechain":  sum(
+                1 for a in qm_atoms
+                if a.get("chain") == tc_target_chain and not a.get("is_link")
+            ),
+            "n_link_atoms":           sum(1 for a in qm_atoms if a.get("is_link")),
+            "cofactor_treatment":     "mm_point_charge",
+        })
 
     with open(out_json, "w", encoding="utf-8") as f:
         json.dump(result, f, indent=2)
@@ -619,13 +1128,26 @@ def main():
     )
     parser.add_argument("--snapdir",   required=True,         help="스냅샷 PDB 디렉토리")
     parser.add_argument("--outputdir", required=True,         help="QM/MM 결과 출력 디렉토리")
-    parser.add_argument("--qm_basis",  default="6-31G*",      help="QM 기저함수 (기본: 6-31G*)")
+    # [v0.6.4] Phase 5a: --qm_basis 기본값 6-31G* → def2-SVP (DF-J/K 매칭).
+    # 기존 6-31G* 재현이 필요하면 명시적으로 `--no-df --qm_basis 6-31G*` 사용.
+    parser.add_argument("--qm_basis",  default="def2-SVP",    help="QM 기저함수 (기본: def2-SVP, DF mode)")
     parser.add_argument("--qm_xc",     default="wb97x-d3",    help="DFT 범함수 (기본: wb97x-d3)")
     parser.add_argument("--ncaa_elem", default="none",        help="ncAA 핵심 원소 (예: Si)")
     parser.add_argument("--cutoff",    type=float, default=5.0, help="QM 영역 cutoff Å (기본 5.0)")
     parser.add_argument("--mode", default="fast", choices=["full", "fast", "plaid"], help="QM/MM 계산 모드")
     parser.add_argument("--filter", default=None, help="특정 디자인 ID만 골라서 계산 (예: design_w2_2_s1)")
     parser.add_argument("--binder_chain", default="B", help="Binder chain ID (기본 B)")
+    # [v0.6.1] Phase 1: target_card 기반 topology mode 활성화. 지정 시 --mode 는 무시되고
+    # target_cards/{target_id}.json 의 QM partitioning 정책을 따른다 (snapshot-invariant QM region).
+    parser.add_argument("--target-id", dest="target_id", type=str, default=None,
+                        help="Target card ID (e.g., 6WGN). Activates topology mode.")
+    # [v0.6.4] Phase 5a: DF-J/K density fitting 제어. 기본 활성 (16GB VRAM 필수).
+    # `--no-df` 는 소규모 QM region (예: <100 atoms) 에서 direct-SCF 비교 검증용.
+    parser.add_argument("--no-df", dest="use_df", action="store_false",
+                        help="DF-J/K density fitting 비활성화 (소규모 QM region에서만 사용)")
+    parser.set_defaults(use_df=True)
+    parser.add_argument("--df-auxbasis", dest="df_auxbasis", default="def2-universal-jfit",
+                        help="DF 보조 기저함수 (기본: def2-universal-jfit)")
     args = parser.parse_args()
 
     os.makedirs(args.outputdir, exist_ok=True)
@@ -657,8 +1179,12 @@ def main():
             qm_xc      = args.qm_xc,
             ncaa_elem  = args.ncaa_elem,
             qm_cutoff  = args.cutoff,
-            mode       = args.mode, 
-            binder_chain = args.binder_chain
+            mode       = args.mode,
+            binder_chain = args.binder_chain,
+            target_id  = args.target_id,
+            # [v0.6.4] Phase 5a: DF-J/K 인자 전달.
+            use_df       = args.use_df,
+            df_auxbasis  = args.df_auxbasis,
         )
         if result:
             all_results.append(result)

@@ -26,6 +26,11 @@ UPDD 파이프라인의 utils 패키지 전반에서 중복 구현되던 보조 
 
 from typing import Optional, Any, Dict, Tuple, List
 import math
+import os
+import json
+import time
+import glob
+import tempfile
 
 
 # ==========================================
@@ -135,3 +140,261 @@ def resolve_chainid_by_letter(topology: Any, chain_letter: Optional[str]) -> Opt
         if chain_letter_found.upper() == target:
             return chain.index
     return None
+
+
+# ==========================================
+# [v0.5] Per-design MD Status SSOT
+# ==========================================
+
+_MD_STATUS_FILENAME = "_md_status.json"
+
+EXPLOSION_MARKER_PATTERNS = [
+    "_EXPLODED_dt2fs.log", "_EXPLODED_dt1fs.log",
+    "_EXPLODED_MD.log", "_EXPLODED_NVT.log", "_EXPLODED_COLD_NVT.log",
+    "_EXPLODED_MIN.log", "_EXPLODED_CYCLIC_MIN.log", "_EXPLODED_CYCLIC_RELAX.log",
+]
+
+PARTIAL_PLACEHOLDERS = ["_partial_md.pdb", "_partial_nvt.pdb"]
+
+
+def load_md_status(project_dir):
+    # type: (str) -> Optional[dict]
+    """Read outputs/{project}/_md_status.json and return as dict.
+
+    Returns None if the file does not exist or is corrupted.
+    """
+    path = os.path.join(project_dir, _MD_STATUS_FILENAME)
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, IOError, OSError):
+        return None
+
+
+def write_md_status(project_dir, data):
+    # type: (str, dict) -> bool
+    """Atomic write of _md_status.json using tempfile + os.replace.
+
+    Returns True on success, False on failure.
+    """
+    path = os.path.join(project_dir, _MD_STATUS_FILENAME)
+    data["last_updated"] = time.time()
+    try:
+        fd, tmp_path = tempfile.mkstemp(
+            dir=project_dir, suffix=".tmp", prefix="_md_status_"
+        )
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        os.replace(tmp_path, path)
+        return True
+    except (IOError, OSError):
+        if "tmp_path" in locals() and os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+        return False
+
+
+def get_design_tier(project_dir, design_stem):
+    # type: (str, str) -> str
+    """Return the tier string for a design, or 'UNKNOWN' if unavailable."""
+    md_status = load_md_status(project_dir)
+    if md_status is None:
+        return "UNKNOWN"
+    entry = md_status.get("designs", {}).get(design_stem, {})
+    return entry.get("tier", "UNKNOWN")
+
+
+def classify_md_outcome(md_dir, design_stem):
+    # type: (str, str) -> dict
+    """Analyze mdresult/ file patterns for a single design and return tier classification.
+
+    Used by both the in-pipeline producer (Phase 2) and backfill tool (Phase 7).
+
+    Args:
+        md_dir: Path to mdresult/ directory.
+        design_stem: Design base name (e.g. 'design_w4_0_s2').
+
+    Returns:
+        dict with keys: tier, ranking_include, md_stability_tier, passes,
+        stale_markers, extract_snapshots_action.
+    """
+    final_pdb = os.path.join(md_dir, design_stem + "_final.pdb")
+    has_final = os.path.exists(final_pdb)
+
+    found_markers = []  # type: List[str]
+    for pat in EXPLOSION_MARKER_PATTERNS:
+        marker_path = os.path.join(md_dir, design_stem + pat)
+        if os.path.exists(marker_path):
+            found_markers.append(pat)
+
+    found_partials = []  # type: List[str]
+    for pat in PARTIAL_PLACEHOLDERS:
+        pp = os.path.join(md_dir, design_stem + pat)
+        if os.path.exists(pp):
+            found_partials.append(pat)
+
+    has_dt2fs_marker = "_EXPLODED_dt2fs.log" in found_markers
+    has_dt1fs_marker = "_EXPLODED_dt1fs.log" in found_markers
+    has_any_marker = len(found_markers) > 0
+
+    passes = []  # type: List[dict]
+    tier = "FAIL"
+    extract_action = "skip"
+
+    if not has_any_marker and has_final:
+        tier = "SUCCESS"
+        extract_action = "normal_trajectory"
+        passes.append({
+            "pass": 1,
+            "dt_fs": 2.0,
+            "status": "SUCCESS",
+            "completion_ratio": 1.0,
+        })
+
+    elif has_any_marker and has_final:
+        tier = "MARGINAL"
+        extract_action = "normal_trajectory"
+
+        pass1_status = "FAIL_NAN_EARLY"
+        if has_dt2fs_marker:
+            pass1_status = "FAIL_NAN_EARLY"
+        elif "_EXPLODED_NVT.log" in found_markers:
+            pass1_status = "FAIL_NVT"
+        elif "_EXPLODED_MIN.log" in found_markers or \
+             "_EXPLODED_CYCLIC_MIN.log" in found_markers:
+            pass1_status = "FAIL_MIN"
+        else:
+            pass1_status = "FAIL_NAN_LATE"
+
+        passes.append({
+            "pass": 1,
+            "dt_fs": 2.0,
+            "status": pass1_status,
+            "exploded_marker": found_markers[0] if found_markers else None,
+            "partial_placeholder": found_partials[0] if found_partials else None,
+        })
+        passes.append({
+            "pass": 2,
+            "dt_fs": 1.0,
+            "status": "SUCCESS",
+            "completion_ratio": 1.0,
+            "final_pdb": os.path.basename(final_pdb),
+        })
+
+    elif has_any_marker and not has_final:
+        if found_partials:
+            tier = "PARTIAL"
+            extract_action = "trim_exploded"
+            passes.append({
+                "pass": 1,
+                "dt_fs": 2.0,
+                "status": "PARTIAL_SUCCESS",
+                "exploded_marker": found_markers[0] if found_markers else None,
+                "partial_placeholder": found_partials[0] if found_partials else None,
+            })
+        else:
+            tier = "FAIL"
+            extract_action = "skip"
+            passes.append({
+                "pass": 1,
+                "dt_fs": 2.0,
+                "status": "FAIL_NAN_EARLY",
+                "exploded_marker": found_markers[0] if found_markers else None,
+            })
+            if has_dt1fs_marker:
+                passes.append({
+                    "pass": 2,
+                    "dt_fs": 1.0,
+                    "status": "FAIL_NAN_EARLY",
+                    "exploded_marker": "_EXPLODED_dt1fs.log",
+                })
+
+    else:
+        if has_final:
+            tier = "SUCCESS"
+            extract_action = "normal_trajectory"
+            passes.append({
+                "pass": 1,
+                "dt_fs": 2.0,
+                "status": "SUCCESS",
+                "completion_ratio": 1.0,
+            })
+        else:
+            tier = "FAIL"
+            extract_action = "skip"
+
+    ranking_include = (tier == "SUCCESS")
+
+    return {
+        "tier": tier,
+        "ranking_include": ranking_include,
+        "md_stability_tier": tier,
+        "passes": passes,
+        "stale_markers": found_markers,
+        "extract_snapshots_action": extract_action,
+    }
+
+
+# ==========================================
+# [v0.6.1] Target Card loader — Topology-based QM region selection
+# ==========================================
+def load_target_card(target_id, cards_dir=None):
+    # type: (str, Optional[str]) -> dict
+    """Load and validate a target_card JSON for topology-based QM/MM partitioning.
+
+    Target card schema encodes the pre-curated QM region selection policy for a
+    given target (chain assignments, contact residues, cofactor treatment,
+    fragment-boundary rules). Pipeline callers pass the returned dict directly to
+    ``run_qmmm.partition_qmmm(..., mode="topology", target_card=<dict>)``.
+
+    Supported schema versions:
+        - 0.6.0 — initial topology mode (Phase 1)
+        - 0.6.1 — whole_residue_exceptions added
+        - 0.6.2 — multi-snapshot occupancy filtering
+        - 0.6.3 — [v0.6.5 Phase 4] target_iso_net_charge / binder_net_charge added
+                   for supermolecular qm_int_kcal_frozen decomposition.
+
+    Args:
+        target_id: Target identifier (e.g. "6WGN"). Must match the JSON filename
+            stem (case-sensitive).
+        cards_dir: Optional override for the target_cards directory. Defaults to
+            ``<utils>/../target_cards`` when not provided.
+
+    Returns:
+        dict: Parsed target card with ``schema_version`` validated.
+
+    Raises:
+        FileNotFoundError: Card JSON not located at the resolved path.
+        ValueError: ``schema_version`` missing or not in the supported set.
+    """
+    if cards_dir is None:
+        cards_dir = os.path.join(os.path.dirname(__file__), "..", "target_cards")
+    path = os.path.join(cards_dir, "{}.json".format(target_id))
+    if not os.path.exists(path):
+        raise FileNotFoundError("target_card not found: {}".format(path))
+    with open(path, "r", encoding="utf-8") as f:
+        card = json.load(f)
+    supported = {"0.6.0", "0.6.1", "0.6.2", "0.6.3"}
+    if card.get("schema_version") not in supported:
+        raise ValueError(
+            "Unsupported target_card schema_version: {} (supported: {})".format(
+                card.get("schema_version"), sorted(supported)
+            )
+        )
+
+    # [v0.6.5 Phase 4] Phase 4 (qm_int_kcal_frozen) 활성화 조건: target_iso_net_charge.
+    # 누락 시 qm_int_kcal_frozen 은 계산되지 않고 None 으로 기록된다 (backward-compat).
+    if "target_iso_net_charge" not in card:
+        import warnings
+        warnings.warn(
+            "target_card '{}' missing 'target_iso_net_charge' — qm_int_kcal_frozen "
+            "will be skipped. Regenerate with generate_target_card.py (v0.6.5+) "
+            "or add the field manually.".format(target_id),
+            stacklevel=2,
+        )
+
+    return card

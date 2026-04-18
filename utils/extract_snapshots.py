@@ -24,6 +24,7 @@ except ImportError:
 # 하위 호환성을 위해 유지된다.
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from utils_common import resolve_chainid_by_letter as _resolve_chainid_common  # noqa: E402
+from utils_common import load_md_status  # noqa: E402
 
 
 # ==========================================
@@ -383,10 +384,29 @@ def main():
     print(f"  스냅샷 수 : {args.n_snapshots}개/궤적")
 
     all_snapshots = []
+    # [v0.5] JSON-based MD status with legacy fallback
+    _md_status = load_md_status(os.path.dirname(args.md_dir))
+
     for dcd_path in dcd_files:
         base = dcd_path.replace("_restrained.dcd", "").replace(".dcd", "")
-        exploded_logs = glob.glob(base + "_EXPLODED*.log")
-        is_exploded = len(exploded_logs) > 0
+        design_stem = os.path.basename(base)
+
+        # [v0.5 Bug 2 fix] JSON-aware explosion detection
+        if _md_status and design_stem in _md_status.get("designs", {}):
+            _entry = _md_status["designs"][design_stem]
+            _action = _entry.get("extract_snapshots_action", "normal_trajectory")
+            if _action == "skip":
+                print(f"  [Skip] {design_stem} (tier={_entry.get('tier')}) "
+                      f"— extract_snapshots_action=skip")
+                continue
+            is_exploded = (_action == "trim_exploded")
+        else:
+            # Legacy fallback (backward compat)
+            exploded_logs = glob.glob(base + "_EXPLODED*.log")
+            is_exploded = len(exploded_logs) > 0
+            if is_exploded:
+                print(f"  [Legacy fallback] {design_stem} "
+                      f"— file-name heuristic (no _md_status.json)")
 
         # ── topology PDB 결정 (폭발 시 _final.pdb가 없을 수 있음) ──
         top_pdb = base + "_final.pdb"

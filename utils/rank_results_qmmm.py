@@ -13,11 +13,20 @@ AF2 pLDDT + QM/MM 에너지 + MM-GBSA ΔG를 통합하여
 """
 
 import os
+import sys
 import glob
 import json
 import argparse
 import csv
 import numpy as np
+from typing import Optional, Tuple
+
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+try:
+    from utils_common import load_md_status  # noqa: E402
+except ImportError:
+    def load_md_status(project_dir):  # type: ignore
+        return None
 
 
 # ==========================================
@@ -85,7 +94,11 @@ def load_af2_scores(af2_dir):
 def load_qmmm_scores(qmmm_dir):
     """
     QM/MM 결과에서 에너지 로드
-    Returns: dict {snapshot_name: {energy_total, interaction_kcal}}
+    Returns: dict {snapshot_name: {energy_total, interaction_kcal, qm_int_kcal_frozen}}
+
+    [v0.6.5 Phase 4] qm_int_kcal_frozen 필드 추가:
+        Phase 4 (supermolecular Morokuma frozen-geometry decomposition) 결과를
+        함께 로드한다. 구 JSON (v0.6.4 이전) 에는 필드가 없으므로 None 으로 처리.
     """
     scores = {}
     summary = os.path.join(qmmm_dir, "qmmm_summary.json")
@@ -96,9 +109,10 @@ def load_qmmm_scores(qmmm_dir):
         for r in data.get("results", []):
             name = r.get("snapshot", "")
             scores[name] = {
-                "qmmm_energy_kcal":  r.get("energy_qmmm_kcal"),
-                "qmmm_interact_kcal":r.get("interaction_kcal"),
-                "converged":         r.get("converged", False),
+                "qmmm_energy_kcal":   r.get("energy_qmmm_kcal"),
+                "qmmm_interact_kcal": r.get("interaction_kcal"),
+                "qm_int_kcal_frozen": r.get("qm_int_kcal_frozen"),
+                "converged":          r.get("converged", False),
             }
     else:
         # 개별 JSON 폴백
@@ -109,6 +123,7 @@ def load_qmmm_scores(qmmm_dir):
             scores[name] = {
                 "qmmm_energy_kcal":   r.get("energy_qmmm_kcal"),
                 "qmmm_interact_kcal": r.get("interaction_kcal"),
+                "qm_int_kcal_frozen": r.get("qm_int_kcal_frozen"),
                 "converged":          r.get("converged", False),
             }
 
@@ -282,7 +297,9 @@ def minmax_normalize(values, invert=False):
 # ==========================================
 def compute_ranking(af2_scores, qmmm_scores, mmgbsa_scores,
                     w_plddt=0.30, w_qmmm=0.40, w_dg=0.30,
-                    topology="linear", normalizer="robust"):
+                    topology="linear", normalizer="robust",
+                    md_status=None,
+                    include_tiers=("SUCCESS",)):
     """세 지표(pLDDT, QM/MM 상호작용, MM-GBSA ΔG) 를 정규화·가중합산하여 최종 복합 점수를 계산한다.
 
     Args:
@@ -316,12 +333,25 @@ def compute_ranking(af2_scores, qmmm_scores, mmgbsa_scores,
         w_dg    /= total_w
 
     entries = []
+    excluded_entries = []  # type: list
 
     # 모든 설계 이름 수집
     all_names = set(af2_scores.keys())
 
     for name in all_names:
-        entry = {"design": name}
+        # [v0.5 Bug 4 fix] Tier filter — UNKNOWN은 허용 (legacy run 보호)
+        tier = "UNKNOWN"
+        if md_status:
+            entry_md = md_status.get("designs", {}).get(name, {})
+            tier = entry_md.get("tier", "UNKNOWN")
+
+        if tier != "UNKNOWN" and tier not in include_tiers:
+            excluded_entries.append({
+                "design": name, "tier": tier, "reason": "tier_not_included",
+            })
+            continue
+
+        entry = {"design": name, "md_tier": tier}
 
         # AF2 pLDDT
         af2 = af2_scores.get(name, {})
@@ -330,30 +360,55 @@ def compute_ranking(af2_scores, qmmm_scores, mmgbsa_scores,
         entry["iptm"]   = af2.get("iptm")
 
         # [#29 + #36 v0.2] QM/MM: 다중 스냅샷 평균 랭킹
-        # - converged=True AND interaction_kcal is not None 인 스냅샷만 필터
+        # - converged=True AND (qm_int_kcal_frozen 또는 interaction_kcal) 유효 스냅샷만 필터
         # - N >= 2: 단순 산술평균 (등간격 스냅샷이므로 가중평균 금지)
         # - N >= 3: σ = np.std(ddof=1)
         # - N < 2: 랭킹 제외 (converged=False, qmmm_interact_kcal=None)
+        #
+        # [v0.6.5 Phase 4] 랭킹 score 우선순위:
+        #   1. qm_int_kcal_frozen (supermolecular frozen-geometry, 물리적 의미)
+        #   2. interaction_kcal (QM-MM embedding coupling, legacy fallback)
+        # 두 필드 모두 entry 에 기록되어 CSV 에서 비교 가능.
         qm_matches = fuzzy_match_all(name, list(qmmm_scores.keys()))
-        qm_valid_vals = []
+        qm_legacy_vals = []   # interaction_kcal (legacy)
+        qm_frozen_vals = []   # qm_int_kcal_frozen (Phase 4)
         for m in qm_matches:
             qm = qmmm_scores.get(m, {})
+            if not qm.get("converged", False):
+                continue
             ie = qm.get("qmmm_interact_kcal")
-            if qm.get("converged", False) and ie is not None:
-                qm_valid_vals.append(float(ie))
-        n_qmmm_snaps = len(qm_valid_vals)
-        entry["qmmm_n_snapshots"] = n_qmmm_snaps
-        if n_qmmm_snaps >= 2:
-            entry["qmmm_interact_kcal"] = float(np.mean(qm_valid_vals))
+            if ie is not None:
+                qm_legacy_vals.append(float(ie))
+            iqf = qm.get("qm_int_kcal_frozen")
+            if iqf is not None:
+                qm_frozen_vals.append(float(iqf))
+
+        # Phase 4 우선: 모든 valid snap 에서 qm_int_kcal_frozen 가 있으면 그것을
+        # 랭킹 score 로 사용. 일부라도 누락이면 legacy interaction_kcal 사용.
+        n_legacy = len(qm_legacy_vals)
+        n_frozen = len(qm_frozen_vals)
+        entry["qmmm_n_snapshots"] = n_legacy
+
+        if n_legacy >= 2:
+            entry["qmmm_interact_kcal"] = float(np.mean(qm_legacy_vals))
             entry["qmmm_converged"]     = True
             entry["qmmm_energy_std"]    = (
-                float(np.std(qm_valid_vals, ddof=1)) if n_qmmm_snaps >= 3 else None
+                float(np.std(qm_legacy_vals, ddof=1)) if n_legacy >= 3 else None
             )
         else:
-            # N=0 또는 N=1 — SciVal #29 조건: 랭킹 제외
             entry["qmmm_interact_kcal"] = None
             entry["qmmm_converged"]     = False
             entry["qmmm_energy_std"]    = None
+
+        # Phase 4 mean — 모든 snap 이 frozen 값을 가질 때만 의미 있음.
+        if n_frozen >= 2 and n_frozen == n_legacy:
+            entry["qm_int_kcal_frozen_mean"] = float(np.mean(qm_frozen_vals))
+            entry["qm_int_kcal_frozen_std"]  = (
+                float(np.std(qm_frozen_vals, ddof=1)) if n_frozen >= 3 else None
+            )
+        else:
+            entry["qm_int_kcal_frozen_mean"] = None
+            entry["qm_int_kcal_frozen_std"]  = None
 
         # [#29 v0.2] MM-GBSA: 다중 스냅샷 평균 (QM/MM 과 동일 패턴)
         gb_matches = fuzzy_match_all(name, list(mmgbsa_scores.keys()))
@@ -414,8 +469,17 @@ def compute_ranking(af2_scores, qmmm_scores, mmgbsa_scores,
         print(f"  [WARNING] MM-GBSA 미연결 설계 ({len(unmatched_dg)}개): {head}{suffix}")
 
     # ── 정규화 ────────────────────────────────────────────────
+    # [v0.6.5 Phase 4] QM/MM 정규화 score 우선순위:
+    #   1. qm_int_kcal_frozen_mean (supermolecular frozen-geometry — 진정한
+    #      QM 상호작용 에너지 proxy, calibration 적합)
+    #   2. qmmm_interact_kcal (legacy QM-MM embedding coupling, fallback)
+    # entry 별로 frozen 값이 있으면 frozen 사용, 없으면 legacy 사용.
     plddt_vals  = [e["plddt"]             if e["plddt"]             is not None else np.nan for e in entries]
-    qmmm_vals   = [e["qmmm_interact_kcal"]if e["qmmm_interact_kcal"]is not None else np.nan for e in entries]
+    qmmm_vals   = [
+        (e.get("qm_int_kcal_frozen_mean") if e.get("qm_int_kcal_frozen_mean") is not None
+         else (e["qmmm_interact_kcal"] if e["qmmm_interact_kcal"] is not None else np.nan))
+        for e in entries
+    ]
     # [v4 S-1] ΔG 정규화는 IE 보정 ΔG (delta_g_corrected_kcal) 가 있으면 우선 사용
     dg_vals     = [
         (e.get("delta_g_corrected_kcal") if e.get("delta_g_corrected_kcal") is not None
@@ -454,7 +518,9 @@ def compute_ranking(af2_scores, qmmm_scores, mmgbsa_scores,
         if entry["plddt"] is not None:
             available.append(s_plddt)
             weights.append(w_plddt)
-        if entry["qmmm_interact_kcal"] is not None:
+        # [v0.6.5 Phase 4] qm score 가용 조건: frozen 또는 legacy 어느 쪽이든 1 개 이상.
+        if (entry.get("qm_int_kcal_frozen_mean") is not None
+                or entry["qmmm_interact_kcal"] is not None):
             available.append(s_qmmm)
             weights.append(w_qmmm)
         if entry["delta_g_kcal"] is not None:
@@ -481,23 +547,63 @@ def compute_ranking(af2_scores, qmmm_scores, mmgbsa_scores,
     for rank, entry in enumerate(entries, 1):
         entry["rank"] = rank
 
+    # [v0.5] 제외된 entries를 함수 속성으로 전달 (시그니처 변경 최소화)
+    compute_ranking._excluded_entries = excluded_entries  # type: ignore[attr-defined]
+
     return entries
 
 
 # ==========================================
 # CSV 저장
 # ==========================================
+def save_bucket_reports(output_csv, excluded_entries):
+    # type: (str, list) -> None
+    """[v0.5] Tier별 bucket report CSV 생성.
+
+    ranking_marginal.csv, ranking_partial.csv, ranking_excluded.csv
+    """
+    if not excluded_entries:
+        return
+
+    base_dir = os.path.dirname(output_csv) or "."
+    base_name = os.path.basename(output_csv).replace(".csv", "")
+
+    buckets = {}  # type: Dict[str, list]
+    for ex in excluded_entries:
+        tier = ex.get("tier", "UNKNOWN").lower()
+        buckets.setdefault(tier, []).append(ex)
+
+    fieldnames = ["design", "tier", "reason"]
+
+    for tier_key, items in buckets.items():
+        bucket_csv = os.path.join(base_dir, f"{base_name}_{tier_key}.csv")
+        with open(bucket_csv, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
+            writer.writeheader()
+            writer.writerows(items)
+        print(f"  [v0.5] Bucket report: {bucket_csv} ({len(items)} entries)")
+
+    all_excluded_csv = os.path.join(base_dir, f"{base_name}_excluded.csv")
+    with open(all_excluded_csv, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(excluded_entries)
+    print(f"  [v0.5] All excluded: {all_excluded_csv} ({len(excluded_entries)} entries)")
+
+
 def save_ranking_csv(entries, output_csv):
     if not entries:
         print("  [!] 저장할 데이터 없음")
         return
 
     fieldnames = [
-        "rank", "design",
+        "rank", "design", "md_tier",
         "composite_score",
         "plddt", "ptm", "iptm",
         # [#29 v0.2] 다중 스냅샷 개수 필드 추가
         "qmmm_interact_kcal", "qmmm_converged", "qmmm_energy_std", "qmmm_n_snapshots",
+        # [v0.6.5 Phase 4] supermolecular QM interaction energy (frozen geometry)
+        "qm_int_kcal_frozen_mean", "qm_int_kcal_frozen_std",
         "delta_g_kcal", "delta_g_corrected_kcal", "delta_g_std", "minus_TdS_kcal", "favorable",
         "mmgbsa_n_snapshots",
         "score_plddt_norm", "score_qmmm_norm", "score_dg_norm",
@@ -561,6 +667,12 @@ def main():
     parser.add_argument("--w_dg",       type=float, default=0.30, help="MM-GBSA 가중치")
     parser.add_argument("--normalizer", choices=["robust", "minmax"], default="robust",
                         help="[v4 S-4] 점수 정규화 방식 (robust=백분위 5/95 clamp, minmax=legacy)")
+    parser.add_argument("--md-status", type=str, default=None,
+                        help="[v0.5] _md_status.json 경로 (없으면 자동 탐색)")
+    parser.add_argument("--include-tiers", nargs="+",
+                        default=["SUCCESS"],
+                        choices=["SUCCESS", "MARGINAL", "PARTIAL", "FAIL"],
+                        help="[v0.5] Ranking에 포함할 MD tier (기본: SUCCESS only)")
     args = parser.parse_args()
 
     os.makedirs(os.path.dirname(args.outputcsv) or ".", exist_ok=True)
@@ -585,6 +697,28 @@ def main():
     if not af2_scores:
         print("  [!] AF2 점수 없음 — QM/MM + MM-GBSA만으로 랭킹")
 
+    # [v0.5] MD status 로드
+    md_status = None
+    if args.md_status:
+        try:
+            with open(args.md_status, "r", encoding="utf-8") as f:
+                md_status = json.load(f)
+            print(f"  [v0.5] MD status: {args.md_status}")
+        except (IOError, json.JSONDecodeError) as e:
+            print(f"  [!] MD status 로드 실패: {e} — tier 필터 비활성화")
+    else:
+        # 자동 탐색: af2_dir 상위 디렉토리에서 _md_status.json 탐색
+        _parent = os.path.dirname(args.af2_dir)
+        _auto = os.path.join(_parent, "_md_status.json")
+        if os.path.exists(_auto):
+            md_status = load_md_status(_parent)
+            if md_status:
+                print(f"  [v0.5] MD status auto-detected: {_auto}")
+
+    include_tiers = tuple(args.include_tiers)
+    if md_status:
+        print(f"  [v0.5] Include tiers: {include_tiers}")
+
     # 랭킹 계산
     entries = compute_ranking(
         af2_scores, qmmm_scores, mmgbsa_scores,
@@ -593,6 +727,8 @@ def main():
         w_dg       = args.w_dg,
         topology   = args.topology,
         normalizer = args.normalizer,
+        md_status  = md_status,
+        include_tiers = include_tiers,
     )
 
     if not entries:
@@ -602,6 +738,11 @@ def main():
     # CSV 저장 + 리포트 출력
     save_ranking_csv(entries, args.outputcsv)
     print_report(entries, args.topology, args.w_plddt, args.w_qmmm, args.w_dg)
+
+    # [v0.5] Bucket reports for excluded entries
+    excluded = getattr(compute_ranking, "_excluded_entries", [])
+    if excluded:
+        save_bucket_reports(args.outputcsv, excluded)
 
     # 요약 JSON (상위 5개)
     summary_json = args.outputcsv.replace(".csv", "_summary.json")

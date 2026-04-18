@@ -231,6 +231,23 @@ NCAA_REGISTRY_DATA = [
         keep_atoms=STANDARD_BACKBONE,
         aliases=("sep", "phosphoserine", "p-ser"),
     ),
+    NCAADef(
+        label="1-Methyltryptophan",
+        code="MTR",
+        pdb_resname="MTR",
+        xml_resname="MTR",
+        element="C",
+        formal_charge=0,
+        charge_model_note="Neutral backbone. Indole N1 is methylated (N-Me), "
+                          "removing the indole N-H H-bond donor present in Trp. "
+                          "Side chain remains neutral.",
+        smiles_free="Cn1cc(C[C@H](N)C(=O)O)c2ccccc21",
+        smiles_capped="CC(=O)N[C@@H](Cc1cn(C)c2ccccc12)C(=O)NC",
+        mutation_type="STANDARD",
+        keep_atoms=STANDARD_BACKBONE,
+        aliases=("mtr", "1-me-trp", "1-methyltryptophan", "1-methyl-tryptophan",
+                 "n1-methyl-trp", "1-me-tryptophan"),
+    ),
 ]
 
 # ==========================================

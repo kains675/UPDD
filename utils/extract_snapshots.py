@@ -424,7 +424,7 @@ def main():
             print(f"  topology fallback: {os.path.basename(top_pdb)}")
 
         # ── [v56] 폭발 궤적: 유효 프레임 비율 판정 (20% AND 50프레임 이상) ──
-        # SciVal 조건부 승인: safety buffer 15%, 절대 최소 50프레임, 메타데이터 태깅.
+        # 폭발 궤적: safety buffer 15%, 절대 최소 50프레임, 메타데이터 태깅.
         if is_exploded:
             try:
                 traj_raw = md.load(dcd_path, top=top_pdb)
@@ -441,7 +441,7 @@ def main():
                     valid_count = fi
                     break
 
-            # [SciVal] Safety buffer 15%: NaN 직전 구간 제거 (SciVal 조건 3: 에너지 검증 대체)
+            # Safety buffer 15%: NaN 직전 구간 제거 (에너지 보존 검증 대체)
             valid_end = int(valid_count * 0.85)
             ratio = valid_end / total_frames if total_frames > 0 else 0
 
@@ -468,7 +468,7 @@ def main():
                 )
                 all_snapshots.extend(snaps)
 
-                # [SciVal] 메타데이터 태깅: truncated 궤적임을 기록
+                # 메타데이터 태깅: truncated 궤적임을 기록
                 basename = os.path.basename(dcd_path).replace("_restrained.dcd", "").replace(".dcd", "")
                 meta_path = os.path.join(args.outputdir, f"{basename}_truncated_meta.txt")
                 with open(meta_path, "w", encoding="utf-8") as _mf:

@@ -27,6 +27,7 @@ import os
 import sys
 import json
 import glob
+import time
 import argparse
 import re
 import shutil
@@ -44,6 +45,26 @@ from openmm.app import (
     PME, HBonds, Simulation, StateDataReporter, DCDReporter
 )
 from pdbfixer import PDBFixer
+
+
+# ==========================================
+# [DIAG] 구조화 로그 헬퍼 — Path 에이전트 자동 진단용
+# ==========================================
+# Path 가 `grep "\[DIAG\]"` 한 번으로 MD 단계의 모든 결정점을 수집할 수 있도록
+# JSON-line 형식으로 출력한다. 계산 결과는 변경하지 않으며 순수 관찰성만 추가한다.
+def _diag(event, **kwargs):
+    """Emit a single-line structured diagnostic log.
+
+    Format: ``[DIAG] {"event": "<event>", ...kwargs}``
+
+    Args:
+        event: 결정점 식별자 (snake_case 권장).
+        **kwargs: payload 필드. 모두 JSON-serializable 이어야 한다.
+    """
+    payload = {"event": event}
+    payload.update(kwargs)
+    print("[DIAG] " + json.dumps(payload, ensure_ascii=False), flush=True)
+
 
 # ==========================================
 # 모듈 상수 및 유틸리티
@@ -1730,6 +1751,16 @@ def run_production(ctx: "_MDContext") -> None:
     completion_ratio = completed_steps / ctx.n_steps if ctx.n_steps > 0 else 0.0
 
     if nan_occurred:
+        # [Phase 6 DIAG] MD 폭발 신호 — Path 가 grep 으로 즉시 포착
+        _diag(
+            "md_explosion",
+            design=ctx.basename,
+            reason="nan_or_step_failure",
+            completed_steps=int(completed_steps),
+            total_steps=int(ctx.n_steps),
+            completion_ratio=round(float(completion_ratio), 4),
+            dt_fs=float(dt_fs),
+        )
         exploded_log = os.path.join(ctx.output_dir,
                                     f"{ctx.basename}_EXPLODED_dt{dt_fs:.0f}fs.log")
         with open(exploded_log, "w", encoding="utf-8") as ef:
@@ -1792,7 +1823,27 @@ def run_md(pdb_path, params_manifest, output_dir, n_steps, topology_type, ncaa_l
     exploded_markers = glob.glob(os.path.join(output_dir, f"{ctx.basename}_EXPLODED_*.log"))
     if os.path.exists(ctx.out_pdb) and not exploded_markers:
         ctx.log_status(f"이미 완료된 MD 결과 존재: {ctx.basename}", "SKIP", "_SKIPPED_ALREADY_DONE.log")
+        # [Phase 6 DIAG] resume skip 신호
+        _diag(
+            "md_complete",
+            design=ctx.basename,
+            status="SKIP",
+            wall_time_s=0.0,
+            reason="already_completed",
+        )
         return "SKIP"
+
+    # [Phase 6 DIAG] MD 시작 신호 — design/스텝/topology 추적
+    _diag(
+        "md_start",
+        design=ctx.basename,
+        n_steps=int(n_steps),
+        topology=topology_type,
+        ncaa_label=ncaa_label,
+        binder_chain=binder_chain,
+        dt_fs=float(dt_fs),
+    )
+    _md_t0 = time.time()
 
     try:
         prepare_structure(ctx)
@@ -1805,15 +1856,51 @@ def run_md(pdb_path, params_manifest, output_dir, n_steps, topology_type, ncaa_l
         if stage_err.partial_stage and ctx.simulation is not None:
             ctx.save_partial_pdb(stage_err.partial_stage, stage_err.partial_suffix)
         if stage_err.status == "SUCCESS_WITH_WARNING":
+            # [Phase 6 DIAG] MD 종료 — WARNING (부분 성공)
+            _diag(
+                "md_complete",
+                design=ctx.basename,
+                status="SUCCESS_WITH_WARNING",
+                wall_time_s=round(time.time() - _md_t0, 2),
+                stage=stage_err.partial_stage,
+            )
             return "SUCCESS_WITH_WARNING"
+        # [Phase 6 DIAG] MD 종료 — FAIL
+        _diag(
+            "md_complete",
+            design=ctx.basename,
+            status="FAIL",
+            wall_time_s=round(time.time() - _md_t0, 2),
+            stage=stage_err.partial_stage,
+            reason=str(stage_err)[:200],
+        )
         return "FAIL"
 
     if getattr(ctx, "production_partial", False):
+        # [Phase 6 DIAG] MD 종료 — PARTIAL_SUCCESS (NaN recovery)
+        _diag(
+            "md_complete",
+            design=ctx.basename,
+            status="PARTIAL_SUCCESS",
+            wall_time_s=round(time.time() - _md_t0, 2),
+            reason="production_partial_recovery",
+        )
         return "PARTIAL_SUCCESS"
 
-    if ctx.ncaa_label.lower() == "none":
-        return "SUCCESS_WT" if not ctx.warnings_found else "SUCCESS_WITH_WARNING"
-    return "SUCCESS" if not ctx.warnings_found else "SUCCESS_WITH_WARNING"
+    _final_status = (
+        ("SUCCESS_WT" if not ctx.warnings_found else "SUCCESS_WITH_WARNING")
+        if ctx.ncaa_label.lower() == "none"
+        else ("SUCCESS" if not ctx.warnings_found else "SUCCESS_WITH_WARNING")
+    )
+    # [Phase 6 DIAG] MD 종료 — 정상 완료
+    _diag(
+        "md_complete",
+        design=ctx.basename,
+        status=_final_status,
+        wall_time_s=round(time.time() - _md_t0, 2),
+        warnings_found=bool(ctx.warnings_found),
+    )
+    return _final_status
 
 
 # ==========================================

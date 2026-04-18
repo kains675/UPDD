@@ -324,7 +324,7 @@ def calc_energy(pdb_path, ff, ncaa_elem, si_radius):
     """
     # [v55 FIX] NME/ACE 캡 잔기를 PDB 로드 전에 제거.
     # split_complex에서 이미 필터하지만, 방어적으로 여기서도 필터.
-    # [SciVal] 원본 PDB를 in-place 수정하지 않고 임시 파일을 사용한다.
+    # 원본 PDB를 in-place 수정하지 않고 임시 파일을 사용한다.
     load_path = pdb_path
     _cap_tmp = None
     try:

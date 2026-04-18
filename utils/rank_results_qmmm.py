@@ -30,6 +30,25 @@ except ImportError:
 
 
 # ==========================================
+# [DIAG] 구조화 로그 헬퍼 — Path 에이전트 자동 진단용
+# ==========================================
+# Path 가 `grep "\[DIAG\]"` 한 번으로 ranking 단계의 모든 결정점을 수집할 수 있도록
+# JSON-line 형식으로 출력한다. 점수/순위 계산은 변경하지 않으며 순수 관찰성만 추가한다.
+def _diag(event, **kwargs):
+    """Emit a single-line structured diagnostic log.
+
+    Format: ``[DIAG] {"event": "<event>", ...kwargs}``
+
+    Args:
+        event: 결정점 식별자 (snake_case 권장).
+        **kwargs: payload 필드. 모두 JSON-serializable 이어야 한다.
+    """
+    payload = {"event": event}
+    payload.update(kwargs)
+    print("[DIAG] " + json.dumps(payload, ensure_ascii=False), flush=True)
+
+
+# ==========================================
 # 데이터 로드 함수들
 # ==========================================
 
@@ -96,9 +115,9 @@ def load_qmmm_scores(qmmm_dir):
     QM/MM 결과에서 에너지 로드
     Returns: dict {snapshot_name: {energy_total, interaction_kcal, qm_int_kcal_frozen}}
 
-    [v0.6.5 Phase 4] qm_int_kcal_frozen 필드 추가:
+    qm_int_kcal_frozen 필드 추가:
         Phase 4 (supermolecular Morokuma frozen-geometry decomposition) 결과를
-        함께 로드한다. 구 JSON (v0.6.4 이전) 에는 필드가 없으므로 None 으로 처리.
+        함께 로드한다. 구 JSON 에는 필드가 없으므로 None 으로 처리.
     """
     scores = {}
     summary = os.path.join(qmmm_dir, "qmmm_summary.json")
@@ -115,11 +134,12 @@ def load_qmmm_scores(qmmm_dir):
                 "converged":          r.get("converged", False),
             }
     else:
-        # 개별 JSON 폴백
-        for jf in glob.glob(os.path.join(qmmm_dir, "*_qmmm.json")):
+        # 개별 JSON 폴백 — run_qmmm.py 출력 패턴: {snap}_qmmm_{mode}.json
+        for jf in glob.glob(os.path.join(qmmm_dir, "*_qmmm_*.json")):
             with open(jf, encoding="utf-8") as f:
                 r = json.load(f)
-            name = r.get("snapshot", os.path.basename(jf).replace("_qmmm.json",""))
+            import re as _re
+            name = r.get("snapshot") or _re.sub(r"_qmmm_\w+\.json$", "", os.path.basename(jf))
             scores[name] = {
                 "qmmm_energy_kcal":   r.get("energy_qmmm_kcal"),
                 "qmmm_interact_kcal": r.get("interaction_kcal"),
@@ -128,6 +148,20 @@ def load_qmmm_scores(qmmm_dir):
             }
 
     print(f"  QM/MM 결과 로드: {len(scores)}개 스냅샷")
+
+    # [Phase 6 DIAG] QM/MM 로드 통계 — frozen 가용성 / 실패 수 추적
+    n_with_frozen = sum(
+        1 for v in scores.values() if v.get("qm_int_kcal_frozen") is not None
+    )
+    n_failed = sum(1 for v in scores.values() if not v.get("converged", False))
+    _diag(
+        "rank_load",
+        source="qmmm",
+        n_total=len(scores),
+        n_with_frozen=n_with_frozen,
+        n_failed=n_failed,
+    )
+
     return scores
 
 
@@ -365,7 +399,7 @@ def compute_ranking(af2_scores, qmmm_scores, mmgbsa_scores,
         # - N >= 3: σ = np.std(ddof=1)
         # - N < 2: 랭킹 제외 (converged=False, qmmm_interact_kcal=None)
         #
-        # [v0.6.5 Phase 4] 랭킹 score 우선순위:
+        # 랭킹 score 우선순위:
         #   1. qm_int_kcal_frozen (supermolecular frozen-geometry, 물리적 의미)
         #   2. interaction_kcal (QM-MM embedding coupling, legacy fallback)
         # 두 필드 모두 entry 에 기록되어 CSV 에서 비교 가능.
@@ -409,6 +443,26 @@ def compute_ranking(af2_scores, qmmm_scores, mmgbsa_scores,
         else:
             entry["qm_int_kcal_frozen_mean"] = None
             entry["qm_int_kcal_frozen_std"]  = None
+
+        # [Phase 6 DIAG] design 별 ranking 집계 결과 — frozen vs legacy 사용 추적
+        _diag(
+            "rank_design",
+            design=entry["design"],
+            n_snaps_valid=n_legacy,
+            qm_int_kcal_frozen_mean=entry.get("qm_int_kcal_frozen_mean"),
+            qmmm_interact_kcal=entry.get("qmmm_interact_kcal"),
+            using_frozen=entry.get("qm_int_kcal_frozen_mean") is not None,
+        )
+
+        # [Phase 6 DIAG] frozen 누락 → legacy fallback 시 별도 신호
+        if (entry.get("qm_int_kcal_frozen_mean") is None
+                and entry.get("qmmm_interact_kcal") is not None):
+            _diag(
+                "rank_fallback",
+                design=entry["design"],
+                reason="qm_int_kcal_frozen_unavailable",
+                fallback_to="interaction_kcal",
+            )
 
         # [#29 v0.2] MM-GBSA: 다중 스냅샷 평균 (QM/MM 과 동일 패턴)
         gb_matches = fuzzy_match_all(name, list(mmgbsa_scores.keys()))
@@ -469,7 +523,7 @@ def compute_ranking(af2_scores, qmmm_scores, mmgbsa_scores,
         print(f"  [WARNING] MM-GBSA 미연결 설계 ({len(unmatched_dg)}개): {head}{suffix}")
 
     # ── 정규화 ────────────────────────────────────────────────
-    # [v0.6.5 Phase 4] QM/MM 정규화 score 우선순위:
+    # QM/MM 정규화 score 우선순위:
     #   1. qm_int_kcal_frozen_mean (supermolecular frozen-geometry — 진정한
     #      QM 상호작용 에너지 proxy, calibration 적합)
     #   2. qmmm_interact_kcal (legacy QM-MM embedding coupling, fallback)
@@ -518,7 +572,7 @@ def compute_ranking(af2_scores, qmmm_scores, mmgbsa_scores,
         if entry["plddt"] is not None:
             available.append(s_plddt)
             weights.append(w_plddt)
-        # [v0.6.5 Phase 4] qm score 가용 조건: frozen 또는 legacy 어느 쪽이든 1 개 이상.
+        # qm score 가용 조건: frozen 또는 legacy 어느 쪽이든 1 개 이상.
         if (entry.get("qm_int_kcal_frozen_mean") is not None
                 or entry["qmmm_interact_kcal"] is not None):
             available.append(s_qmmm)
@@ -549,6 +603,16 @@ def compute_ranking(af2_scores, qmmm_scores, mmgbsa_scores,
 
     # [v0.5] 제외된 entries를 함수 속성으로 전달 (시그니처 변경 최소화)
     compute_ranking._excluded_entries = excluded_entries  # type: ignore[attr-defined]
+
+    # [Phase 6 DIAG] 최종 ranking 완료 — top1/매칭 수 추적
+    _diag(
+        "rank_complete",
+        n_designs=len(entries),
+        n_qmmm_matched=n_qmmm_matched,
+        n_dg_matched=n_dg_matched,
+        top1_design=(entries[0]["design"] if entries else None),
+        top1_score=(entries[0].get("composite_score") if entries else None),
+    )
 
     return entries
 
@@ -602,7 +666,7 @@ def save_ranking_csv(entries, output_csv):
         "plddt", "ptm", "iptm",
         # [#29 v0.2] 다중 스냅샷 개수 필드 추가
         "qmmm_interact_kcal", "qmmm_converged", "qmmm_energy_std", "qmmm_n_snapshots",
-        # [v0.6.5 Phase 4] supermolecular QM interaction energy (frozen geometry)
+        # supermolecular QM interaction energy (frozen geometry)
         "qm_int_kcal_frozen_mean", "qm_int_kcal_frozen_std",
         "delta_g_kcal", "delta_g_corrected_kcal", "delta_g_std", "minus_TdS_kcal", "favorable",
         "mmgbsa_n_snapshots",

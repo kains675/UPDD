@@ -400,11 +400,29 @@ def load_json_manifest(path: str) -> Optional[Dict[str, Any]]:
 def get_target_preprocess_options(target_pdb):
     return _get_target_preprocess_options_ui(target_pdb)
 
-def run_target_preprocessing(target_pdb: str, keep_mode: str, chain_in: str, keep_res: str) -> str:
+def run_target_preprocessing(target_pdb: str, keep_mode: str, chain_in: str, keep_res: str,
+                              target_id: str = "") -> str:
+    """Step 3 orchestration wrapper for ``utils/preprocess_target.py``.
+
+    [R-17 G1] When ``target_id`` is provided and ``target_cards/<id>.json``
+    exists, the subprocess is launched with ``--target_id`` so the cofactor
+    preservation gate auto-injects declared required resnames into
+    ``--keep_hetatms`` and validates their survival after HETATM filtering.
+    For cofactor-absent targets the gate is a transparent no-op (returns
+    before raising).
+    """
     output_clean = os.path.splitext(target_pdb)[0] + "_clean.pdb"
     args = ["--input", target_pdb, "--output", output_clean, "--chains", chain_in, "--hetatm_mode", keep_mode]
     if keep_res:
         args += ["--keep_hetatms", keep_res]
+    # [R-17 G1] Pass target_id when the card exists so preprocess_target.py
+    # can load target_card.cofactor_residues and enforce keep-list + presence
+    # check. Missing card → legacy behavior (the subprocess emits a [WARN]).
+    if target_id:
+        _card_path = os.path.join(UPDD_DIR, "target_cards", f"{target_id}.json")
+        if os.path.exists(_card_path):
+            args += ["--target_id", target_id]
+            print(f"  [R-17 G1] target_card '{target_id}' 감지 — cofactor keep-list 자동 주입")
     run_conda_command(SCRIPT_PATHS["preprocess_target"], args, "Target Preprocessing", env_key="md")
     return output_clean
 
@@ -784,6 +802,175 @@ def run_alphafold(design_dir: str, mpnn_out_dir: str, jsonl_path: str, target_ch
                           "AF2 랭킹", env_key="mpnn")
     return af2_out_dir
 
+def _reinsert_cofactors_into_af2_outputs(af2_dir: str, crystal_pdb: str,
+                                         target_id: str,
+                                         target_chain: str = "A") -> dict:
+    """[R-17 G2] Post-AF2 cofactor reinsertion dispatch per rank_001 design.
+
+    AF2 / ColabFold predictions do not retain HETATM records. For
+    cofactor-present targets (e.g. 6WGN with GNP / Mg²⁺), declared cofactors
+    must be transplanted from the crystal PDB into each AF2 output before
+    the pipeline continues into ncAA mutation (Step 7) and MD setup (Step 9),
+    otherwise the downstream stages silently drop the cofactors (R-17 SSOT
+    violation). The per-design rewrite is done in-place with a backup copy
+    preserved under ``af2_dir/_pre_reinsert_backup/``.
+
+    Behavior:
+        - target_id empty OR target_cards/<id>.json missing → log + no-op.
+        - target_card loaded but ``cofactor_residues`` empty / no required
+          entries → log + no-op (cofactor-absent target).
+        - Idempotent: if ``_pre_reinsert_backup/`` already has all rank_001
+          basenames, skip (resume mode).
+        - Any ``CofactorReinsertionError`` propagates → pipeline halts with
+          the original exception message (low Cα count, RMSD too high,
+          missing crystal HETATM, missing crystal PDB).
+
+    Args:
+        af2_dir: Output directory of the AF2 stage (rank_001 *.pdb already
+            filtered by ``_filter_top_rank`` / ``_filter_by_iptm``).
+        crystal_pdb: Path to the preprocessed crystal PDB (``work_pdb``) —
+            still contains HETATM because G1 preserved declared cofactors.
+        target_id: target_card stem (e.g. "6WGN"). Empty → no-op.
+        target_chain: Target chain identifier for Kabsch alignment. Passed
+            through to ``reinsert_cofactors`` as ``target_chain_override``.
+
+    Returns:
+        Dict with ``status``, ``target_id``, ``n_processed``, ``n_skipped``,
+        ``details`` (list of per-design diagnostics). Status values:
+        ``no_target_id``, ``no_card``, ``no_required_cofactors``,
+        ``ok`` (all designs processed), ``skip_cached`` (already processed).
+
+    Raises:
+        CofactorReinsertionError: Bubbled from ``reinsert_cofactors`` when a
+            per-design transplant is geometrically unsafe or inputs are
+            inconsistent. Halts the pipeline — R-17 fail-fast.
+    """
+    # [R-17 G2] Early short-circuits for cofactor-absent path.
+    if not target_id:
+        print("  [R-17 G2] target_id 미지정 — cofactor 재삽입 건너뜀")
+        return {"status": "no_target_id", "target_id": "", "n_processed": 0,
+                "n_skipped": 0, "details": []}
+
+    _card_path = os.path.join(UPDD_DIR, "target_cards", f"{target_id}.json")
+    if not os.path.exists(_card_path):
+        print(f"  [R-17 G2] target_card 없음 ({_card_path}) — 재삽입 건너뜀")
+        return {"status": "no_card", "target_id": target_id, "n_processed": 0,
+                "n_skipped": 0, "details": []}
+
+    # Load target_card (auto-upgrade to v0.6.5 handled by utils_common).
+    if UTILS_DIR not in sys.path:
+        sys.path.append(UTILS_DIR)
+    try:
+        from utils_common import load_target_card  # type: ignore
+        from reinsert_cofactors_post_af2 import reinsert_cofactors  # type: ignore
+    except ImportError as _imp_err:
+        print(f"  [R-17 G2][WARN] module import 실패 ({_imp_err}) — 재삽입 건너뜀")
+        return {"status": "import_error", "target_id": target_id,
+                "n_processed": 0, "n_skipped": 0, "details": []}
+
+    _cards_dir = os.path.join(UPDD_DIR, "target_cards")
+    try:
+        target_card = load_target_card(target_id, cards_dir=_cards_dir)
+    except (FileNotFoundError, ValueError) as _load_err:
+        print(f"  [R-17 G2][WARN] target_card 로드 실패 ({_load_err}) — 재삽입 건너뜀")
+        return {"status": "card_load_error", "target_id": target_id,
+                "n_processed": 0, "n_skipped": 0, "details": []}
+
+    required_entries = [e for e in (target_card.get("cofactor_residues") or [])
+                        if isinstance(e, dict) and e.get("required")]
+    if not required_entries:
+        print(f"  [R-17 G2] '{target_id}' 선언된 required cofactor 없음 — no-op")
+        return {"status": "no_required_cofactors", "target_id": target_id,
+                "n_processed": 0, "n_skipped": 0, "details": []}
+
+    # Crystal PDB sanity.
+    if not crystal_pdb or not os.path.exists(crystal_pdb):
+        print(f"  [R-17 G2][WARN] crystal PDB 없음 ({crystal_pdb}) — 재삽입 건너뜀")
+        return {"status": "no_crystal", "target_id": target_id,
+                "n_processed": 0, "n_skipped": 0, "details": []}
+
+    rank_pdbs = sorted([p for p in glob.glob(os.path.join(af2_dir, "*.pdb"))
+                        if "rank_001" in os.path.basename(p)])
+    if not rank_pdbs:
+        print(f"  [R-17 G2][Info] rank_001 PDB 없음 ({af2_dir}) — no-op")
+        return {"status": "no_inputs", "target_id": target_id,
+                "n_processed": 0, "n_skipped": 0, "details": []}
+
+    backup_dir = os.path.join(af2_dir, "_pre_reinsert_backup")
+    os.makedirs(backup_dir, exist_ok=True)
+
+    cof_target_chain = target_card.get("target_chain") or target_chain or "A"
+    print(f"  [R-17 G2] cofactor 재삽입 — target_id={target_id}, chain={cof_target_chain}, "
+          f"declared={[e.get('resname') for e in required_entries]}")
+
+    details: List[Dict[str, Any]] = []
+    n_processed = 0
+    n_skipped = 0
+    for pdb_path in rank_pdbs:
+        base = os.path.basename(pdb_path)
+        backup_path = os.path.join(backup_dir, base)
+        # Idempotent skip — backup 존재 = 이미 재삽입 완료.
+        if os.path.exists(backup_path):
+            details.append({"design": base, "status": "skipped_cached"})
+            n_skipped += 1
+            continue
+        # Preserve the pristine AF2 output before overwriting.
+        shutil.copy2(pdb_path, backup_path)
+        # Reinsert HETATM into in-place file (atomic: write to .tmp → replace).
+        tmp_out = pdb_path + ".reinsert.tmp"
+        try:
+            report = reinsert_cofactors(
+                af2_pdb=backup_path,
+                crystal_pdb=crystal_pdb,
+                target_card=target_card,
+                out_pdb=tmp_out,
+                target_chain_override=cof_target_chain,
+            )
+            os.replace(tmp_out, pdb_path)
+            details.append({
+                "design": base,
+                "status": "ok",
+                "rmsd_angstrom": report.get("rmsd_angstrom"),
+                "n_ca_pairs": report.get("n_ca_pairs"),
+                "inserted": [m.get("resname") for m in report.get("inserted_cofactors", [])],
+            })
+            n_processed += 1
+        except Exception:
+            # On failure, restore the original AF2 PDB so subsequent resume
+            # can retry cleanly, then re-raise.
+            if os.path.exists(tmp_out):
+                try:
+                    os.remove(tmp_out)
+                except OSError:
+                    pass
+            try:
+                shutil.copy2(backup_path, pdb_path)
+            except (OSError, shutil.Error):
+                pass
+            raise
+
+    # Persist a small per-run log alongside the backups for traceability.
+    report_path = os.path.join(backup_dir, "reinsert_report.json")
+    try:
+        with open(report_path, "w", encoding="utf-8") as f:
+            json.dump({
+                "target_id": target_id,
+                "target_chain": cof_target_chain,
+                "crystal_pdb": os.path.abspath(crystal_pdb),
+                "n_processed": n_processed,
+                "n_skipped": n_skipped,
+                "details": details,
+            }, f, indent=2)
+    except (IOError, OSError) as _rep_err:
+        log(f"[R-17 G2] report 기록 실패 (무시): {_rep_err}", level="warning")
+
+    status_tag = "skip_cached" if (n_processed == 0 and n_skipped > 0) else "ok"
+    print(f"  [R-17 G2] 완료 — processed={n_processed}, skipped_cached={n_skipped}")
+    return {"status": status_tag, "target_id": target_id,
+            "n_processed": n_processed, "n_skipped": n_skipped,
+            "details": details}
+
+
 def _filter_top_rank(af2_dir):
     """AF2 결과에서 rank_001 PDB만 남기고 나머지를 _lower_ranks/로 이동한다.
 
@@ -964,11 +1151,99 @@ def _run_ncaa_mutation(af2_dir, ncaa_code, ncaa_label, positions, target_out_dir
     run_conda_command(SCRIPT_PATHS["ncaa_mutate"], args, "ncAA Mutation", env_key="ncaa")
     return ncaadir
 
-def _run_parameterization(struct_dir, param_dir, ncaa_def):
+def _run_cofactor_parameterization(target_id: str) -> dict:
+    """[R-17 G3] Ensure cofactor force-field parameters are cached.
+
+    Dispatches ``utils/parameterize_cofactor.ensure_cofactor_params`` for
+    cofactor-present targets. Behavior:
+
+    - ``target_id`` empty / card missing / no required cofactors → no-op,
+      returns ``{"status": "noop"}``.
+    - All declared cofactors already cached (frcmod + mol2 exist) or are
+      AMBER-shipped ions (Li-Merz 12-6-4) → logs "cached/ion_builtin" per
+      resname and returns ``{"status": "ok", ...}``.
+    - Cache miss and ``UPDD_ALLOW_ANTECHAMBER=1`` → regeneration attempt
+      (opt-in). On success, files land under ``params/<resname>/``.
+    - Cache miss and opt-in off → emit a WARNING (no halt). G4 (MD setup)
+      will raise the hard error if the parameters are actually needed.
+
+    Args:
+        target_id: target_card stem (e.g. "6WGN"). Empty → no-op.
+
+    Returns:
+        Dict with ``status`` in {``noop``, ``ok``, ``warn_missing``,
+        ``error_unexpected``} plus the per-resname report under ``report``.
+    """
+    if not target_id:
+        return {"status": "noop", "reason": "no_target_id"}
+
+    _card_path = os.path.join(UPDD_DIR, "target_cards", f"{target_id}.json")
+    if not os.path.exists(_card_path):
+        return {"status": "noop", "reason": "no_card"}
+
+    if UTILS_DIR not in sys.path:
+        sys.path.append(UTILS_DIR)
+    try:
+        from utils_common import load_target_card  # type: ignore
+        from parameterize_cofactor import ensure_cofactor_params  # type: ignore
+        from cofactor_errors import CofactorParamMissingError  # type: ignore
+    except ImportError as _imp_err:
+        print(f"  [R-17 G3][WARN] module import 실패 ({_imp_err}) — skip")
+        return {"status": "warn_missing", "reason": f"import_error: {_imp_err}"}
+
+    _cards_dir = os.path.join(UPDD_DIR, "target_cards")
+    try:
+        target_card = load_target_card(target_id, cards_dir=_cards_dir)
+    except (FileNotFoundError, ValueError) as _load_err:
+        print(f"  [R-17 G3][WARN] target_card 로드 실패 ({_load_err}) — skip")
+        return {"status": "warn_missing", "reason": f"card_load_error: {_load_err}"}
+
+    required = [e for e in (target_card.get("cofactor_residues") or [])
+                if isinstance(e, dict) and e.get("required")]
+    if not required:
+        return {"status": "noop", "reason": "no_required_cofactors"}
+
+    try:
+        report = ensure_cofactor_params(target_card)
+    except CofactorParamMissingError as _param_err:
+        # Do NOT halt — G4 will raise the hard error if the params are
+        # actually consumed. Here we only emit an operator-visible WARN so
+        # the user can pre-supply params/<resname>/{*.frcmod,*.mol2} or set
+        # UPDD_ALLOW_ANTECHAMBER=1 before MD setup.
+        print(f"  [R-17 G3][WARN] GNP/cofactor params missing: {_param_err}. "
+              f"Set UPDD_ALLOW_ANTECHAMBER=1 or ship params/<resname>/* "
+              f"before Step 9 MD, otherwise G4 will halt.")
+        return {"status": "warn_missing", "reason": str(_param_err)}
+
+    for entry in report:
+        resname = entry.get("resname", "?")
+        status = entry.get("status", "?")
+        method = entry.get("method", "?")
+        if status == "cache_hit":
+            print(f"  [R-17 G3] {resname}: cached, skip ({method})")
+        elif status == "ion_builtin":
+            print(f"  [R-17 G3] {resname}: ion_builtin ({method}) — AMBER-shipped")
+        elif status == "regenerated":
+            print(f"  [R-17 G3] {resname}: regenerated via antechamber "
+                  f"(mol2={entry.get('mol2')})")
+        else:
+            print(f"  [R-17 G3] {resname}: status={status}")
+    return {"status": "ok", "report": report}
+
+
+def _run_parameterization(struct_dir, param_dir, ncaa_def, target_id: str = ""):
+    # [R-17 G3] Before ncAA-specific parameterization, verify cofactor FF
+    # parameters are cached for cofactor-present targets. No-op for
+    # cofactor-absent targets (target_id empty, card missing, or empty
+    # cofactor_residues). Non-blocking — WARNs only when cache is missing
+    # and antechamber opt-in is off; G4 raises later if params are needed.
+    if target_id:
+        _run_cofactor_parameterization(target_id)
+
     if ncaa_def is None:
         print("  [Info] 야생형(Wild-Type) 모드이므로 파라미터화 단계를 건너뜁니다.")
         return ""
-        
+
     manifest_path = os.path.join(param_dir, f"{ncaa_def.code}_params_manifest.json")
     manifest = load_json_manifest(manifest_path)
     if manifest and manifest.get("ncaa_code") == ncaa_def.code:
@@ -1037,7 +1312,7 @@ def _run_admet(struct_dir, admet_mode, target_out_dir, status, status_file):
             with open(status_file, "w", encoding="utf-8") as f:
                 json.dump(status, f, indent=4)
 
-def _run_md_and_snapshots(struct_dir, params_manifest, target_out_dir, ncaa_label, ncaa_code, canonical_topo, binder_chain, graph_policy="strict", dcd_backup_path=""):
+def _run_md_and_snapshots(struct_dir, params_manifest, target_out_dir, ncaa_label, ncaa_code, canonical_topo, binder_chain, graph_policy="strict", dcd_backup_path="", target_id: str = ""):
     md_out_dir = os.path.join(target_out_dir, "mdresult")
     snap_dir = os.path.join(target_out_dir, "snapshots")
     manifest_path = os.path.join(md_out_dir, "md_manifest.json")
@@ -1176,6 +1451,15 @@ def _run_md_and_snapshots(struct_dir, params_manifest, target_out_dir, ncaa_labe
             "--n_snapshots", "5",
             "--binder_chain", binder_chain,
         ]
+        # [R-17 G5] Pass target_id when the card exists so extract_snapshots.py
+        # honors cofactor_residues (strip_solvent keeps declared cofactors +
+        # per-snapshot presence validation raises CofactorMissingError when
+        # the cofactor atoms drop out of the trajectory).
+        if target_id:
+            _card_path = os.path.join(UPDD_DIR, "target_cards", f"{target_id}.json")
+            if os.path.exists(_card_path):
+                snap_args += ["--target_id", target_id]
+                print(f"  [R-17 G5] target_card '{target_id}' 감지 — cofactor-aware snapshot 추출")
         run_conda_command(SCRIPT_PATHS["extract_snap"], snap_args, "Extract Snapshots", env_key="md")
 
     if dcd_backup_path and os.path.exists(dcd_backup_path):
@@ -1687,7 +1971,25 @@ def main() -> None:
         print("\n  [New] 새로운 프로젝트를 시작합니다.")
         inputs = gather_all_inputs(base_name, target_pdb)
         work_pdb = inputs["preprocess_opts"]["target_pdb"]
-        
+
+        # [R-17 Stage 4 orchestrator wiring] Step 3 Target Preprocessing — executes
+        # utils/preprocess_target.py when the user opted in. Previously this
+        # function existed (``run_target_preprocessing``) but was never invoked
+        # from main(); preprocess was effectively a no-op. Wiring it here with
+        # ``target_id=base_name`` activates G1 (cofactor keep-list + presence
+        # validation) when target_cards/<base_name>.json is present. For cofactor
+        # -absent targets G1 is a transparent no-op.
+        _pre_opts = inputs.get("preprocess_opts", {})
+        if _pre_opts.get("do_preprocess") and not VALIDATE_ONLY:
+            print_step("Step 3: Target Preprocessing (HETATM filter + PDBFixer)")
+            work_pdb = run_target_preprocessing(
+                _pre_opts.get("target_pdb", target_pdb),
+                _pre_opts.get("keep_mode", "auto"),
+                _pre_opts.get("chain_in", ""),
+                _pre_opts.get("keep_res", ""),
+                target_id=base_name,
+            )
+
         topology_mode = inputs["topology"]
         ncaa_def = resolve_ncaa_definition(inputs["ncaa_code"])
         binder_chain = inputs["binder_chain"]
@@ -1994,6 +2296,17 @@ def main() -> None:
     _iptm_cutoff = float(inputs.get("iptm_cutoff", 0.3))
     _filter_by_iptm(af2_out_dir, min_iptm=_iptm_cutoff)
 
+    # [R-17 G2] Post-AF2 cofactor reinsertion — runs before Step 7 so
+    # ncAA mutation and MD setup see HETATM-augmented rank_001 PDBs. For
+    # cofactor-absent targets (target_card missing or cofactor_residues=[])
+    # this is a logged no-op. For cofactor-present targets (e.g. 6WGN), a
+    # CofactorReinsertionError halts the pipeline (fail-fast per R-17).
+    print_step("Step 6.7: R-17 G2 Cofactor Reinsertion (post-AF2)")
+    _reinsert_cofactors_into_af2_outputs(
+        af2_out_dir, crystal_pdb=work_pdb,
+        target_id=base_name, target_chain=target_chain,
+    )
+
     # Step: ncAA Mutation
     print_step("Step 7: ncAA Configuration & Mutation")
     if _step_really_done("ncaa_mutation"):
@@ -2010,16 +2323,20 @@ def main() -> None:
     save_step("ncaa_mutation")
 
     # Step: Parameterize (save_step 레거시 엔트리 없음 — state 훅만 직접 관리)
+    # [R-17 G3] _run_parameterization accepts target_id so cofactor FF
+    # parameters (frcmod/mol2) are verified / regenerated for cofactor-present
+    # targets before MD setup consumes them in Step 9. No-op when target_card
+    # is absent or declares no required cofactors.
     print_step("Step 8: ncAA Parameterization")
     param_dir = os.path.join(target_out_dir, "params")
     _param_really_done = check_outputs_exist("parameterize", inputs, target_out_dir)
     if _param_really_done:
         _mark_skipped("parameterize")
-        params_manifest = _run_parameterization(struct_dir, param_dir, ncaa_def)
+        params_manifest = _run_parameterization(struct_dir, param_dir, ncaa_def, target_id=base_name)
     else:
         _mark_running("parameterize", total=0, workers=1)
         try:
-            params_manifest = _run_parameterization(struct_dir, param_dir, ncaa_def)
+            params_manifest = _run_parameterization(struct_dir, param_dir, ncaa_def, target_id=base_name)
             _mark_complete("parameterize")
         except Exception as _e:
             _mark_failed("parameterize", str(_e))
@@ -2028,16 +2345,20 @@ def main() -> None:
     _run_admet(struct_dir, admet_mode, target_out_dir, status if not resume_mode else inputs, status_file)
 
     # Step: MD + Snapshots (save_step 한 번에 state 2 개 complete 처리)
+    # [R-17 G5] target_id=base_name is threaded into _run_md_and_snapshots so
+    # the Step 10 extract_snapshots.py subprocess receives --target_id and
+    # enforces the cofactor preservation gate during snapshot extraction
+    # (strip_solvent exclusion + per-snapshot presence validation).
     print_step("Step 9: Restrained MD")
     canonical_topo = topology_mode.get("canonical", topology_mode.get("abbr", "linear"))
     if _step_really_done("md_snapshots"):
         _mark_skipped("md_snapshots")
-        md_out_dir, snap_dir = _run_md_and_snapshots(struct_dir, params_manifest, target_out_dir, ncaa_def.label if ncaa_def else "none", ncaa_def.code if ncaa_def else "", canonical_topo, binder_chain, graph_policy="strict", dcd_backup_path=dcd_backup_path)
+        md_out_dir, snap_dir = _run_md_and_snapshots(struct_dir, params_manifest, target_out_dir, ncaa_def.label if ncaa_def else "none", ncaa_def.code if ncaa_def else "", canonical_topo, binder_chain, graph_policy="strict", dcd_backup_path=dcd_backup_path, target_id=base_name)
     else:
         _mark_running("md_snapshots", total=0, workers=get_workers("md", inputs),
                       detail="OpenMM restrained MD")
         try:
-            md_out_dir, snap_dir = _run_md_and_snapshots(struct_dir, params_manifest, target_out_dir, ncaa_def.label if ncaa_def else "none", ncaa_def.code if ncaa_def else "", canonical_topo, binder_chain, graph_policy="strict", dcd_backup_path=dcd_backup_path)
+            md_out_dir, snap_dir = _run_md_and_snapshots(struct_dir, params_manifest, target_out_dir, ncaa_def.label if ncaa_def else "none", ncaa_def.code if ncaa_def else "", canonical_topo, binder_chain, graph_policy="strict", dcd_backup_path=dcd_backup_path, target_id=base_name)
             _mark_complete("md_snapshots")
         except Exception as _e:
             _mark_failed("md_snapshots", str(_e))

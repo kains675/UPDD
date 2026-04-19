@@ -13,6 +13,7 @@ import csv
 import argparse
 import subprocess
 from collections import defaultdict
+from typing import List, Optional
 import numpy as np
 
 # [v3 12] 도메인 상수와 공통 헬퍼는 utils_common(SSoT) 에서 임포트한다.
@@ -24,6 +25,76 @@ from utils_common import (  # noqa: E402
     parse_pdb_atom_line,
     atom_distance,
 )
+from cofactor_errors import CofactorMissingError  # noqa: E402
+
+
+# ==========================================
+# [R-17 G1] Cofactor preservation — preprocess gate
+# ==========================================
+def collect_required_cofactor_resnames(target_card: Optional[dict]) -> List[str]:
+    """[R-17 G1] Collect resnames for cofactors declared as ``required=True``.
+
+    Drives auto-injection into the ``--keep_hetatms`` list at preprocess time
+    so PDBFixer / chain-filter cannot silently drop the cofactor atoms.
+
+    Args:
+        target_card: Parsed target_card dict (may be ``None`` in legacy paths).
+
+    Returns:
+        List of upper-cased resnames. Empty list when target_card is None or
+        when no cofactors declare ``required=True``. Order is preserved from
+        the card declaration (deterministic).
+    """
+    if not target_card:
+        return []
+    entries = target_card.get("cofactor_residues") or []
+    names: List[str] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        if not entry.get("required"):
+            continue
+        resname = entry.get("resname")
+        if not resname:
+            continue
+        resname = str(resname).strip().upper()
+        if resname and resname not in names:
+            names.append(resname)
+    return names
+
+
+def validate_preprocess_cofactor_presence(
+    kept_het_keys,
+    target_card: Optional[dict],
+) -> None:
+    """[R-17 G1] Fail-fast if declared required cofactors did not survive preprocess.
+
+    Args:
+        kept_het_keys: Iterable of ``(chain, resid, resname, reason)`` tuples
+            returned by ``filter_hetatms()``. resname at index 2 is checked.
+        target_card: Parsed target_card dict. None → no-op (legacy pipeline).
+
+    Raises:
+        CofactorMissingError: A required cofactor's resname is absent from the
+            kept HETATM set after preprocess filter.
+    """
+    required = collect_required_cofactor_resnames(target_card)
+    if not required:
+        return
+    kept_resnames = {str(t[2]).strip().upper() for t in kept_het_keys}
+    missing = [rn for rn in required if rn not in kept_resnames]
+    if missing:
+        raise CofactorMissingError(
+            "R-17 G1 preprocess: required cofactor resnames "
+            "{} not preserved through HETATM filter. Kept resnames: {}. "
+            "Check --hetatm_mode (use 'auto' or 'manual' with explicit "
+            "--keep_hetatms) and target chain selection.".format(
+                missing, sorted(kept_resnames)
+            ),
+            gate="G1",
+            resname=missing[0],
+            detail={"missing": missing, "kept": sorted(kept_resnames)},
+        )
 
 
 def parse_keep_list(text):
@@ -177,10 +248,40 @@ def main():
     parser.add_argument("--hetatm_mode", choices=["auto", "manual", "none"], default="auto")
     parser.add_argument("--keep_hetatms", default="", help="강제 유지할 HETATM 이름 (예: GDP,MG)")
     parser.add_argument("--report", default="", help="리포트 CSV 출력 경로")
+    parser.add_argument(
+        "--target_id", default="",
+        help="[R-17 G1] target_card stem (예: 6WGN). 지정 시 "
+             "target_cards/<id>.json 의 required cofactor resnames 를 "
+             "--keep_hetatms 리스트에 자동 주입하고 필터 후 presence 검증.",
+    )
     args = parser.parse_args()
 
     keep_chains = parse_keep_list(args.chains)
     manual_keeps = parse_keep_list(args.keep_hetatms)
+
+    # [R-17 G1] target_card 가 지정되면 required cofactor resnames 를
+    # manual_keeps 에 auto-inject. target_card 해석 실패는 warning 으로
+    # 처리하고 기존 동작으로 fallback (graceful degradation).
+    target_card = None
+    if args.target_id:
+        try:
+            from utils_common import load_target_card
+            target_card = load_target_card(args.target_id)
+            auto_keeps = collect_required_cofactor_resnames(target_card)
+            added = [rn for rn in auto_keeps if rn not in manual_keeps]
+            manual_keeps = manual_keeps | set(auto_keeps)
+            if added:
+                print(
+                    "  [R-17 G1] target_card '{}' required cofactors 추가: {}".format(
+                        args.target_id, added
+                    )
+                )
+        except Exception as _tc_err:
+            print(
+                "  [R-17 G1][WARN] target_card '{}' 로드 실패 ({}): 기본 동작으로 fallback".format(
+                    args.target_id, _tc_err
+                )
+            )
 
     prot_lines, prot_atoms, het_lines, passthrough = collect_records(args.input)
 
@@ -194,6 +295,10 @@ def main():
     kept_het_lines, kept_het_keys, removed_het = filter_hetatms(
         het_lines, prot_atoms, args.hetatm_mode, manual_keeps
     )
+
+    # [R-17 G1] 필수 cofactor 가 필터 후에도 살아있는지 확증. 부재 시 fail-fast.
+    if target_card is not None:
+        validate_preprocess_cofactor_presence(kept_het_keys, target_card)
 
     output_lines = []
     output_lines.extend(prot_lines)

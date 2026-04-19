@@ -25,6 +25,7 @@ except ImportError:
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from utils_common import resolve_chainid_by_letter as _resolve_chainid_common  # noqa: E402
 from utils_common import load_md_status  # noqa: E402
+from cofactor_errors import CofactorMissingError  # noqa: E402
 
 
 # ==========================================
@@ -40,17 +41,99 @@ def load_trajectory(dcd_path, top_pdb):
 
 
 # ==========================================
-# 용매 제거 (단백질 + 리간드만 유지)
+# [R-17 G5] 용매 제거 — declared cofactor 보존
 # ==========================================
-def strip_solvent(traj):
-    """물, 이온 제거 → 단백질·펩타이드·ncAA만 유지"""
-    protein_idx = traj.topology.select(
-        "not (water or resname NA or resname CL or resname K "
-        "or resname MG or resname CA or resname ZN)"
-    )
+# SciVal 8차 verdict (verdict_cofactor_preservation_policy_20260419.md §2.3 G5).
+# 기존 구현은 ``resname MG/CA/ZN`` 을 하드코딩하여 제거했으나, target_card 에
+# ``cofactor_residues`` 로 선언된 MG/ZN 은 structural cofactor 이며 제거 금지.
+# 7차 verdict 의 Stage C root cause — MD snapshot 에서 GNP/Mg2+ 가 누락된
+# 1차 원인이 이 하드코딩된 제거였음.
+_SOLVENT_RESNAMES_DEFAULT = {"NA", "CL", "K", "CA", "MG", "ZN"}
+
+
+def strip_solvent(traj, cofactor_resnames=None):
+    """[R-17 G5] 물·이온 제거 → 단백질·펩타이드·ncAA + 선언된 cofactor 유지.
+
+    기존 시그니처 ``strip_solvent(traj)`` 와 완전 호환. 새 두 번째 파라미터
+    ``cofactor_resnames`` 가 제공되면 제거 대상 resname 집합에서 해당
+    resnames 를 제외한다 (즉 cofactor 는 원자 slice 후에도 남는다).
+
+    Args:
+        traj: mdtraj.Trajectory.
+        cofactor_resnames: Optional iterable of resnames to preserve
+            (case-insensitive, upper-cased internally). Commonly passed
+            from ``target_card.cofactor_residues[*].resname`` where
+            ``required=True``. When ``None`` (legacy callers), falls back
+            to the pre-R17 hardcoded set.
+
+    Returns:
+        mdtraj.Trajectory with solvent / counter-ion residues sliced out but
+        declared cofactor resnames retained.
+    """
+    preserve = set()
+    if cofactor_resnames:
+        preserve = {str(r).strip().upper() for r in cofactor_resnames if r}
+
+    # Remove-list = default solvent/ion names MINUS declared cofactors.
+    removable = _SOLVENT_RESNAMES_DEFAULT - preserve
+
+    selection_terms = ["not water"]
+    for rn in sorted(removable):
+        selection_terms.append(f"not resname {rn}")
+    selection = " and ".join(selection_terms)
+
+    protein_idx = traj.topology.select(selection)
     traj_stripped = traj.atom_slice(protein_idx)
+    if preserve:
+        print(
+            f"  [R-17 G5] cofactor preserved through strip_solvent: "
+            f"{sorted(preserve)} | remove-list: {sorted(removable)}"
+        )
     print(f"  용매 제거 후 원자 수: {traj_stripped.n_atoms}")
     return traj_stripped
+
+
+def validate_snapshot_cofactor_presence(traj, cofactor_entries, snapshot_label=""):
+    """[R-17 G5] Verify that every ``required=True`` cofactor survived into snapshot.
+
+    Args:
+        traj: mdtraj.Trajectory — after ``strip_solvent`` and any downstream
+            slicing. ``traj.topology`` is inspected for residue resnames.
+        cofactor_entries: List of dicts (``target_card.cofactor_residues``).
+            Only entries with ``required=True`` are checked.
+        snapshot_label: Optional human-readable snapshot identifier for error
+            messages (e.g. ``"snap01"``). Default empty string.
+
+    Raises:
+        CofactorMissingError: A required cofactor resname is absent from
+            ``traj.topology.residues``.
+    """
+    if not cofactor_entries:
+        return
+    required = [
+        str(e.get("resname", "")).strip().upper()
+        for e in cofactor_entries
+        if isinstance(e, dict) and e.get("required") and e.get("resname")
+    ]
+    if not required:
+        return
+
+    present = {res.name.strip().upper() for res in traj.topology.residues}
+    missing = [rn for rn in required if rn not in present]
+    if missing:
+        raise CofactorMissingError(
+            "R-17 G5 snapshot: required cofactor resnames {} absent from "
+            "snapshot{}. Present resnames sample: {}. This indicates the MD "
+            "force field dropped them (G4 bug) or strip_solvent was called "
+            "without cofactor_resnames argument (G5 regression).".format(
+                missing,
+                f" '{snapshot_label}'" if snapshot_label else "",
+                sorted(present)[:20],
+            ),
+            gate="G5",
+            resname=missing[0],
+            detail={"missing": missing, "snapshot": snapshot_label},
+        )
 
 
 # ==========================================
@@ -316,22 +399,42 @@ def save_snapshots(traj, selected_frames, output_dir, basename):
 # ==========================================
 # 단일 DCD 처리
 # ==========================================
-def process_trajectory(dcd_path, top_pdb, output_dir, n_snapshots, binder_chain="B"):
+def process_trajectory(
+    dcd_path, top_pdb, output_dir, n_snapshots, binder_chain="B",
+    target_card=None,
+):
     basename = os.path.basename(dcd_path).replace("_restrained.dcd", "").replace(".dcd", "")
-    
+
     # ── [스마트 스킵 (도망자 검문소 2호)] ───────────────────────
     # 해당 디자인의 스냅샷 파일이 결과 폴더에 몇 개 있는지 확인합니다.
     existing_snaps = sorted(glob.glob(os.path.join(output_dir, f"{basename}_snap*.pdb")))
-    
+
     if len(existing_snaps) >= n_snapshots:
         print(f"\n  [Skip] {basename} — 이미 목표 개수({n_snapshots}개)의 스냅샷이 존재합니다. 무거운 MDTraj 로딩을 생략합니다!")
         return existing_snaps[:n_snapshots]  # 이미 있는 파일 목록을 그대로 반환하여 파이프라인 지속
     # ────────────────────────────────────────────────────────
-    
+
     print(f"\n  처리: {basename}")
 
     traj         = load_trajectory(dcd_path, top_pdb)
-    traj_protein = strip_solvent(traj)
+    # [R-17 G5] target_card 의 declared cofactor resnames 를 strip_solvent 에
+    # 전달하여 GNP/Mg2+ 등 structural cofactor 가 snapshot 에 보존되도록 한다.
+    _cofactor_resnames = []
+    if target_card is not None:
+        for _e in (target_card.get("cofactor_residues") or []):
+            if isinstance(_e, dict) and _e.get("required") and _e.get("resname"):
+                _cofactor_resnames.append(str(_e["resname"]).strip().upper())
+    traj_protein = strip_solvent(traj, cofactor_resnames=_cofactor_resnames or None)
+
+    # [R-17 G5] Snapshot 에 declared required cofactor 가 존재하는지 검증.
+    # 부재 시 fail-fast 로 downstream QM/MM 진입 차단.
+    if target_card is not None:
+        validate_snapshot_cofactor_presence(
+            traj_protein,
+            target_card.get("cofactor_residues") or [],
+            snapshot_label=basename,
+        )
+
     selected     = cluster_and_select(traj_protein, n_snapshots, binder_chain=binder_chain)
 
     stats = calc_rmsd_stats(traj_protein, selected)
@@ -368,7 +471,31 @@ def main():
     # `chainid 1`, silently selecting wrong CA atoms for any non-canonical
     # chain layout (e.g., multi-chain receptors).
     parser.add_argument("--binder_chain", default="B",         help="바인더 체인 문자 (기본 'B')")
+    parser.add_argument(
+        "--target_id", default="",
+        help="[R-17 G5] target_card stem (예: 6WGN). 지정 시 "
+             "cofactor_residues 가 strip_solvent 에서 보존되고 snapshot "
+             "presence 가 검증된다.",
+    )
     args = parser.parse_args()
+
+    # [R-17 G5] target_card 로드 (optional). 실패 시 legacy 동작으로 fallback.
+    target_card = None
+    if args.target_id:
+        try:
+            from utils_common import load_target_card
+            target_card = load_target_card(args.target_id)
+            print(
+                "  [R-17 G5] target_card '{}' 로드: cofactor_residues 보존 활성화".format(
+                    args.target_id
+                )
+            )
+        except Exception as _tc_err:
+            print(
+                "  [R-17 G5][WARN] target_card '{}' 로드 실패 ({}): legacy strip_solvent 사용".format(
+                    args.target_id, _tc_err
+                )
+            )
 
     os.makedirs(args.outputdir, exist_ok=True)
 
@@ -464,7 +591,8 @@ def main():
             try:
                 snaps = process_trajectory(
                     trimmed_dcd, top_pdb, args.outputdir,
-                    args.n_snapshots, binder_chain=args.binder_chain
+                    args.n_snapshots, binder_chain=args.binder_chain,
+                    target_card=target_card,
                 )
                 all_snapshots.extend(snaps)
 
@@ -491,7 +619,8 @@ def main():
         try:
             snaps = process_trajectory(
                 dcd_path, top_pdb, args.outputdir,
-                args.n_snapshots, binder_chain=args.binder_chain
+                args.n_snapshots, binder_chain=args.binder_chain,
+                target_card=target_card,
             )
         except Exception as e:
             print(f"\n  [🚨 손상된 데이터 감지] {os.path.basename(dcd_path)}")

@@ -470,7 +470,7 @@ def build_target_card(
     _, auto_rationale = generate_target_iso_rationale(
         contact_res_for_charge,
         md_to_crystal_offset=int(md_to_crystal_offset),
-        schema_version="0.6.4",
+        schema_version="0.6.5",
     )
 
     # Validate numbering convention against PDB identities at each contact.
@@ -495,8 +495,14 @@ def build_target_card(
                  str(date.today())),
     }
 
+    # [R-17 v0.6.5] Enrich cofactor entries with R-17 fields so generated
+    # cards are canonical v0.6.5. Well-known resnames get a parameter library
+    # lookup (GNP → gaff2_resp, MG → li_merz_12_6_4). Unknown resnames emit
+    # empty ff_parameters + pdb_literal source; operator must fill in.
+    enriched_cofactors = _enrich_cofactor_entries_r17(cofactors) if cofactors else []
+
     card = {
-        "schema_version": "0.6.4",
+        "schema_version": "0.6.5",
         "target_id": target_id,
         "target_chain": target_chain,
         "binder_chain": binder_chain,
@@ -518,9 +524,7 @@ def build_target_card(
         ),
         "target_iso_net_charge": target_iso_charge,
         "target_iso_charge_rationale": auto_rationale,
-        "cofactor_residues": [
-            dict(c, treatment="mm_point_charge") for c in cofactors
-        ] if cofactors else [],
+        "cofactor_residues": enriched_cofactors,
         "partition_rules": {
             "binder_residues_mode": "whole",
             "target_residues_mode": target_residues_mode,
@@ -536,7 +540,7 @@ def build_target_card(
         },
         "provenance": {
             "generated_by": "generate_target_card.py",
-            "schema_version": "0.6.4",
+            "schema_version": "0.6.5",
             "source_pdb": os.path.abspath(pdb_path),
             "contact_cutoff_A": cutoff_A,
             "generated_date": str(date.today()),
@@ -658,6 +662,190 @@ def main():
 
     # Also print the card as JSON to stdout (for piping/inspection)
     print(json.dumps(card, indent=2))
+
+
+# ==========================================
+# [R-17 v0.6.5] Cofactor schema enrichment + completeness validation
+# ==========================================
+# Known-cofactor parameter library. Lookup by resname → default
+# ``ff_parameters`` template. Cards for new targets simply reference these
+# paths and the pipeline (G3 parameterize_cofactor) resolves them at runtime.
+#
+# Rationale sources cite the primary parameterization literature so cards
+# produced here are reviewable without external context.
+_COFACTOR_FF_LIBRARY = {
+    "GNP": {
+        "method": "gaff2_resp",
+        "frcmod": "params/gnp/gnp.frcmod",
+        "mol2":   "params/gnp/gnp.mol2",
+        "reference": "Bayly 1993 JPC 97,10269 + AMBER GAFF2 (Wang 2004 JCC 25,1157)",
+    },
+    "GTP": {
+        "method": "gaff2_resp",
+        "frcmod": "params/gtp/gtp.frcmod",
+        "mol2":   "params/gtp/gtp.mol2",
+        "reference": "Meagher 2003 JCC 24,1016 (phosphate parameters)",
+    },
+    "GDP": {
+        "method": "gaff2_resp",
+        "frcmod": "params/gdp/gdp.frcmod",
+        "mol2":   "params/gdp/gdp.mol2",
+        "reference": "Meagher 2003 JCC 24,1016",
+    },
+    "ATP": {
+        "method": "gaff2_resp",
+        "frcmod": "params/atp/atp.frcmod",
+        "mol2":   "params/atp/atp.mol2",
+        "reference": "Meagher 2003 JCC 24,1016",
+    },
+    "ADP": {
+        "method": "gaff2_resp",
+        "frcmod": "params/adp/adp.frcmod",
+        "mol2":   "params/adp/adp.mol2",
+        "reference": "Meagher 2003 JCC 24,1016",
+    },
+    "MG":  {"method": "li_merz_12_6_4", "reference": "Li & Merz 2014 JCTC 10,1518"},
+    "ZN":  {"method": "li_merz_12_6_4", "reference": "Li & Merz 2014 JCTC 10,1518"},
+    "CA":  {"method": "li_merz_12_6_4", "reference": "Li & Merz 2014 JCTC 10,1518"},
+    "MN":  {"method": "li_merz_12_6_4", "reference": "Li & Merz 2014 JCTC 10,1518"},
+    "FE":  {"method": "li_merz_12_6_4", "reference": "Li & Merz 2014 JCTC 10,1518"},
+}
+
+# Treatment defaults when the target_card generator detects a cofactor class.
+# These are DEFAULTS — operators should review per-target (e.g. catalytic Zn
+# typically wants treatment="qm_region" in v0.7+).
+_DEFAULT_TREATMENT_BY_CLASS = {
+    "nucleotide_triphosphate": "mm_point_charge",      # GNP, GTP, ATP
+    "nucleotide_diphosphate":  "mm_point_charge",      # GDP, ADP
+    "divalent_ion":            "mm_point_charge",      # MG, CA, MN, FE (non-cat)
+    "transition_metal":        "mm_point_charge",      # ZN (cat → qm_region v0.7+)
+}
+
+_COFACTOR_CLASS_BY_RESNAME = {
+    "GNP": "nucleotide_triphosphate",
+    "GTP": "nucleotide_triphosphate",
+    "ATP": "nucleotide_triphosphate",
+    "GDP": "nucleotide_diphosphate",
+    "ADP": "nucleotide_diphosphate",
+    "MG":  "divalent_ion",
+    "CA":  "divalent_ion",
+    "MN":  "divalent_ion",
+    "FE":  "divalent_ion",
+    "ZN":  "transition_metal",
+}
+
+
+def _enrich_cofactor_entries_r17(cofactor_seeds):
+    """[R-17 v0.6.5] Produce full cofactor_residues entries from seeds.
+
+    Args:
+        cofactor_seeds: list of dicts carrying (at minimum) ``resname``,
+            ``chain``, ``resnum``, and optionally ``charge``. These come
+            from the MD PDB scan earlier in the pipeline.
+
+    Returns:
+        list of dicts with R-17 v0.6.5 fields filled in. Well-known resnames
+        resolve against the internal library; unknown resnames get
+        ``ff_parameters={}`` + ``source='pdb_literal'`` so the operator must
+        supply parameters before G3 will pass.
+    """
+    enriched = []
+    for c in (cofactor_seeds or []):
+        resname = str(c.get("resname", "")).strip().upper()
+        entry = {
+            "resname": resname,
+            "chain":   c.get("chain"),
+            "resnum":  c.get("resnum"),
+            "required": True,
+            "source":  "pdb_literal",
+            "treatment": "mm_point_charge",
+            "alternative_treatments": ["mm_point_charge"],
+            "charge":  c.get("charge", 0),
+            "ff_parameters": {},
+        }
+        # Library lookup for known cofactors.
+        if resname in _COFACTOR_FF_LIBRARY:
+            entry["ff_parameters"] = dict(_COFACTOR_FF_LIBRARY[resname])
+        # Class-driven treatment override (divalent ions can also go qm_region
+        # in v0.7+, flagged via alternative_treatments).
+        klass = _COFACTOR_CLASS_BY_RESNAME.get(resname)
+        if klass:
+            entry["treatment"] = _DEFAULT_TREATMENT_BY_CLASS.get(
+                klass, entry["treatment"]
+            )
+            if klass in ("divalent_ion", "transition_metal"):
+                entry["alternative_treatments"] = [
+                    "mm_point_charge", "qm_region",
+                ]
+        enriched.append(entry)
+    return enriched
+
+
+def validate_cofactor_completeness(card, repo_root=None):
+    """[R-17 v0.6.5] Verify that every required cofactor's ff_parameters
+    resolve to existing files on disk.
+
+    Args:
+        card: target_card dict (v0.6.5 shape).
+        repo_root: optional absolute path to the project root. Defaults to
+            ``<utils>/../``.
+
+    Returns:
+        dict with keys:
+            ``ok``     (bool) — True iff every required entry is satisfied.
+            ``issues`` (list[str]) — per-entry remediation hints.
+            ``entries`` (list[dict]) — per-entry diagnostic.
+    """
+    if repo_root is None:
+        repo_root = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), os.pardir)
+        )
+    issues = []
+    report = []
+    for entry in (card.get("cofactor_residues") or []):
+        if not isinstance(entry, dict):
+            continue
+        if not entry.get("required"):
+            continue
+        resname = str(entry.get("resname", "")).strip().upper()
+        ff = entry.get("ff_parameters") or {}
+        method = str(ff.get("method", "")).strip().lower()
+        entry_report = {
+            "resname": resname, "method": method,
+            "cache_hit": False, "files_checked": [],
+        }
+        # Ion-builtin methods need no per-target frcmod.
+        if method in ("li_merz_12_6_4", "li_merz", "amber_ion", "ion_builtin"):
+            entry_report["cache_hit"] = True
+            entry_report["status"] = "ion_builtin"
+            report.append(entry_report)
+            continue
+        # Any other method must point at real files (frcmod / mol2 / xml).
+        found_any = False
+        for key in ("frcmod", "mol2", "xml"):
+            rel_path = ff.get(key)
+            if not rel_path:
+                continue
+            abs_path = rel_path if os.path.isabs(rel_path) else os.path.join(
+                repo_root, rel_path
+            )
+            exists = os.path.exists(abs_path)
+            entry_report["files_checked"].append({"key": key, "path": abs_path,
+                                                  "exists": exists})
+            if exists:
+                found_any = True
+        entry_report["cache_hit"] = found_any
+        entry_report["status"] = "cache_hit" if found_any else "missing"
+        if not found_any:
+            issues.append(
+                "cofactor '{}' (method={}): no existing ff_parameters "
+                "files. Regenerate via parameterize_cofactor.ensure_cofactor_params "
+                "or ship the frcmod/mol2 under params/{}/.".format(
+                    resname, method or "unspecified", resname.lower()
+                )
+            )
+        report.append(entry_report)
+    return {"ok": not issues, "issues": issues, "entries": report}
 
 
 if __name__ == '__main__':

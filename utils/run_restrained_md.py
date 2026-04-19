@@ -75,9 +75,85 @@ STD_AA_NAMES = {
     "THR", "TRP", "TYR", "VAL", "HID", "HIE", "HIP"
 }
 
+# [R-17 G4, 2026-04-19 Stage 4] Structural cofactor ions (MG, CA, ZN) were
+# previously classified here as bulk solvent/counter-ions. SciVal 7th verdict
+# (verdict_option7_pdb_structural_audit_20260419.md §1.2 Stage A) identified
+# this as the upstream cause of Mg²⁺ absence in KRAS MD snapshots: when a
+# target_card declares MG as a ``required`` cofactor, it must survive through
+# ``find_peptide_like_nonstandard`` and the non-std residue scanner at
+# run_restrained_md.py:1168. Removing MG/CA/ZN from the default set makes
+# per-target cofactor preservation correct by default. Bulk Na/Cl/K counterion
+# treatment (actual solvent) is unchanged.
+#
+# Target-specific structural ion dispatch: callers with a target_card should
+# use ``build_structural_ion_names(target_card)`` to exclude declared required
+# cofactor resnames from any bulk-classification logic.
 SOLVENT_ION_NAMES = {
-    "HOH", "WAT", "NA", "CL", "K", "MG", "CA", "ZN"
+    "HOH", "WAT", "NA", "CL", "K"
 }
+
+
+def build_structural_ion_names(target_card):
+    """[R-17 G4] Return the set of resnames that must be treated as structural
+    cofactors (NOT as bulk counterions) for this target.
+
+    Driven entirely by ``target_card.cofactor_residues`` entries with
+    ``required=True``. Downstream code should EXCLUDE these resnames from any
+    "solvent / counterion" classification and INCLUDE them in ForceField
+    template-matching scans.
+
+    Args:
+        target_card: Parsed target_card dict (may be None → return empty set).
+
+    Returns:
+        Set of upper-cased resnames.
+    """
+    if not target_card:
+        return set()
+    out = set()
+    for entry in (target_card.get("cofactor_residues") or []):
+        if not isinstance(entry, dict):
+            continue
+        if not entry.get("required"):
+            continue
+        rn = entry.get("resname")
+        if rn:
+            out.add(str(rn).strip().upper())
+    return out
+
+
+def load_cofactor_ff_parameters(target_card):
+    """[R-17 G4] Collect absolute paths to cofactor force-field files to
+    register with OpenMM ``ForceField.loadFile()``.
+
+    Resolves relative ``ff_parameters.frcmod`` / ``ff_parameters.mol2`` paths
+    against the project root (the directory containing ``utils/``). Entries
+    with no ``ff_parameters`` or no file candidates are ignored (callers can
+    decide whether to fail-fast separately).
+
+    Returns:
+        List of (resname, file_path) tuples for existing files.
+    """
+    if not target_card:
+        return []
+    proj_root = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+    found = []
+    for entry in (target_card.get("cofactor_residues") or []):
+        if not isinstance(entry, dict):
+            continue
+        if not entry.get("required"):
+            continue
+        ff_params = entry.get("ff_parameters") or {}
+        if not isinstance(ff_params, dict):
+            continue
+        for key in ("frcmod", "mol2", "xml"):
+            rel_path = ff_params.get(key)
+            if not rel_path:
+                continue
+            abs_path = rel_path if os.path.isabs(rel_path) else os.path.join(proj_root, rel_path)
+            if os.path.exists(abs_path):
+                found.append((str(entry.get("resname", "")).strip().upper(), abs_path))
+    return found
 
 def get_best_platform(preferred: str = "CUDA"):
     """[v4 H-1] OpenMM 플랫폼 자동 선택 — CUDA (mixed precision) 우선.

@@ -42,6 +42,10 @@ from openmm.app import ForceField, PDBFile
 # CLI 모드(`python utils/run_qmmm.py`)에서도 동작하도록 utils 경로를 sys.path 에 등록한다.
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from utils_common import KNOWN_COFACTORS, parse_pdb_atom_line  # noqa: E402
+from cofactor_errors import (  # noqa: E402
+    CofactorMissingError,
+    CofactorChargeSumMismatch,
+)
 
 
 # ==========================================
@@ -815,6 +819,456 @@ def get_mm_charges(mm_atoms):
 
 
 # ==========================================
+# DIAGNOSTIC — Interim cofactor runtime injection (SciVal verdict §7.3)
+# ==========================================
+# DEPRECATED: interim path, to be removed after G6 activation (R-17 Stage 4).
+# 8차 SciVal verdict `verdict_cofactor_preservation_policy_20260419.md` §7 의
+# interim probe. 설계상 MD snapshot 에 cofactor (GNP, Mg²⁺) 가 preserve 되지
+# 않았을 때, 결정(crystal) PDB 에서 cofactor 좌표를 그대로 읽어 MM point
+# charge 로 runtime injection 한다. 순수 **diagnostic** 용도이며 production
+# 결과가 아니다 (ranking/calibration 금지; R-11 위반 자동 flag).
+#
+# Gating:
+#   - 환경변수 `UPDD_COFACTOR_INJECT_DIAGNOSTIC=1` 일 때만 활성화
+#   - unset / "0" 일 때는 no-op (입력을 그대로 반환)
+#
+# Fallback policy (SCF 를 절대 crash 시키지 않는다):
+#   - crystal PDB 경로 누락 → no-op + `[DIAG] cofactor_runtime_injection_failed`
+#   - target_card 에 cofactor_residues 없음 → no-op
+#   - crystal PDB 에 declared cofactor 잔기 부재 → no-op + fallback DIAG
+#
+# Charge distribution:
+#   - target_card.cofactor_residues[i].charge 는 해당 잔기의 **total** 전하
+#   - 단원자 cofactor (예: Mg²⁺) → 전체 전하를 그 1개 원자에 할당
+#   - 다원자 cofactor (예: GNP 32 heavy atoms) → heavy atom 개수로 균등 분배
+#   - H 원자는 분배 대상에서 제외 (heavy atom only; element != 'H')
+#
+# Route-to-G6: when R-17 G1..G5 have correctly preserved cofactors into the
+# snapshot PDB, the proper G6 path ``inject_cofactor_point_charges_from_snapshot``
+# reads them from the snapshot directly (correct geometry, no Kabsch transform
+# needed). This interim path remains as a fallback for snapshots that predate
+# G1..G5 deployment.
+def _inject_cofactor_point_charges_from_crystal(
+    target_card,
+    mm_atoms_in,
+    mm_charges_in,
+    crystal_pdb_path,
+    enabled_via_env_var,
+):
+    """Diagnostic probe — inject crystal-derived cofactor atoms as extra MM
+    point charges.
+
+    Args:
+        target_card: dict loaded from target_cards/<id>.json (may be None).
+        mm_atoms_in: list of MM atom dicts (unchanged on no-op).
+        mm_charges_in: np.ndarray of shape (N, 4) [x, y, z, q], the Å/e MM
+            point-charge array produced by ``get_mm_charges()``. May be empty.
+        crystal_pdb_path: absolute path to the crystal PDB (source of cofactor
+            coords). If missing/None, diagnostic is a no-op.
+        enabled_via_env_var: bool, True iff ``UPDD_COFACTOR_INJECT_DIAGNOSTIC=1``.
+
+    Returns:
+        Tuple of (mm_atoms_out, mm_charges_out, diag_meta). ``diag_meta`` is a
+        dict with ``{"enabled": bool, "injected_atoms": [...], "charge_sum":
+        float|None, "source_pdb": str|None, "fallback_reason": str|None}``.
+        The returned arrays are new objects (copy on inject; original refs on
+        no-op) so callers may write through without aliasing.
+    """
+    diag_meta = {
+        "enabled": bool(enabled_via_env_var),
+        "injected_atoms": [],
+        "charge_sum": None,
+        "source_pdb": None,
+        "fallback_reason": None,
+        "injected_residues_breakdown": [],
+    }
+
+    if not enabled_via_env_var:
+        return mm_atoms_in, mm_charges_in, diag_meta
+
+    # Guard 1: target_card must declare cofactor_residues.
+    if target_card is None:
+        diag_meta["fallback_reason"] = "target_card_none"
+        _diag(
+            "cofactor_runtime_injection_failed",
+            mode="diagnostic",
+            reason=diag_meta["fallback_reason"],
+            source_pdb=(crystal_pdb_path or None),
+        )
+        return mm_atoms_in, mm_charges_in, diag_meta
+
+    cofactor_entries = target_card.get("cofactor_residues") or []
+    if not cofactor_entries:
+        diag_meta["fallback_reason"] = "no_cofactor_residues_in_target_card"
+        _diag(
+            "cofactor_runtime_injection_failed",
+            mode="diagnostic",
+            reason=diag_meta["fallback_reason"],
+            source_pdb=(crystal_pdb_path or None),
+            target_id=target_card.get("target_id"),
+        )
+        return mm_atoms_in, mm_charges_in, diag_meta
+
+    # Guard 2: crystal PDB must exist.
+    if not crystal_pdb_path or not os.path.exists(crystal_pdb_path):
+        diag_meta["fallback_reason"] = "crystal_pdb_missing"
+        _diag(
+            "cofactor_runtime_injection_failed",
+            mode="diagnostic",
+            reason=diag_meta["fallback_reason"],
+            source_pdb=(crystal_pdb_path or None),
+            target_id=target_card.get("target_id"),
+        )
+        return mm_atoms_in, mm_charges_in, diag_meta
+
+    # Read crystal PDB and gather atoms matching declared cofactors
+    # (resname + chain + resnum match; chain comparison is case-insensitive
+    # for safety). Use the lightweight parser from utils_common so that
+    # waters/hetatms are handled per PDB v3 column rules.
+    try:
+        with open(crystal_pdb_path, "r", encoding="utf-8", errors="ignore") as _f:
+            _crystal_lines = _f.readlines()
+    except (IOError, OSError) as _io_err:
+        diag_meta["fallback_reason"] = f"crystal_pdb_read_error:{type(_io_err).__name__}"
+        _diag(
+            "cofactor_runtime_injection_failed",
+            mode="diagnostic",
+            reason=diag_meta["fallback_reason"],
+            detail=str(_io_err)[:160],
+            source_pdb=crystal_pdb_path,
+        )
+        return mm_atoms_in, mm_charges_in, diag_meta
+
+    # Group crystal atoms by (resname, chain, resnum); preserve file order
+    # per group so the heavy-atom index is deterministic.
+    found_groups = {}
+    for _ln in _crystal_lines:
+        parsed = parse_pdb_atom_line(_ln)
+        if parsed is None:
+            continue
+        if parsed["record"] != "HETATM":
+            # Cofactors are HETATM by convention (GNP, MG, ZN, CA, ...).
+            # Skip polymer ATOM lines.
+            continue
+        _key = (parsed["resname"].upper(),
+                (parsed["chain"] or "").upper(),
+                int(parsed["resnum"]))
+        # element fallback identical to parse_pdb_atoms() (QM/MM module).
+        element = parsed["element"]
+        if not element:
+            element = re.sub(r"^[0-9]+", "",
+                             _ln[12:14].strip())[:1].upper() or "C"
+        parsed["element"] = element
+        found_groups.setdefault(_key, []).append(parsed)
+
+    # Build augmented MM atom / charge arrays.
+    extra_rows = []  # numpy rows [x, y, z, q]
+    extra_atoms = []  # MM atom dicts (symmetric w/ mm_atoms_in)
+    unmatched_declared = []
+    matched_breakdown = []  # list of (resname, resnum, chain, n_atoms, charge_total)
+    for entry in cofactor_entries:
+        resname = str(entry.get("resname", "")).strip().upper()
+        chain = str(entry.get("chain", "")).strip().upper()
+        resnum = entry.get("resnum")
+        charge_total = entry.get("charge")
+        if (not resname) or (resnum is None) or (charge_total is None):
+            unmatched_declared.append({
+                "resname": resname, "chain": chain, "resnum": resnum,
+                "reason": "incomplete_entry",
+            })
+            continue
+        _key = (resname, chain, int(resnum))
+        group = found_groups.get(_key)
+        if not group:
+            unmatched_declared.append({
+                "resname": resname, "chain": chain, "resnum": int(resnum),
+                "reason": "not_found_in_crystal",
+            })
+            continue
+
+        # Distribute charge across heavy atoms (exclude H). If only H atoms
+        # present (degenerate), fall back to uniform across all atoms.
+        heavy = [a for a in group if str(a.get("element", "")).upper() != "H"]
+        if not heavy:
+            heavy = list(group)
+        n_heavy = len(heavy)
+        per_atom_q = float(charge_total) / float(n_heavy)
+        for a in heavy:
+            extra_rows.append([float(a["x"]), float(a["y"]), float(a["z"]),
+                               float(per_atom_q)])
+            extra_atoms.append({
+                "serial":  int(a["serial"]),
+                "name":    str(a["name"]),
+                "resname": resname,
+                "chain":   str(a["chain"]),
+                "resnum":  int(a["resnum"]),
+                "x":       float(a["x"]),
+                "y":       float(a["y"]),
+                "z":       float(a["z"]),
+                "element": str(a.get("element", "")),
+                "is_ncaa": False,
+                "is_cofactor_injected_diagnostic": True,
+            })
+        matched_breakdown.append({
+            "resname": resname, "chain": chain, "resnum": int(resnum),
+            "n_heavy_atoms": n_heavy, "charge_total": float(charge_total),
+            "per_atom_charge": per_atom_q,
+        })
+
+    if not extra_rows:
+        # Nothing matched — no-op + fallback diag.
+        diag_meta["fallback_reason"] = "no_declared_cofactor_matched"
+        _diag(
+            "cofactor_runtime_injection_failed",
+            mode="diagnostic",
+            reason=diag_meta["fallback_reason"],
+            source_pdb=crystal_pdb_path,
+            target_id=target_card.get("target_id"),
+            unmatched=unmatched_declared,
+        )
+        return mm_atoms_in, mm_charges_in, diag_meta
+
+    # Compose outputs. np.vstack handles empty mm_charges_in safely.
+    extra_np = np.asarray(extra_rows, dtype=float)
+    if isinstance(mm_charges_in, np.ndarray) and mm_charges_in.size > 0:
+        mm_charges_out = np.vstack([mm_charges_in, extra_np])
+    else:
+        mm_charges_out = extra_np
+    mm_atoms_out = list(mm_atoms_in) + extra_atoms
+
+    # Diagnostics — per-residue breakdown strings for JSON result and DIAG.
+    summary_strings = [
+        "{}:{} on {} atoms".format(
+            b["resname"], ("+" + str(int(b["charge_total"])) if b["charge_total"] >= 0
+                           else str(int(b["charge_total"]))),
+            b["n_heavy_atoms"],
+        )
+        for b in matched_breakdown
+    ]
+    diag_meta["injected_atoms"] = summary_strings
+    diag_meta["charge_sum"] = float(sum(b["charge_total"]
+                                        for b in matched_breakdown))
+    diag_meta["source_pdb"] = crystal_pdb_path
+    diag_meta["injected_residues_breakdown"] = matched_breakdown
+
+    _diag(
+        "cofactor_runtime_injection",
+        mode="diagnostic",
+        source_pdb=crystal_pdb_path,
+        target_id=target_card.get("target_id"),
+        injected_residues=matched_breakdown,
+        injected_atom_count=int(extra_np.shape[0]),
+        charge_sum=diag_meta["charge_sum"],
+        unmatched=unmatched_declared,
+        note=("diagnostic_only: results carrying diagnostic_mode=true must "
+              "never enter v0.7 calibration (R-11 policy, SciVal 8th verdict §7.5)"),
+    )
+
+    return mm_atoms_out, mm_charges_out, diag_meta
+
+
+# ==========================================
+# [R-17 G6] Cofactor preservation gates — QM/MM build
+# ==========================================
+# SciVal 8차 verdict §2.3 G6 / §4.2 R-17. These functions enforce the final
+# cofactor preservation gate: by the time ``build_qm_mol`` is reached, the
+# snapshot PDB MUST contain every ``required=true`` cofactor (upstream G1..G5
+# were responsible for getting them there). G6 validates presence and injects
+# the declared MM point charges with a charge-sum cross-check.
+def validate_cofactor_presence(atoms, cofactor_entries):
+    """[R-17 G6] Raise ``CofactorMissingError`` if a required cofactor is
+    absent from the snapshot atom list.
+
+    Matching policy:
+      - resname (UPPER, trimmed) must match.
+      - chain (if declared) matches the atom's chain (case-insensitive). A
+        declaration with ``chain`` missing / empty matches any chain.
+      - resnum (if declared) matches the atom's resnum. A declaration with
+        ``resnum is None`` matches any resnum.
+
+    Args:
+        atoms: Iterable of atom dicts with keys ``resname`` / ``chain`` /
+            ``resnum`` (the shape produced by ``parse_pdb_atoms`` in
+            ``run_qmmm``). Pre-split ``qm_atoms + mm_atoms`` is acceptable.
+        cofactor_entries: ``target_card.cofactor_residues`` list.
+
+    Raises:
+        CofactorMissingError: A declared ``required=True`` entry has no
+            matching atom in ``atoms``. First missing entry is named.
+    """
+    if not cofactor_entries:
+        return
+    for entry in cofactor_entries:
+        if not isinstance(entry, dict) or not entry.get("required"):
+            continue
+        declared_resname = str(entry.get("resname", "")).strip().upper()
+        declared_chain = str(entry.get("chain", "") or "").strip().upper()
+        declared_resnum = entry.get("resnum")
+        if not declared_resname:
+            continue
+        matches = [
+            a for a in atoms
+            if str(a.get("resname", "")).strip().upper() == declared_resname
+            and (
+                not declared_chain
+                or str(a.get("chain", "") or "").strip().upper() == declared_chain
+            )
+            and (
+                declared_resnum is None
+                or int(a.get("resnum", -1)) == int(declared_resnum)
+            )
+        ]
+        if not matches:
+            raise CofactorMissingError(
+                "R-17 G6 QM/MM build: required cofactor "
+                f"{declared_resname}/{declared_chain or '*'}/"
+                f"{declared_resnum if declared_resnum is not None else '*'} "
+                f"absent from snapshot atoms. Upstream gates (G1..G5) must have "
+                f"dropped it. Check extract_snapshots.strip_solvent and "
+                f"run_restrained_md SOLVENT_ION_NAMES for target_card drift.",
+                gate="G6",
+                resname=declared_resname,
+                chain=declared_chain or None,
+                resnum=int(declared_resnum) if declared_resnum is not None else None,
+            )
+
+
+def inject_cofactor_point_charges_from_snapshot(
+    target_card, mm_atoms_in, mm_charges_in,
+):
+    """[R-17 G6] Partition the in-snapshot cofactor atoms out of the ``mm_atoms``
+    list and register them as explicit MM point charges with declared totals.
+
+    When G1..G5 have done their job, the snapshot PDB contains all cofactor
+    HETATM records, so the caller's ``partition_qmmm`` step already routed
+    those atoms into ``mm_atoms``. This function:
+      1. Finds the subset of ``mm_atoms`` that matches declared cofactor
+         triplets.
+      2. Verifies per-residue charge sums match ``target_card.cofactor_residues[i].charge``
+         after distributing the declared total across the snapshot's heavy
+         atoms for that residue.
+      3. Writes the per-atom charges back into ``mm_charges_in`` (same row
+         ordering — ``mm_charges_in`` is the Å/e array produced by
+         ``get_mm_charges``).
+
+    The function does NOT add new rows (coords come from the snapshot), it
+    only OVERWRITES the charge column for the cofactor atoms so the declared
+    integer total is enforced (not whatever GAFF2/RESP put there).
+
+    Args:
+        target_card: Parsed target_card dict.
+        mm_atoms_in: List of MM atom dicts (from ``partition_qmmm``).
+        mm_charges_in: ``np.ndarray`` of shape (N, 4) with columns [x,y,z,q].
+            Must align 1:1 with ``mm_atoms_in`` in row order.
+
+    Returns:
+        Tuple of (mm_atoms_out, mm_charges_out, diag_meta). ``mm_atoms_out``
+        and ``mm_charges_out`` are new lists / arrays (no aliasing).
+        ``diag_meta`` is a dict suitable for the JSON result record.
+
+    Raises:
+        CofactorChargeSumMismatch: Net declared charge after injection
+            differs from the target_card declared total by > 1e-3 e.
+    """
+    diag_meta = {
+        "route":              "g6_snapshot_ssot",
+        "injected_residues":  [],
+        "charge_sum_declared": None,
+        "charge_sum_enforced": None,
+        "atoms_tagged":       0,
+    }
+    if target_card is None:
+        return mm_atoms_in, mm_charges_in, diag_meta
+
+    entries = [
+        e for e in (target_card.get("cofactor_residues") or [])
+        if isinstance(e, dict) and e.get("required")
+    ]
+    if not entries:
+        return mm_atoms_in, mm_charges_in, diag_meta
+
+    # mm_charges_in may be (N,4) ndarray or an empty shape. Normalize to
+    # ndarray with deterministic shape so we can overwrite q column in-place.
+    if isinstance(mm_charges_in, np.ndarray) and mm_charges_in.ndim == 2:
+        mm_q = mm_charges_in.copy()
+    else:
+        mm_q = np.asarray(mm_charges_in, dtype=float) if len(mm_charges_in) else np.zeros((0, 4))
+    if mm_q.shape[0] != len(mm_atoms_in):
+        # Defensive: shape drift between mm_atoms and mm_q breaks the index
+        # mapping. Skip injection rather than silently miswrite charges.
+        diag_meta["skipped_reason"] = "mm_atoms_charges_length_mismatch"
+        return mm_atoms_in, mm_charges_in, diag_meta
+
+    mm_atoms_out = list(mm_atoms_in)
+    per_residue_breakdown = []
+    total_enforced = 0.0
+    total_declared = 0.0
+
+    for entry in entries:
+        resname = str(entry.get("resname", "")).strip().upper()
+        chain = str(entry.get("chain", "") or "").strip().upper()
+        resnum = entry.get("resnum")
+        declared_q = float(entry.get("charge", 0))
+        total_declared += declared_q
+
+        match_indices = [
+            i for i, a in enumerate(mm_atoms_out)
+            if str(a.get("resname", "")).strip().upper() == resname
+            and (not chain or str(a.get("chain", "") or "").strip().upper() == chain)
+            and (resnum is None or int(a.get("resnum", -1)) == int(resnum))
+        ]
+        if not match_indices:
+            # Absence at G6 is already a G5 / G6 failure. Escalate rather
+            # than silently drop the charge.
+            raise CofactorMissingError(
+                f"R-17 G6 charge injection: {resname}/{chain}/{resnum} "
+                f"declared but not present in MM partition. G5 snapshot "
+                f"validator should have caught this earlier.",
+                gate="G6", resname=resname,
+                chain=chain or None,
+                resnum=int(resnum) if resnum is not None else None,
+            )
+
+        # Distribute declared charge across heavy atoms (exclude H).
+        heavy = [i for i in match_indices
+                 if str(mm_atoms_out[i].get("element", "")).upper() != "H"]
+        targets = heavy if heavy else list(match_indices)
+        per_atom_q = declared_q / float(len(targets))
+        for idx in targets:
+            mm_q[idx, 3] = per_atom_q
+            mm_atoms_out[idx] = dict(mm_atoms_out[idx])
+            mm_atoms_out[idx]["is_cofactor_mm_charge_ssot"] = True
+
+        total_enforced += per_atom_q * len(targets)
+        per_residue_breakdown.append({
+            "resname": resname, "chain": chain, "resnum": resnum,
+            "n_atoms_charged": len(targets),
+            "declared_total": declared_q,
+            "per_atom_charge": per_atom_q,
+        })
+
+    # Charge-sum cross-check (integer tolerance 1e-3 e).
+    if abs(total_enforced - total_declared) > 1e-3:
+        raise CofactorChargeSumMismatch(
+            f"R-17 G6 charge sum mismatch: declared "
+            f"{total_declared:+.4f} e, enforced {total_enforced:+.4f} e, "
+            f"drift {total_enforced - total_declared:+.4e}. "
+            f"Per-residue breakdown: {per_residue_breakdown}",
+            gate="G6",
+            declared=total_declared,
+            computed=total_enforced,
+            detail={"breakdown": per_residue_breakdown},
+        )
+
+    diag_meta["injected_residues"] = per_residue_breakdown
+    diag_meta["charge_sum_declared"] = total_declared
+    diag_meta["charge_sum_enforced"] = total_enforced
+    diag_meta["atoms_tagged"] = sum(b["n_atoms_charged"] for b in per_residue_breakdown)
+
+    return mm_atoms_out, mm_q, diag_meta
+
+
+# ==========================================
 # DF OOM 회피 가드 — gpu4pyscf 버전 호환 try/except
 # ==========================================
 def _apply_df_oom_guard(mf):
@@ -1090,6 +1544,11 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
             "energy_total_hartree": None, "energy_qmmm_kcal": None,
             "interaction_kcal": None, "converged": False, "is_run_mmgbsa": False,
             "status": "FAILED", "reason": "partition_error", "partition_error": str(e),
+            # Diagnostic-mode flags (injection not yet performed for this path;
+            # env-var reflected for downstream traceability only).
+            "diagnostic_mode": bool(os.environ.get("UPDD_COFACTOR_INJECT_DIAGNOSTIC") == "1"),
+            "cofactors_injected_at_runtime": [],
+            "cofactor_source_pdb": None,
             "regime": "ranking_only",
         }
         if out_json:
@@ -1290,6 +1749,10 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
             "binder_charge_computed": int(_binder_charge_computed),
             "charge_consistency_audit": "failed",
             "charge_topology_diag":   _charge_topology_diag,
+            # Diagnostic-mode flags (injection not reached — guard fired first).
+            "diagnostic_mode":              bool(os.environ.get("UPDD_COFACTOR_INJECT_DIAGNOSTIC") == "1"),
+            "cofactors_injected_at_runtime": [],
+            "cofactor_source_pdb":          None,
             "regime":                 "ranking_only",
         }
         with open(out_json, "w", encoding="utf-8") as f:
@@ -1337,6 +1800,10 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
             "binder_charge_declared": int(_binder_charge_declared),
             "binder_charge_computed": int(_binder_charge_computed),
             "charge_consistency_audit": "failed",
+            # Diagnostic-mode flags (injection not reached — parity guard fired).
+            "diagnostic_mode":              bool(os.environ.get("UPDD_COFACTOR_INJECT_DIAGNOSTIC") == "1"),
+            "cofactors_injected_at_runtime": [],
+            "cofactor_source_pdb":          None,
             "regime":               "ranking_only",
         }
         with open(out_json, "w", encoding="utf-8") as f:
@@ -1360,6 +1827,117 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
     )
 
     mm_coords_charges = get_mm_charges(mm_atoms)
+
+    # ─── [R-17 G6] Cofactor MM-point-charge injection (SSOT path) ─────────
+    # SciVal 8차 verdict §2.3 G6 / §4.2 R-17. When G1..G5 have preserved the
+    # declared cofactors into the snapshot PDB, partition_qmmm has already
+    # routed them into mm_atoms. G6 here (a) validates presence and (b)
+    # overwrites their per-atom MM charges with the declared target_card
+    # total (distributed across heavy atoms). A charge-sum cross-check
+    # raises CofactorChargeSumMismatch on drift.
+    #
+    # Backward-compat: if the snapshot DOES NOT contain declared cofactors
+    # (upstream G1..G5 not yet deployed on this MD run), fall back to the
+    # interim crystal-diagnostic path when UPDD_COFACTOR_INJECT_DIAGNOSTIC=1.
+    # Both paths emit diagnostic_mode flags so R-11 filters correctly.
+    _cofactor_diag_enabled = (
+        os.environ.get("UPDD_COFACTOR_INJECT_DIAGNOSTIC", "0") == "1"
+    )
+    _cofactor_inject_diag = {
+        "route": "none", "enabled": False, "injected_atoms": [],
+        "charge_sum": None, "source_pdb": None, "fallback_reason": None,
+        "injected_residues_breakdown": [],
+    }
+
+    _snapshot_has_cofactors = False
+    _required_cofactor_entries = []
+    if target_card is not None:
+        _required_cofactor_entries = [
+            e for e in (target_card.get("cofactor_residues") or [])
+            if isinstance(e, dict) and e.get("required")
+        ]
+        if _required_cofactor_entries:
+            try:
+                validate_cofactor_presence(
+                    mm_atoms + qm_atoms, _required_cofactor_entries,
+                )
+                _snapshot_has_cofactors = True
+            except CofactorMissingError:
+                # Snapshot is cofactor-less — pre-R17 MD output. Fall back
+                # to the interim diagnostic path only (guarded by env var).
+                _snapshot_has_cofactors = False
+
+    if _snapshot_has_cofactors and target_card is not None:
+        try:
+            mm_atoms, mm_coords_charges, _g6_diag = (
+                inject_cofactor_point_charges_from_snapshot(
+                    target_card=target_card,
+                    mm_atoms_in=mm_atoms,
+                    mm_charges_in=mm_coords_charges,
+                )
+            )
+            _cofactor_inject_diag = dict(_g6_diag)
+            _cofactor_inject_diag["enabled"] = True
+            # Normalize to the cross-route diagnostic shape expected by
+            # downstream JSON emission (result["cofactors_injected_at_runtime"]
+            # etc.). G6 SSOT path reports per-residue breakdowns; wrap them
+            # as compact strings for the shared "injected_atoms" list.
+            _cofactor_inject_diag.setdefault("injected_atoms", [
+                "{}:{:+d} on {} atoms".format(
+                    b.get("resname", "?"),
+                    int(round(float(b.get("declared_total", 0.0)))),
+                    int(b.get("n_atoms_charged", 0)),
+                )
+                for b in _g6_diag.get("injected_residues", [])
+            ])
+            _cofactor_inject_diag.setdefault("source_pdb", pdb_path)
+            _cofactor_inject_diag.setdefault("charge_sum",
+                                             _g6_diag.get("charge_sum_enforced"))
+            _cofactor_inject_diag.setdefault("fallback_reason", None)
+            _diag(
+                "cofactor_charge_injection_g6",
+                snapshot=basename,
+                target_id=target_card.get("target_id"),
+                injected_residues=_g6_diag.get("injected_residues"),
+                charge_sum_declared=_g6_diag.get("charge_sum_declared"),
+                charge_sum_enforced=_g6_diag.get("charge_sum_enforced"),
+                atoms_tagged=_g6_diag.get("atoms_tagged"),
+            )
+        except CofactorChargeSumMismatch as _cs_err:
+            # Surface as a structured failure JSON so Path can triage.
+            _diag(
+                "cofactor_charge_sum_mismatch",
+                snapshot=basename,
+                declared=_cs_err.declared,
+                computed=_cs_err.computed,
+                detail=_cs_err.detail,
+            )
+            raise
+    elif _cofactor_diag_enabled and target_card is not None:
+        # Interim fallback path: snapshot has no cofactors, env var set.
+        # Crystal PDB path resolution: target/<target_id>.pdb (project root).
+        _crystal_pdb_for_cofactor = None
+        _tid = target_card.get("target_id")
+        if _tid:
+            _repo_root = os.path.abspath(
+                os.path.join(os.path.dirname(__file__), os.pardir)
+            )
+            _crystal_candidate = os.path.join(
+                _repo_root, "target", "{}.pdb".format(_tid)
+            )
+            if os.path.exists(_crystal_candidate):
+                _crystal_pdb_for_cofactor = _crystal_candidate
+        mm_atoms, mm_coords_charges, _cofactor_inject_diag = (
+            _inject_cofactor_point_charges_from_crystal(
+                target_card=target_card,
+                mm_atoms_in=mm_atoms,
+                mm_charges_in=mm_coords_charges,
+                crystal_pdb_path=_crystal_pdb_for_cofactor,
+                enabled_via_env_var=_cofactor_diag_enabled,
+            )
+        )
+        _cofactor_inject_diag["route"] = "crystal_diagnostic_interim"
+    # else: no cofactors declared or env var off → no injection (noop).
 
     # ── 4. DFT 계산 (QM/MM 임베딩) ──────────────────────────
     mf = dft.RKS(mol)
@@ -1943,6 +2521,22 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
         "binder_charge_declared": int(_binder_charge_declared),
         "binder_charge_computed": int(_binder_charge_computed),
         "charge_consistency_audit": "passed",
+        # Diagnostic-mode flags — SciVal 8th verdict §7.3 (interim cofactor
+        # runtime injection probe). When ``diagnostic_mode`` is True the
+        # result must NEVER enter v0.7 calibration and rank_results.py should
+        # filter it out (see UPDATE.md entry 2026-04-19).
+        # Stage 4 (R-17): diagnostic_mode is True ONLY when the interim
+        # crystal-diagnostic route actually ran (i.e. the snapshot was
+        # cofactor-less AND the env var was set). The G6 SSOT route (snapshot
+        # already contains cofactors) is a production path and must NOT be
+        # filtered out.
+        "diagnostic_mode":              (
+            _cofactor_inject_diag.get("route") == "crystal_diagnostic_interim"
+        ),
+        "cofactor_injection_route":     _cofactor_inject_diag.get("route"),
+        "cofactors_injected_at_runtime": list(_cofactor_inject_diag.get("injected_atoms", [])),
+        "cofactor_source_pdb":          _cofactor_inject_diag.get("source_pdb"),
+        "cofactor_injection_fallback_reason": _cofactor_inject_diag.get("fallback_reason"),
         # R-11: Regime tag — v0.7 calibration 진입 전까지 "ranking_only" 고정.
         "regime":                 "ranking_only",
         "regime_note":            "Absolute binding energy 의 정량 해석 금지; design 간 상대 순위만 validated.",

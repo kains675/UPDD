@@ -361,6 +361,13 @@ def load_target_card(target_id, cards_dir=None):
                    target_iso_charge_rationale, target_residues_mode=whole as default
                    (Option B3), max_n_qm 500→600. whole_residue_exceptions removed
                    (redundant under whole mode; kept optional for 0.6.3 backward compat).
+        - 0.6.5 — Stage 4 (2026-04-19, R-17): cofactor_residues entries extended
+                   with ``required``, ``source``, ``ff_parameters``,
+                   ``alternative_treatments``. Each declared cofactor drives 6
+                   preservation gates (G1 preprocess ... G6 QM/MM build). Older
+                   cards are auto-upgraded at load with defaults
+                   (``required=True``, ``source="pdb_literal"``, ``ff_parameters={}``,
+                   ``alternative_treatments=[treatment]``) and a one-time warning.
 
     Args:
         target_id: Target identifier (e.g. "6WGN"). Must match the JSON filename
@@ -369,7 +376,10 @@ def load_target_card(target_id, cards_dir=None):
             ``<utils>/../target_cards`` when not provided.
 
     Returns:
-        dict: Parsed target card with ``schema_version`` validated.
+        dict: Parsed target card with ``schema_version`` validated. For cards
+        predating 0.6.5, the ``cofactor_residues`` entries are upgraded in-place
+        with the R-17 default fields so downstream gates (G1..G6) can rely on
+        their presence.
 
     Raises:
         FileNotFoundError: Card JSON not located at the resolved path.
@@ -382,7 +392,7 @@ def load_target_card(target_id, cards_dir=None):
         raise FileNotFoundError("target_card not found: {}".format(path))
     with open(path, "r", encoding="utf-8") as f:
         card = json.load(f)
-    supported = {"0.6.0", "0.6.1", "0.6.2", "0.6.3", "0.6.4"}
+    supported = {"0.6.0", "0.6.1", "0.6.2", "0.6.3", "0.6.4", "0.6.5"}
     if card.get("schema_version") not in supported:
         raise ValueError(
             "Unsupported target_card schema_version: {} (supported: {})".format(
@@ -401,4 +411,64 @@ def load_target_card(target_id, cards_dir=None):
             stacklevel=2,
         )
 
+    # [v0.6.5 R-17] Backward-compat: upgrade cofactor_residues entries from
+    # pre-0.6.5 schema. Old cards only carry {resname, chain, resnum, treatment,
+    # charge}. R-17 gates (G1..G6) require ``required``, ``source``,
+    # ``ff_parameters``, ``alternative_treatments``. Synthesize defaults so
+    # downstream code can rely on the canonical shape without per-call fallback
+    # branches. Emit a single warning per load so operators notice the gap and
+    # regenerate the card via ``generate_target_card.py``.
+    _upgrade_cofactor_entries_to_v065(card, target_id)
+
     return card
+
+
+def _upgrade_cofactor_entries_to_v065(card, target_id):
+    # type: (dict, str) -> None
+    """Synthesize R-17 default fields on pre-0.6.5 cards (in-place).
+
+    Defaults applied per cofactor entry when the field is absent:
+        required:               True   (pre-0.6.5 entries were all structural)
+        source:                 "pdb_literal"
+        ff_parameters:          {}     (empty — G3/G4 will flag if needed)
+        alternative_treatments: [treatment]  (self-only fallback)
+
+    Emits a single ``UserWarning`` per card with schema_version < 0.6.5 so the
+    operator is aware that the card should be regenerated via
+    ``generate_target_card.py`` (which emits v0.6.5 by default).
+
+    No-op when ``cofactor_residues`` is absent or empty. No-op on 0.6.5 cards
+    that already declare the fields.
+    """
+    schema_version = card.get("schema_version", "")
+    cofactor_entries = card.get("cofactor_residues") or []
+    if not cofactor_entries:
+        return
+
+    needs_upgrade = False
+    for entry in cofactor_entries:
+        if not isinstance(entry, dict):
+            continue
+        if "required" not in entry:
+            entry["required"] = True
+            needs_upgrade = True
+        if "source" not in entry:
+            entry["source"] = "pdb_literal"
+            needs_upgrade = True
+        if "ff_parameters" not in entry:
+            entry["ff_parameters"] = {}
+            needs_upgrade = True
+        if "alternative_treatments" not in entry:
+            _treatment = entry.get("treatment", "mm_point_charge")
+            entry["alternative_treatments"] = [_treatment]
+            needs_upgrade = True
+
+    if needs_upgrade and schema_version != "0.6.5":
+        import warnings
+        warnings.warn(
+            "target_card '{}' schema_version={}: cofactor_residues upgraded to "
+            "v0.6.5 defaults (required=True, source='pdb_literal', "
+            "ff_parameters={{}}). Regenerate via generate_target_card.py for a "
+            "canonical v0.6.5 card.".format(target_id, schema_version),
+            stacklevel=3,
+        )

@@ -1,6 +1,6 @@
 section,chain,resid,icode,resname,value
-kept_het,A,202,,MG,manual_override
 kept_het,A,201,,GNP,manual_override
+kept_het,A,202,,MG,manual_override
 removed_het,A,301,,HOH,water
 removed_het,A,302,,HOH,water
 removed_het,A,303,,HOH,water
@@ -172,3 +172,4 @@ removed_het,A,468,,HOH,water
 removed_het,A,469,,HOH,water
 removed_het,A,470,,HOH,water
 removed_het,A,471,,HOH,water
+pdbfixer,,,,,applied

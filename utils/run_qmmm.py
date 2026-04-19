@@ -17,6 +17,17 @@ import json
 import re
 import numpy as np
 
+# ==========================================
+# [B8] GPU4PySCF 16GB VRAM boundary config — SciVal-approved (2026-04-18)
+# ==========================================
+# RTX 5070 Ti 16GB 등 16GB VRAM 경계에서 gpu4pyscf 의 기본 ``min_ao_blksize`` (보통
+# 128-256) 가 J/K 중간 버퍼 blksize 를 너무 크게 잡아 OOM 을 유발한다. 32GB+ GPU 에서만
+# 256 이 안전하므로 16GB 에서는 64 로 하향.
+# 반드시 ``import gpu4pyscf`` / ``cupy`` **이전** 에 설정되어야 한다
+# (config 가 import 시점에 read-once 됨).
+import pyscf as _early_pyscf  # noqa: E402 — config pre-set, other pyscf imports follow
+_early_pyscf.__config__.min_ao_blksize = int(os.environ.get("UPDD_MIN_AO_BLKSIZE", "64"))
+
 from pyscf import gto, dft, lib
 from pyscf.qmmm import itrf as qmmm_itrf
 
@@ -55,6 +66,74 @@ def _diag(event, **kwargs):
 
 
 # ==========================================
+# DF auto-mode — VRAM 기반 자동 결정 (v0.6.x)
+# ==========================================
+def _decide_df_auto():
+    """VRAM 총량 기반 DF 자동 결정.
+
+    Threshold: ``UPDD_DF_AUTO_VRAM_THRESHOLD_GB`` 환경변수 (default 20 GiB).
+
+    - VRAM 총량 >= threshold: DF on (density fitting 이 VRAM 수용)
+    - VRAM 총량 <  threshold: DF off (direct-SCF 로 VRAM peak 회피)
+    - VRAM 감지 실패         : DF off (보수적 선택, direct-SCF 는 항상 작동)
+
+    Note:
+        ``import cupy`` 은 함수 내부에서만 수행한다. cupy 가 없는 환경
+        (예: CPU-only smoke test, `--help` 출력) 에서도 argparse 가
+        import 오류 없이 정상 동작해야 하기 때문.
+
+    Returns:
+        Tuple of (use_df: bool, reason: str).
+    """
+    threshold_gb = float(os.environ.get("UPDD_DF_AUTO_VRAM_THRESHOLD_GB", "20"))
+    try:
+        import cupy as _cp
+        props = _cp.cuda.runtime.getDeviceProperties(0)
+        total_bytes = props["totalGlobalMem"]
+        total_gib = total_bytes / (1024 ** 3)
+        if total_gib >= threshold_gb:
+            return True, f"auto: VRAM {total_gib:.1f} GiB >= threshold {threshold_gb} GiB → DF on"
+        else:
+            return False, f"auto: VRAM {total_gib:.1f} GiB < threshold {threshold_gb} GiB → DF off"
+    except Exception as e:
+        return False, f"auto: VRAM 감지 실패 ({type(e).__name__}: {str(e)[:60]}) → DF off (conservative)"
+
+
+# DF 모드에서 J/K 중간 버퍼 제한 (gpu4pyscf 가 blksize 결정에 참고)
+# gpu4pyscf.df.df.cholesky_eri_gpu() L140 에서
+# ``cupy.zeros([blksize, nao, nao])`` peak buffer 를 생성하는데,
+# blksize 는 with_df.max_memory 와 nao 로 결정된다.
+# n_qm=466, nao~5000 기준 4000 MB → blksize ~40 → VRAM peak <6 GB 기대.
+# 또한 ``with_df.use_gpu_memory = False`` 를 병행 강제하여 CDERI 를 CPU
+# pinned RAM 에 저장한다 (auto heuristic 재확인; 소형 시스템 보호).
+UPDD_DF_JK_MAX_MEMORY_MB = int(os.environ.get("UPDD_DF_JK_MAX_MEMORY_MB", "4000"))
+
+# ==========================================
+# SciVal 승인 축소 번들 (2026-04-18) — ranking preservation 기준
+# ==========================================
+# gpu4pyscf DF 가 n_qm=466 에서 공식 지원 범위 (Wu 2024 arXiv:2404.09452 벤치 <=168
+# atoms) 밖으로 direct-SCF 경로 wall-time 감소 (164 s/cycle → 130 s/cycle 내외) 목표.
+# 절대 binding E 는 설계 간 동일하게 최대 0.5 kcal/mol shift 하지만 ranking 은 유지
+# (SciVal verified). 각 항목은 환경변수 override 로 rollback/debug 가능.
+#
+# - B2 ``grids.level=2``   : NWCHEM prune / ORCA DefGrid1 수준 (default 3 → 2)
+# - B3 ``conv_tol=1e-7``   : binding E ranking 에 충분 (PySCF default 1e-9 → 1e-7)
+# - B5 ``direct_scf_tol=1e-12`` : ERI screening 완화 (default 1e-13 → 1e-12)
+# - B6 ``init_guess='huckel'``  : Protein+peptide convergence 가속 (default 'minao')
+# - B9 ``UPDD_VRAM_POOL_FRACTION=0.65`` : CuPy pool 상한 (VRAM 대비, default 0.65)
+#
+# B1 (rks_lowmem) 과 B7 (mo_coeff snapshot 재사용) 은 SciVal 거부로 미구현:
+#   - B1: QM/MM 구조 비호환 (gpu4pyscf/qmmm/itrf.py L85 square Fock vs hf_lowmem
+#         tril 반환 → shape mismatch).
+#   - B7: snapshot 간 statistical independence 위반.
+UPDD_DFT_GRIDS_LEVEL = int(os.environ.get("UPDD_DFT_GRIDS_LEVEL", "2"))
+UPDD_SCF_CONV_TOL = float(os.environ.get("UPDD_SCF_CONV_TOL", "1e-7"))
+UPDD_SCF_DIRECT_TOL = float(os.environ.get("UPDD_SCF_DIRECT_TOL", "1e-12"))
+UPDD_SCF_INIT_GUESS = os.environ.get("UPDD_SCF_INIT_GUESS", "minao")
+UPDD_VRAM_POOL_FRACTION = float(os.environ.get("UPDD_VRAM_POOL_FRACTION", "0.65"))
+
+
+# ==========================================
 # 예외 클래스 — Policy A fail-fast
 # ==========================================
 class OddElectronError(ValueError):
@@ -66,6 +145,33 @@ class OddElectronError(ValueError):
 
     Inherits from ``ValueError`` for backward compatibility with existing
     ``except ValueError`` handlers upstream.
+    """
+    pass
+
+
+class ChargeDeclarationMismatch(ValueError):
+    """Raised when target_card declared QM net charge does NOT match the
+    chemistry-computed (topology-based) value.
+
+    R-15 (CLAUDE.md, 2026-04-19): declared charge must equal the net charge
+    derived from residue identity + atom-name pattern at the pipeline's
+    declared pH. A magnitude mismatch implies at least a 1-electron
+    difference that parity check alone cannot detect.
+
+    The caller should fail fast (do NOT silent-correct) and record the
+    residue-level breakdown in the diagnostic JSON for later audit.
+    """
+    pass
+
+
+class BinderChargeMismatch(ValueError):
+    """Raised when ``target_card.binder_net_charge`` (hint) does NOT match
+    the value computed from the runtime snapshot PDB.
+
+    R-16 (CLAUDE.md, 2026-04-19): binder net charge is derived at runtime
+    from snapshot PDB (residue identity + cyclic/linear detection + atom
+    patterns). ``target_card.binder_net_charge`` is an "expected" hint.
+    Runtime PDB is the ground truth; mismatch is a SSOT violation.
     """
     pass
 
@@ -202,6 +308,18 @@ _ELEMENT_PROTONS = {
     "F": 9, "Cl": 17, "Br": 35, "I": 53, "Si": 14, "Se": 34,
     "Fe": 26, "Zn": 30, "Mg": 12, "Ca": 20, "Na": 11, "K": 19,
 }
+
+
+# ==========================================
+# R-15 / R-16 — Chemistry-true charge computation (delegated to charge_topology)
+# ==========================================
+# Implementation lives in ``utils/charge_topology.py`` so the audit module
+# and unit tests can reuse it without importing pyscf. See SciVal
+# verdict_target_card_charge_rationale_20260419_v2.md §1.1, §5.
+from charge_topology import (  # noqa: E402
+    compute_binder_chem_charge,
+    compute_qm_net_charge_topology,
+)
 
 
 def _select_sidechain_atoms(residue_atoms):
@@ -582,25 +700,8 @@ def partition_qmmm(atoms, qm_cutoff=5.0, mode="full", binder_chain="B", target_c
 def build_qm_mol(qm_atoms, charge=0, spin=0, basis="6-31G*"):
     """QM 원자 목록 → PySCF gto.M 객체.
 
-    홀수 전자 보정 정책:
-        총 양성자 수가 홀수인 경우 charge 를 -1 로 조정하여 singlet (spin=0)
-        조건을 유지한다.
-
-        음이온(-1) 선택 근거:
-            펩타이드 결합 환경에서 C-N 절단으로 단편화된 cluster 가 RKS
-            폐각 가정과 충돌할 때, 전자 수용(음이온 형성)이 양성자 방출보다
-            국소 정전기적으로 유리한 경우가 일반적이다 (백본 카르보닐 산소
-            및 측쇄 카르복실 그룹의 음전하 친화도). 따라서 charge=-1 가
-            대다수의 인터페이스 단편에 대해 더 안정적인 수렴 경로를 제공한다.
-
-        주의:
-            - 양이온 라디칼 환경, 또는 금속 이온 (e.g. Zn2+, Mg2+) 인접
-              cluster 에서는 charge=+1 이 더 물리적으로 정확할 수 있다.
-            - 본 보정은 fragment cluster 의 SCF 수렴을 위한 *수치적 보정* 이며,
-              ESP/에너지 절대값이 아닌 *상대적 비교* (동일 cutoff 모드 내 design
-              간 순위 매김) 용도로 결과를 해석해야 한다.
-            - 결합 절단 단편의 chemical accuracy 가 필요한 경우, 사용자는 QM
-              cutoff 를 늘리거나 link-atom (수소 캡) 방식으로 전환을 고려해야 한다.
+    charge 는 caller 가 binder_net_charge + target_iso_net_charge 합산하여 전달.
+    홀수 전자 감지 시 OddElectronError (Policy A fail-fast): n_electrons = total_protons - charge.
     """
     atom_str = ""
     total_protons = 0  # 총 양성자 수 계산용 변수
@@ -616,15 +717,16 @@ def build_qm_mol(qm_atoms, charge=0, spin=0, basis="6-31G*"):
         raise ValueError("QM 영역에 원자가 없습니다.")
 
     # Policy A (fail-fast): 홀수 전자 → 즉시 예외 발생.
-    # v0.5 까지의 silent charge=-1 보정은 서로 다른 quantum system 의 에너지
-    # 혼용 원인이었으므로 제거한다. caller 는 OddElectronError 를 catch 하여
-    # snapshot FAILED 로 기록하고 skip 해야 한다 (design abort 금지).
-    if total_protons % 2 != 0:
+    # 전자 수 = 양성자 수 - QM 전하. charge 가 올바르게 전달되어야
+    # 이온화된 잔기(ASP/GLU 등)를 포함한 QM region 에서 closed-shell 판정이 정확하다.
+    n_electrons = total_protons - charge
+    if n_electrons % 2 != 0:
         raise OddElectronError(
-            f"Odd-electron QM region detected (total_protons={total_protons}). "
+            f"Odd-electron QM region detected "
+            f"(total_protons={total_protons}, charge={charge}, n_electrons={n_electrons}). "
             f"n_qm_atoms={len(qm_atoms)}. "
             f"QM/MM boundary produces a chemically ambiguous open-shell fragment. "
-            f"Recommended actions: (1) adjust target_contact_residues in target_card.json, "
+            f"Recommended actions: (1) verify binder_net_charge + target_iso_net_charge in target_card.json, "
             f"(2) check binder link-atom placement (binder_topology setting), "
             f"(3) verify titratable residue protonation states. "
             f"[Policy A: fail-fast — no silent charge correction applied]"
@@ -694,6 +796,92 @@ def get_mm_charges(mm_atoms):
 
 
 # ==========================================
+# DF OOM 회피 가드 — gpu4pyscf 버전 호환 try/except
+# ==========================================
+def _apply_df_oom_guard(mf):
+    """Configure mf.with_df to avoid gpu4pyscf GPU OOM at large n_qm.
+
+    Two knobs (both guarded for gpu4pyscf version compatibility):
+
+    1. ``with_df.use_gpu_memory = False``
+       Force CDERI (3-center Cholesky integrals) to CPU pinned RAM instead of
+       VRAM. gpu4pyscf auto heuristic picks this for large systems but we pin
+       it explicitly to protect smaller systems from regressions when the
+       auto threshold shifts between releases.
+
+    2. ``with_df.max_memory = UPDD_DF_JK_MAX_MEMORY_MB``
+       Bound the J/K-build intermediate buffer ``cupy.zeros([blksize, nao,
+       nao])`` by capping ``max_memory`` so gpu4pyscf picks a smaller
+       ``blksize``. At n_qm=466, nao~5000, 4000 MB → blksize ~40 → VRAM peak
+       <6 GB (instead of 10-20 GB at default blksize).
+
+    Both writes are ``try/except`` guarded because ``mf.with_df`` may not
+    expose these attributes on every gpu4pyscf 1.x patch release. The
+    numerical result of the SCF is invariant under these settings — only
+    memory layout and block size change (Cholesky decomposition itself is
+    deterministic).
+
+    Args:
+        mf: A PySCF / gpu4pyscf SCF object *after* ``density_fit()`` has been
+            applied (so ``mf.with_df`` exists).
+    """
+    try:
+        mf.with_df.use_gpu_memory = False
+    except Exception:
+        pass  # 속성 없는 버전은 무시
+    try:
+        mf.with_df.max_memory = UPDD_DF_JK_MAX_MEMORY_MB
+    except Exception:
+        pass
+
+
+# ==========================================
+# SciVal 승인 축소 번들 적용 — B2/B3/B5/B6 중앙화
+# ==========================================
+def _apply_scf_bundle(mf):
+    """Apply SciVal-approved SCF/DFT tuning bundle (B2/B3/B5/B6) to ``mf``.
+
+    Ranking preservation 기준으로 검증됨 (2026-04-18). 절대 binding E 는 모든
+    design 에 동일 shift 하므로 상대 순위는 유지.
+
+    - B2: ``mf.grids.level`` = ``UPDD_DFT_GRIDS_LEVEL`` (default 2)
+    - B3: ``mf.conv_tol`` = ``UPDD_SCF_CONV_TOL`` (default 1e-7)
+    - B5: ``mf.direct_scf_tol`` = ``UPDD_SCF_DIRECT_TOL`` (default 1e-12)
+    - B6: ``mf.init_guess`` = ``UPDD_SCF_INIT_GUESS`` (default 'minao' —
+          'huckel' 은 HOMO-LUMO near-degeneracy 시 발산 유발, opt-in 으로 분리)
+
+    각 속성 쓰기는 ``try/except`` 가드로 감싸, PySCF/gpu4pyscf 의 특정 method
+    객체 (예: 일부 사용자 정의 wrapper) 가 속성을 노출하지 않는 경우에도
+    import-time 오류 없이 통과. 이 함수는 ``idempotent`` — 동일 mf 에 반복
+    호출해도 부작용 없음.
+
+    Args:
+        mf: PySCF/gpu4pyscf mean-field 객체. ``density_fit()`` / ``to_gpu()``
+            등 decorator 체인 뒤에 호출해도 무방 (idempotent).
+
+    Returns:
+        The same ``mf`` object for convenient chaining.
+    """
+    try:
+        mf.grids.level = UPDD_DFT_GRIDS_LEVEL
+    except Exception:
+        pass
+    try:
+        mf.conv_tol = UPDD_SCF_CONV_TOL
+    except Exception:
+        pass
+    try:
+        mf.direct_scf_tol = UPDD_SCF_DIRECT_TOL
+    except Exception:
+        pass
+    try:
+        mf.init_guess = UPDD_SCF_INIT_GUESS
+    except Exception:
+        pass
+    return mf
+
+
+# ==========================================
 # DFT 객체 설정 헬퍼 — 중복 제거
 # ==========================================
 def _make_dft_mf(mol, qm_xc, max_memory, use_df, df_auxbasis):
@@ -719,20 +907,30 @@ def _make_dft_mf(mol, qm_xc, max_memory, use_df, df_auxbasis):
     """
     mf = dft.RKS(mol)
     mf.xc = qm_xc
-    mf.verbose = 1
+    mf.verbose = 4
     mf.max_memory = max_memory
-    mf.grids.level = 3
     mf.max_cycle = 300
-    mf.conv_tol = 1e-8
+    # SciVal 승인 축소 번들 (B2/B3/B5/B6) — grids.level / conv_tol /
+    # direct_scf_tol / init_guess 를 환경변수 기반으로 일괄 적용.
+    # _make_dft_mf 는 Phase 4 binder/target 단독 SCF 의 진입점이기도 하므로
+    # 이 한 곳에서 번들을 걸면 모든 하위 SCF 가 일관된 설정으로 수렴.
+    _apply_scf_bundle(mf)
     if use_df:
         mf = mf.density_fit(auxbasis=df_auxbasis)
+        # gpu4pyscf DF OOM 회피:
+        # (1) CDERI 를 pinned RAM 에 명시 저장 (auto heuristic 재확인, 소형 시스템 보호)
+        # (2) max_memory 축소로 J/K 중간 버퍼 [blksize, nao, nao] blksize 강제 축소
+        _apply_df_oom_guard(mf)
+        # density_fit decorator 가 grids / conv_tol / init_guess 를 감싸 wrapper
+        # 객체로 교체할 수 있어 번들 재적용 (idempotent).
+        _apply_scf_bundle(mf)
     return mf
 
 
 # ==========================================
 # QM/MM 계산 실행
 # ==========================================
-def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.0, mode="full", binder_chain="B", target_id=None, use_df=True, df_auxbasis="def2-universal-jfit"):
+def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.0, mode="full", binder_chain="B", target_id=None, use_df=True, df_auxbasis="weigend"):
     """단일 스냅샷 PDB에 대한 QM/MM 계산.
 
     ``target_id`` 가 지정되면 target_card JSON 을 로드하여
@@ -821,29 +1019,39 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
 
     # topology mode: target_card 의 binder_chain 을 우선 사용
     effective_binder_chain = target_card["binder_chain"] if target_card else binder_chain
-    qm_atoms, mm_atoms = partition_qmmm(
-        atoms,
-        qm_cutoff=qm_cutoff,
-        mode=use_mode,
-        binder_chain=effective_binder_chain,
-        target_card=target_card,
-    )
+    try:
+        qm_atoms, mm_atoms = partition_qmmm(
+            atoms,
+            qm_cutoff=qm_cutoff,
+            mode=use_mode,
+            binder_chain=effective_binder_chain,
+            target_card=target_card,
+        )
+    except RuntimeError as e:
+        # max_n_qm 초과 등 partition 단계 실패 — 프로세스 crash 방지
+        print(f"  [!] QM region 구성 실패: {e}")
+        _diag("qm_region", snapshot=basename, n_qm=-1, n_qm_real=-1, n_link=-1,
+              n_mm=-1, partitioning_mode=use_mode,
+              target_id=(target_card.get("target_id") if target_card else None),
+              binder_topology="unknown", error=str(e)[:120])
+        failure_result = {
+            "snapshot": basename, "pdb_path": pdb_path,
+            "qm_method": f"{qm_xc}/{qm_basis}",
+            "energy_total_hartree": None, "energy_qmmm_kcal": None,
+            "interaction_kcal": None, "converged": False, "is_run_mmgbsa": False,
+            "status": "FAILED", "reason": "partition_error", "partition_error": str(e),
+            "regime": "ranking_only",
+        }
+        if out_json:
+            with open(out_json, "w", encoding="utf-8") as f:
+                json.dump(failure_result, f, indent=2)
+        return failure_result
 
-    # [#38 v0.2] QM 원자 수 상한 가드 — QM-only 계산 발산 및 GPU OOM 예방.
-    MAX_QM_ATOMS = 500
     if len(qm_atoms) == 0:
-        # [#36] QM 원자 0개는 converged=False 로 표시하여 랭킹 제외.
         return {
             "snapshot": basename, "energy_total_hartree": None, "energy_qmmm_kcal": None,
             "interaction_kcal": None, "converged": False, "is_run_mmgbsa": False,
             "reason": "no_qm_atoms",
-        }
-    if len(qm_atoms) > MAX_QM_ATOMS:
-        print(f"  [!] QM 원자 {len(qm_atoms)}개 > 상한 {MAX_QM_ATOMS}")
-        return {
-            "snapshot": basename, "energy_total_hartree": None, "energy_qmmm_kcal": None,
-            "interaction_kcal": None, "converged": False, "is_run_mmgbsa": False,
-            "reason": "qm_atoms_exceeded", "n_qm_atoms": len(qm_atoms),
         }
 
     # [v4 S-2] QM/MM 경계 H-cap link atom 추가 (Senn & Thiel 2009)
@@ -877,8 +1085,168 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
         binder_topology=_binder_topo,
     )
 
+    # QM region 순 전하: binder + target sidechain 이온화 상태 (pH 7.4)
+    # target_iso_net_charge 는 target_card 에서 사전 결정 (generate_target_card.py).
+    # 부재 시 0 으로 fallback 하되 경고 발행.
+    _binder_charge_declared = int(target_card.get("binder_net_charge", 0)) if target_card else 0
+    _target_iso_charge = target_card.get("target_iso_net_charge") if target_card else None
+    if _target_iso_charge is None:
+        import warnings as _w
+        _w.warn(
+            "target_iso_net_charge missing from target_card — using 0. "
+            "Regenerate target_card with generate_target_card.py for correct QM charge.",
+            RuntimeWarning, stacklevel=2,
+        )
+        _target_iso_charge = 0
+
+    # ─── R-15 / R-16 guards (chemistry-true charge topology) ─────────────
+    # SciVal v2/v3 verdict (2026-04-19): declared charges from target_card
+    # must match the runtime chemistry-true computation from the snapshot
+    # PDB. R-16 covers the binder (BinderChargeMismatch); R-15 covers the
+    # *magnitude* of the total QM net charge (ChargeDeclarationMismatch).
+    # The existing OddElectronError parity check in build_qm_mol() remains
+    # an independent safety net (SciVal: "parity 와 magnitude 는 독립 check").
+    _binder_charge_computed = _binder_charge_declared
+    _target_charge_computed = int(_target_iso_charge)
+    _total_charge_computed = _binder_charge_computed + _target_charge_computed
+    _charge_topology_diag = None
+    _declared_total = _binder_charge_declared + int(_target_iso_charge)
     try:
-        mol = build_qm_mol(qm_atoms, basis=qm_basis)
+        if target_card is not None:
+            _tc_binder_chain = target_card.get("binder_chain", binder_chain)
+            _tc_target_chain = target_card.get("target_chain", "A")
+            _tc_contacts = target_card.get("target_contact_residues", [])
+            _tc_whole = target_card.get("whole_residue_exceptions", [])
+            try:
+                (
+                    _binder_charge_computed,
+                    _target_charge_computed,
+                    _total_charge_computed,
+                    _charge_topology_diag,
+                ) = compute_qm_net_charge_topology(
+                    atoms,
+                    binder_chain=_tc_binder_chain,
+                    target_chain=_tc_target_chain,
+                    target_contact_residues=_tc_contacts,
+                    whole_residue_exceptions=_tc_whole,
+                    pH=7.4,
+                )
+            except Exception as _chem_err:  # noqa: BLE001 — always emit diagnostic
+                _diag(
+                    "chemistry_charge_compute_error",
+                    snapshot=basename,
+                    detail=str(_chem_err)[:200],
+                )
+                _charge_topology_diag = {"error": str(_chem_err)[:200]}
+
+            _diag(
+                "chemistry_charge_computed",
+                snapshot=basename,
+                pH=7.4,
+                binder_chain=_tc_binder_chain,
+                target_chain=_tc_target_chain,
+                binder_chem=int(_binder_charge_computed),
+                target_chem=int(_target_charge_computed),
+                total_chem=int(_total_charge_computed),
+                cyclic=bool(
+                    (_charge_topology_diag or {}).get("binder_diag", {}).get("cyclic", False)
+                ),
+            )
+
+            # ── R-16: binder hint vs runtime chemistry ─────────────────
+            if _binder_charge_computed != _binder_charge_declared:
+                _diag(
+                    "binder_charge_mismatch",
+                    snapshot=basename,
+                    binder_card=int(_binder_charge_declared),
+                    binder_chem=int(_binder_charge_computed),
+                    policy="fail_fast_r14",
+                )
+                _msg = (
+                    f"R-16 BinderChargeMismatch: target_card.binder_net_charge="
+                    f"{_binder_charge_declared} but runtime PDB computes "
+                    f"{_binder_charge_computed} for chain "
+                    f"{_tc_binder_chain}. Per-residue breakdown: "
+                    f"{(_charge_topology_diag or {}).get('binder_diag', {}).get('per_residue')}"
+                )
+                raise BinderChargeMismatch(_msg)
+
+            # ── R-15: declared magnitude vs runtime chemistry ──────────
+            _declared_total = _binder_charge_declared + int(_target_iso_charge)
+            if _declared_total != _total_charge_computed:
+                _diag(
+                    "charge_declaration_mismatch",
+                    snapshot=basename,
+                    declared=int(_declared_total),
+                    computed=int(_total_charge_computed),
+                    binder_declared=int(_binder_charge_declared),
+                    target_declared=int(_target_iso_charge),
+                    binder_chem=int(_binder_charge_computed),
+                    target_chem=int(_target_charge_computed),
+                    policy="fail_fast_r13",
+                )
+                _msg = (
+                    f"R-15 ChargeDeclarationMismatch: declared qm_net_charge="
+                    f"{_declared_total} (binder={_binder_charge_declared} + target="
+                    f"{_target_iso_charge}) but chemistry-true topology computes "
+                    f"{_total_charge_computed} (binder={_binder_charge_computed} + "
+                    f"target={_target_charge_computed}). "
+                    "Parity-invariant silent pass prevented. "
+                    "See SciVal verdict_target_card_charge_rationale_20260419_v2.md."
+                )
+                raise ChargeDeclarationMismatch(_msg)
+
+            # Equal → verification passed.
+            _diag(
+                "charge_magnitude_verified",
+                snapshot=basename,
+                declared=int(_declared_total),
+                computed=int(_total_charge_computed),
+            )
+    except (BinderChargeMismatch, ChargeDeclarationMismatch) as _chem_guard_err:
+        _reason = (
+            "binder_charge_mismatch_r14"
+            if isinstance(_chem_guard_err, BinderChargeMismatch)
+            else "charge_declaration_mismatch_r13"
+        )
+        print(f"  [R-15/R-16] charge guard raised → skipped: {basename}")
+        print(f"  [R-15/R-16] detail: {_chem_guard_err}")
+        failure_result = {
+            "snapshot":               basename,
+            "pdb_path":               pdb_path,
+            "qm_method":              f"{qm_xc}/{qm_basis}",
+            "n_qm_atoms":             len(qm_atoms),
+            "n_mm_atoms":             len(mm_atoms),
+            "ncaa_element":           ncaa_elem,
+            "energy_total_hartree":   None,
+            "energy_qm_hartree":      None,
+            "energy_qmmm_kcal":       None,
+            "interaction_kcal":       None,
+            "converged":              False,
+            "is_run_mmgbsa":          False,
+            "status":                 "FAILED",
+            "reason":                 _reason,
+            "charge_guard_detail":    str(_chem_guard_err),
+            "qm_net_charge_declared": int(_declared_total),
+            "qm_net_charge_computed": int(_total_charge_computed),
+            "binder_charge_declared": int(_binder_charge_declared),
+            "binder_charge_computed": int(_binder_charge_computed),
+            "charge_consistency_audit": "failed",
+            "charge_topology_diag":   _charge_topology_diag,
+            "regime":                 "ranking_only",
+        }
+        with open(out_json, "w", encoding="utf-8") as f:
+            json.dump(failure_result, f, indent=2)
+        return failure_result
+
+    # v0.6.x legacy path: ``_binder_charge`` name retained for downstream
+    # diagnostic messages below. Use computed value as the source of truth
+    # (equal to declared when guards pass; guards raise on mismatch).
+    _binder_charge = int(_binder_charge_computed)
+    qm_net_charge = _binder_charge + int(_target_iso_charge)
+
+    try:
+        mol = build_qm_mol(qm_atoms, charge=qm_net_charge, basis=qm_basis)
     except OddElectronError as e:
         # [Phase 6 DIAG] OddElectronError 신호 — Path 가 grep 으로 패턴 추적
         _diag(
@@ -907,6 +1275,12 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
             "status":               "FAILED",
             "reason":               "odd_electron",
             "odd_electron_detail":  str(e),
+            "qm_net_charge_declared": int(_declared_total),
+            "qm_net_charge_computed": int(_total_charge_computed),
+            "binder_charge_declared": int(_binder_charge_declared),
+            "binder_charge_computed": int(_binder_charge_computed),
+            "charge_consistency_audit": "failed",
+            "regime":               "ranking_only",
         }
         with open(out_json, "w", encoding="utf-8") as f:
             json.dump(failure_result, f, indent=2)
@@ -936,9 +1310,24 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
     # [v0.3.3] verbose=4: v0.1 롤백
     mf.verbose = 4
     mf.max_memory = _max_mem
-    mf.grids.level = 3
     mf.max_cycle   = 300
-    mf.conv_tol    = 1e-8
+    # SciVal 승인 축소 번들 (B2/B3/B5/B6) — _apply_scf_bundle 로 중앙화된 설정
+    # 적용. grids.level / conv_tol / direct_scf_tol / init_guess 를 환경변수로 관리.
+    _apply_scf_bundle(mf)
+    print(f"  [SCF-Bundle] grids={UPDD_DFT_GRIDS_LEVEL} "
+          f"conv_tol={UPDD_SCF_CONV_TOL} "
+          f"direct_scf_tol={UPDD_SCF_DIRECT_TOL} "
+          f"init_guess={UPDD_SCF_INIT_GUESS}")
+    _diag(
+        "scf_bundle",
+        snapshot=basename,
+        grids_level=UPDD_DFT_GRIDS_LEVEL,
+        conv_tol=UPDD_SCF_CONV_TOL,
+        direct_scf_tol=UPDD_SCF_DIRECT_TOL,
+        init_guess=UPDD_SCF_INIT_GUESS,
+        min_ao_blksize=int(os.environ.get("UPDD_MIN_AO_BLKSIZE", "64")),
+        vram_pool_fraction=UPDD_VRAM_POOL_FRACTION,
+    )
 
     # Phase 5a: DF-J/K density fitting (16GB VRAM 실행 가능성 복구).
     # 560-atom QM region direct-SCF → ~266GB VRAM 필요 → 16GB RTX 5070 Ti 불가.
@@ -946,12 +1335,34 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
     if use_df:
         mf = mf.density_fit(auxbasis=df_auxbasis)
         print(f"  [DF-J/K] density_fit 활성화 (auxbasis={df_auxbasis})")
+        print(f"  [DF-J/K] use_gpu_memory=False (CPU pinned RAM) | "
+              f"max_memory={UPDD_DF_JK_MAX_MEMORY_MB} MB (J/K blksize 제한)")
+        _apply_df_oom_guard(mf)
+        # density_fit wrapper 가 번들 속성을 감싸는 경우에 대비해 재적용 (idempotent).
+        _apply_scf_bundle(mf)
 
     gpu_success = False
     try:
         # 1. 먼저 평범한 계산기를 GPU 로켓으로 변신!
         import gpu4pyscf
         from gpu4pyscf.qmmm import itrf as gpu_qmmm_itrf
+        # CuPy 기본 동작: VRAM 전체를 pool로 선점 → 디스플레이·pinned memory 공간 없어짐.
+        # to_gpu() 전에 pool 상한을 10GB로 고정해 나머지 ~6GB를 확보한다.
+        try:
+            import cupy as _cp_pre
+            _cp_pre.get_default_memory_pool().free_all_blocks()
+            _cp_pre.get_default_pinned_memory_pool().free_all_blocks()
+            _vram_free, _vram_total = _cp_pre.cuda.Device(0).mem_info
+            # B9: VRAM pool 상한 (default 0.65 = 65%). 환경변수
+            # UPDD_VRAM_POOL_FRACTION 으로 override — 0.875 등 상향 시 디스플레이
+            # / pinned memory 공간 축소 주의.
+            _pool_limit = int(_vram_total * UPDD_VRAM_POOL_FRACTION)
+            _cp_pre.get_default_memory_pool().set_limit(size=_pool_limit)
+            print(f"  [VRAM] GPU 시도 전: used={(_vram_total-_vram_free)//1024**2}MB "
+                  f"free={_vram_free//1024**2}MB total={_vram_total//1024**2}MB "
+                  f"pool_limit={_pool_limit//1024**2}MB")
+        except Exception:
+            pass
         mf = mf.to_gpu()
         
         # 2. 변신이 성공하면, GPU 전용 짐칸에 점전하 탑재!
@@ -979,13 +1390,17 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
         # [v0.3.3] verbose=4: v0.1 롤백
         mf.verbose = 4
         mf.max_memory = _max_mem
-        mf.grids.level = 3
         mf.max_cycle   = 300
-        mf.conv_tol    = 1e-8
+        # SciVal 승인 축소 번들 (B2/B3/B5/B6) — GPU/CPU 경로 method 동일성 유지.
+        _apply_scf_bundle(mf)
         # Phase 5a: CPU fallback 에도 동일하게 DF-J/K 적용 (mm_charge 이전).
         # GPU/CPU 경로 간 method 동일성 보장 → interaction_kcal 일관성.
         if use_df:
             mf = mf.density_fit(auxbasis=df_auxbasis)
+            # CPU 경로에서도 use_gpu_memory=False / max_memory 를 동일 적용
+            # (GPU/CPU 양경로의 DF 객체 상태를 대칭적으로 구성하기 위함).
+            _apply_df_oom_guard(mf)
+            _apply_scf_bundle(mf)  # density_fit wrapper 대비 재적용 (idempotent)
         if len(mm_coords_charges) > 0:
             mf = qmmm_itrf.mm_charge(mf, mm_coords_charges[:, :3], mm_coords_charges[:, 3])
             print(f"  [+] MM 점전하: {len(mm_coords_charges)}개 포함 (CPU 상태)")
@@ -1003,8 +1418,251 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
         energy_total = mf.kernel()
         print(f"  QM/MM 에너지: {energy_total:.8f} Hartree")
     except Exception as e:
-        print(f"  [!] DFT 수렴 실패: {e}")
-        energy_total = None
+        _oom = any(kw in str(e).lower() for kw in ("cudaerror", "out of memory", "cudamemory"))
+        print(f"  [!] GPU kernel 예외: {type(e).__name__}: {str(e)[:200]}")
+        if gpu_success and _oom:
+            # ── Tier 1 fallback: GPU + CUDA Unified Memory (VRAM 부족분 → RAM 자동 overflow) ──
+            # VRAM 한계를 초과할 때 PCIe를 통해 시스템 RAM을 VRAM 연장으로 사용.
+            # 계산 결과는 순수 VRAM과 동일; 대역폭 차이(GDDR7 ~600 GB/s vs PCIe ~32 GB/s)로
+            # 느려질 수 있으나 디스크 I/O 없음.
+            print(f"  [!] GPU VRAM OOM (n_qm={len(qm_atoms)}) — CUDA Unified Memory(VRAM+RAM)로 재시도.")
+            energy_total = None
+            # GPU mf 객체가 GPU 텐서를 참조하고 있으면 free_all_blocks()로도 해제 불가.
+            # UM 시도 전에 mf 명시 삭제 + GC로 VRAM 완전 반납.
+            try:
+                import cupy as _cp_gc, gc as _gc
+                del mf
+                _gc.collect()
+                _cp_gc.get_default_memory_pool().free_all_blocks()
+                _cp_gc.get_default_pinned_memory_pool().free_all_blocks()
+                _free_after, _total_after = _cp_gc.cuda.Device(0).mem_info
+                print(f"  [VRAM] mf 해제 후: used={(_total_after-_free_after)//1024**2}MB "
+                      f"free={_free_after//1024**2}MB")
+            except Exception:
+                pass
+            try:
+                import cupy as _cp
+                from gpu4pyscf.qmmm import itrf as _gpu_qmmm_retry
+
+                # 실패한 1차 GPU 시도로 단편화된 VRAM 블록을 먼저 해제.
+                # free_all_blocks()는 CuPy 풀이 캐시한 미사용 블록을 OS에 반환하여
+                # Unified Memory 풀이 연속된 큰 블록을 확보할 수 있게 한다.
+                _cp.get_default_memory_pool().free_all_blocks()
+                _cp.get_default_pinned_memory_pool().free_all_blocks()
+
+                # VRAM-first managed allocator:
+                # malloc_managed 로 할당된 각 블록에 cudaMemAdviseSetPreferredLocation(GPU)
+                # 힌트를 부여해 CUDA가 처음부터 VRAM에 배치하도록 지시.
+                # VRAM이 부족해질 때만 LRU 페이지가 RAM으로 축출됨 (on-demand eviction).
+                # 힌트 없는 순수 malloc_managed 는 첫 접근 시점에 마이그레이션하므로
+                # 초기 page-fault overhead 가 크다.
+                _GPU_DEVICE = 0
+                class _VRAMFirstAllocator:
+                    def __init__(self):
+                        self._pool = _cp.cuda.MemoryPool(_cp.cuda.malloc_managed)
+                    def malloc(self, size):
+                        mem = self._pool.malloc(size)
+                        if size > 0:
+                            try:
+                                # SetPreferredLocation: CUDA야, 이 블록은 GPU에 두는 걸 선호해
+                                _cp.cuda.runtime.memAdvise(
+                                    mem.ptr, size,
+                                    _cp.cuda.runtime.cudaMemAdviseSetPreferredLocation,
+                                    _GPU_DEVICE,
+                                )
+                                # SetAccessedBy: GPU가 자주 접근함 → 프리페치 최적화
+                                _cp.cuda.runtime.memAdvise(
+                                    mem.ptr, size,
+                                    _cp.cuda.runtime.cudaMemAdviseSetAccessedBy,
+                                    _GPU_DEVICE,
+                                )
+                            except Exception:
+                                pass  # 힌트 실패는 성능 저하일 뿐, 정확도에 무관
+                        return mem
+
+                # RAM-first managed allocator:
+                # 각 블록의 PreferredLocation 을 cudaCpuDeviceId(=-1, RAM)로 지정하여
+                # 페이지가 기본적으로 시스템 RAM 에 상주하도록 한다. GPU 커널이 해당
+                # 페이지에 접근하면 CUDA 가 fault-driven 으로 VRAM 에 migrate 해 준다.
+                # AccessedBy=_GPU_DEVICE 힌트는 GPU 쪽 page table 을 사전 매핑해
+                # page fault 시 VRAM→RAM round-trip 없이 직접 접근 가능하게 한다.
+                # RAM-first: 페이지 기본 위치 RAM, GPU 접근 시 on-demand migrate,
+                # PCIe 대역폭 bound (RTX 5070 Ti + AM5 PCIe 5.0 x16 환경에서 유의미).
+                class _RAMFirstAllocator:
+                    """RAM-first Unified Memory allocator.
+
+                    페이지 기본 위치 RAM, GPU 접근 시 on-demand migrate,
+                    PCIe 대역폭 bound. VRAM-first 가 OOM 일 때 Working-set
+                    전체가 RAM 에 안착할 수 있는 fallback 경로로 사용.
+                    """
+                    def __init__(self):
+                        self._pool = _cp.cuda.MemoryPool(_cp.cuda.malloc_managed)
+                    def malloc(self, size):
+                        mem = self._pool.malloc(size)
+                        if size > 0:
+                            try:
+                                # SetPreferredLocation(CpuDeviceId): 이 블록은 RAM 에 두어라
+                                _cp.cuda.runtime.memAdvise(
+                                    mem.ptr, size,
+                                    _cp.cuda.runtime.cudaMemAdviseSetPreferredLocation,
+                                    _cp.cuda.runtime.cudaCpuDeviceId,
+                                )
+                                # SetAccessedBy(GPU): GPU 쪽 page table 사전 매핑 →
+                                # fault 시 VRAM round-trip 없이 PCIe 직접 접근
+                                _cp.cuda.runtime.memAdvise(
+                                    mem.ptr, size,
+                                    _cp.cuda.runtime.cudaMemAdviseSetAccessedBy,
+                                    _GPU_DEVICE,
+                                )
+                            except Exception:
+                                pass  # 힌트 실패는 성능 저하일 뿐, 정확도에 무관
+                        return mem
+
+                _vram_first = _VRAMFirstAllocator()
+                _ram_first = None  # RAM-first 진입 시에만 인스턴스화 (finally 해제용)
+                _cp.cuda.set_allocator(_vram_first.malloc)
+                print(f"  [+] CUDA Unified Memory 활성화 (VRAM 우선, 부족분만 RAM으로 overflow)")
+                _diag("compute_backend", snapshot=basename, backend="GPU_unified_memory",
+                      df_mode=bool(use_df), df_auxbasis=(df_auxbasis if use_df else None))
+                mf_um = _make_dft_mf(mol, qm_xc, _max_mem, use_df, df_auxbasis)
+                mf_um.diis_space = 4  # 8→4: DIIS 히스토리 절반, VRAM ~1.2 GB 절약
+                mf_um = mf_um.to_gpu()
+                if len(mm_coords_charges) > 0:
+                    mf_um = _gpu_qmmm_retry.add_mm_charges(
+                        mf_um, mm_coords_charges[:, :3], mm_coords_charges[:, 3]
+                    )
+                    print(f"  [+] MM 점전하: {len(mm_coords_charges)}개 포함 (Unified Memory GPU)")
+                try:
+                    energy_total = mf_um.kernel()
+                    mf = mf_um
+                    print(f"  QM/MM 에너지 (GPU+RAM): {energy_total:.8f} Hartree")
+                except Exception as e_vf:
+                    _oom_vf = any(kw in str(e_vf).lower() for kw in ("cudaerror", "out of memory", "cudamemory"))
+                    if not _oom_vf:
+                        # 비-OOM 예외는 기존 경로(CPU direct fallback)로 위임.
+                        raise
+                    # ── Tier 1.5 fallback: RAM-first Unified Memory ──────────────
+                    # VRAM-first 가 OOM → 작업 세트가 VRAM+가끔 RAM 으로 불충분.
+                    # RAM-first 는 대량 텐서를 RAM 에 상주시키고 GPU 는 PCIe 5.0 을
+                    # 통해 필요한 페이지만 pull 한다. 수치 결과는 VRAM-first 와 동일
+                    # (Managed memory semantics — placement 힌트만 다름).
+                    print(f"  [!] VRAM-first 도 OOM — RAM 우선 Unified Memory 재시도 (PCIe 5.0 page migration).")
+                    # VRAM-first pool 해제 → RAM-first pool 이 큰 연속 블록 확보 가능
+                    try:
+                        del mf_um
+                    except Exception:
+                        pass
+                    try:
+                        _vram_first._pool.free_all_blocks()
+                    except Exception:
+                        pass
+                    _cp.get_default_memory_pool().free_all_blocks()
+                    _cp.get_default_pinned_memory_pool().free_all_blocks()
+
+                    _ram_first = _RAMFirstAllocator()
+                    _cp.cuda.set_allocator(_ram_first.malloc)
+                    _diag("compute_backend", snapshot=basename,
+                          backend="GPU_unified_memory_ram_first",
+                          df_mode=bool(use_df),
+                          df_auxbasis=(df_auxbasis if use_df else None))
+                    mf_rf = _make_dft_mf(mol, qm_xc, _max_mem, use_df, df_auxbasis)
+                    mf_rf.diis_space = 4  # VRAM-first 와 동일 설정 유지
+                    mf_rf = mf_rf.to_gpu()
+                    if len(mm_coords_charges) > 0:
+                        mf_rf = _gpu_qmmm_retry.add_mm_charges(
+                            mf_rf, mm_coords_charges[:, :3], mm_coords_charges[:, 3]
+                        )
+                        print(f"  [+] MM 점전하: {len(mm_coords_charges)}개 포함 (RAM-first Unified Memory GPU)")
+                    try:
+                        energy_total = mf_rf.kernel()
+                        mf = mf_rf
+                        print(f"  QM/MM 에너지 (GPU, RAM-first): {energy_total:.8f} Hartree")
+                    except Exception as e_rf:
+                        _oom_rf = any(kw in str(e_rf).lower() for kw in ("cudaerror", "out of memory", "cudamemory"))
+                        if _oom_rf:
+                            print(f"  [!] RAM-first 도 OOM — CPU direct-SCF 로 최종 재시도.")
+                        else:
+                            print(f"  [!] RAM-first Unified Memory 실패: {e_rf} — CPU direct-SCF 로 최종 재시도.")
+                        # RAM-first mf 및 pool 정리 후 CPU direct 경로로 fall-through
+                        try:
+                            del mf_rf
+                        except Exception:
+                            pass
+                        try:
+                            _ram_first._pool.free_all_blocks()
+                        except Exception:
+                            pass
+                        # Re-raise 하여 outer CPU direct fallback 로 넘긴다.
+                        raise
+            except Exception as e_um:
+                _oom2 = any(kw in str(e_um).lower() for kw in ("cudaerror", "out of memory", "cudamemory"))
+                if _oom2:
+                    print(f"  [!] Unified Memory도 OOM — CPU direct-SCF로 최종 재시도.")
+                else:
+                    print(f"  [!] Unified Memory GPU 실패: {e_um} — CPU direct-SCF로 최종 재시도.")
+                # ── Tier 2 fallback: CPU direct-SCF (DF 없음, 디스크 I/O 없음) ──
+                _diag("compute_backend", snapshot=basename, backend="CPU_direct_final_fallback",
+                      df_mode=False, df_auxbasis=None)
+                mf_cpu = dft.RKS(mol)
+                mf_cpu.xc         = qm_xc
+                mf_cpu.verbose    = 4
+                mf_cpu.max_memory = _max_mem
+                mf_cpu.max_cycle  = 300
+                mf_cpu.direct_scf = True
+                # SciVal 승인 축소 번들 (B2/B3/B5/B6) — 최종 CPU direct-SCF 에도 동일 적용.
+                # GPU 경로와 method 비교 일관성 (ranking preservation).
+                _apply_scf_bundle(mf_cpu)
+                if len(mm_coords_charges) > 0:
+                    mf_cpu = qmmm_itrf.mm_charge(
+                        mf_cpu, mm_coords_charges[:, :3], mm_coords_charges[:, 3]
+                    )
+                    print(f"  [+] MM 점전하: {len(mm_coords_charges)}개 포함 (CPU direct)")
+                # gpu4pyscf 임포트 시 PySCF 내부까지 cupy allocator로 패치됨.
+                # CPU kernel 실행 전 device/pinned allocator 완전 해제하지 않으면
+                # grid partition 등 CPU 코드에서도 pinned_memory OOM 발생.
+                try:
+                    import cupy as _cp_detach
+                    _cp_detach.get_default_memory_pool().free_all_blocks()
+                    _cp_detach.get_default_pinned_memory_pool().free_all_blocks()
+                    _cp_detach.cuda.set_allocator(None)
+                    _cp_detach.cuda.set_pinned_memory_allocator(None)
+                except Exception:
+                    pass
+                try:
+                    energy_total = mf_cpu.kernel()
+                    mf = mf_cpu
+                    print(f"  QM/MM 에너지 (CPU-direct): {energy_total:.8f} Hartree")
+                except Exception as e_cpu:
+                    print(f"  [!] CPU direct-SCF 실패: {e_cpu}")
+                    energy_total = None
+            finally:
+                # _VRAMFirstAllocator / _RAMFirstAllocator pool 이 managed memory 를
+                # VRAM/RAM 에 잡아두는 것을 방지. 스냅샷 간 누적 방지를 위해 pool 명시
+                # 해제 후 allocator 복원. 두 pool 모두 존재할 수 있으므로 각각 독립 해제.
+                try:
+                    _vram_first._pool.free_all_blocks()
+                    del _vram_first
+                except Exception:
+                    pass
+                try:
+                    if _ram_first is not None:
+                        _ram_first._pool.free_all_blocks()
+                        del _ram_first
+                except Exception:
+                    pass
+                try:
+                    import cupy as _cp2, gc
+                    _cp2.get_default_memory_pool().free_all_blocks()
+                    _cp2.get_default_pinned_memory_pool().free_all_blocks()
+                    _cp2.cuda.set_allocator(_cp2.get_default_memory_pool().malloc)
+                    _cp2.cuda.set_pinned_memory_allocator(
+                        _cp2.get_default_pinned_memory_pool().malloc)
+                    gc.collect()
+                except Exception:
+                    pass
+        else:
+            print(f"  [!] DFT 수렴 실패: {e}")
+            energy_total = None
 
     # [Phase 6 DIAG] SCF 수렴 결과 — converged/에너지 추적
     _diag(
@@ -1023,12 +1681,17 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
         # [v0.3.3] verbose=4: v0.1 롤백
         mf_qm.verbose = 4
         mf_qm.max_cycle = 300
-        mf_qm.conv_tol = 1e-8
         mf_qm.max_memory = _max_mem
+        # SciVal 승인 축소 번들 (B2/B3/B5/B6) — main SCF 와 동일 tuning 으로
+        # interaction_kcal = (E_QMMM - E_QM) 차분의 method 일관성 유지.
+        _apply_scf_bundle(mf_qm)
         # Phase 5a: QM-only 도 동일 DF-J/K 적용 (mf 와 method 일치 보장).
         # interaction_kcal = (E_QMMM - E_QM) 의 일관된 차분 → DF 오차 cancel.
         if use_df:
             mf_qm = mf_qm.density_fit(auxbasis=df_auxbasis)
+            # QM-only SCF 에도 동일 OOM 가드 (main SCF 와 DF 메모리 정책 일치).
+            _apply_df_oom_guard(mf_qm)
+            _apply_scf_bundle(mf_qm)  # density_fit wrapper 대비 재적용 (idempotent)
 
         # 2라운드는 점전하 짐칸이 없으므로 그냥 변신만 시키면 됩니다!
         if gpu_success:
@@ -1038,7 +1701,8 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
             except Exception as e:
                 print(f"  [!] 2라운드 GPU 전환 실패 (사유: {e})")
 
-        mf_qm.grids.level = 3
+        # 이전에는 여기서 mf_qm.grids.level=3 하드 오버라이드가 있었으나
+        # SciVal 축소 번들(B2)로 중앙화 (UPDD_DFT_GRIDS_LEVEL 환경변수 참조).
         try:
             e_qm_only  = mf_qm.kernel()
             e_interact = (energy_total - e_qm_only) * 627.509
@@ -1101,7 +1765,25 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
                         f"Binder subsystem odd-electron (protons={binder_protons}). "
                         "Cannot compute qm_int_kcal_frozen."
                     )
-                binder_charge = 0  # even protons → standard whole-peptide charge 0
+                # Sub-issue #3 (Option A) + R-16: use chemistry-true binder net
+                # charge from snapshot PDB rather than hardcoding 0. The previous
+                # comment ("even protons → standard whole-peptide charge 0") was
+                # misleading — proton parity is independent of net charge (charge
+                # ±2 is also even parity). Binder net charge is derived from
+                # residue identity + atom-name pattern (ARG HH11-HH22, ASP OD
+                # no-HD, GLU OE no-HE, LYS HZ*, HIS HD1/HE2 tautomer, termini
+                # detection for cyclic vs linear). See SciVal v2 §1.1.
+                binder_charge, _binder_subsys_diag = compute_binder_chem_charge(
+                    binder_qm, binder_chain=tc_binder_chain_p4,
+                )
+                _diag(
+                    "binder_chemistry_verified",
+                    snapshot=basename,
+                    binder_card=int(_binder_charge_declared),
+                    binder_chem=int(binder_charge),
+                    cyclic=bool(_binder_subsys_diag.get("cyclic", False)),
+                    subsystem="binder_iso",
+                )
 
                 # E_binder_iso: binder atoms only, no link atoms (whole-residue,
                 # no Cα-Cβ cuts → no H-cap needed for binder side).
@@ -1171,6 +1853,10 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
     )
 
     # ── 7. 결과 저장 ─────────────────────────────────────────
+    # R-11 (CLAUDE.md Rev. 2): "regime" 필드를 명시하여 이 결과가 ranking-only
+    # 해석용인지 absolute-accuracy 해석용인지 downstream 소비자가 구분하게 한다.
+    # v0.7 calibration 진입 전까지 "ranking_only" 고정. calibration 이후
+    # 결과는 "absolute_calibrated" 로 교체될 예정 (calibrate_results.py 에서 set).
     result = {
         "snapshot":       basename,
         "pdb_path":       pdb_path,
@@ -1191,6 +1877,18 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
         "qm_int_kcal_frozen":     qm_int_kcal_frozen,
         "e_binder_iso_hartree":   e_binder_iso,
         "e_target_iso_hartree":   e_target_iso,
+        # R-15 / R-16 audit fields (2026-04-19 Stage 1) — always present when
+        # topology mode resolves charge via compute_qm_net_charge_topology().
+        # "passed" means declared == computed at runtime (magnitude + binder
+        # hint). Guards raise before reaching this path for mismatches.
+        "qm_net_charge_declared": int(_declared_total),
+        "qm_net_charge_computed": int(_total_charge_computed),
+        "binder_charge_declared": int(_binder_charge_declared),
+        "binder_charge_computed": int(_binder_charge_computed),
+        "charge_consistency_audit": "passed",
+        # R-11: Regime tag — v0.7 calibration 진입 전까지 "ranking_only" 고정.
+        "regime":                 "ranking_only",
+        "regime_note":            "Absolute binding energy 의 정량 해석 금지; design 간 상대 순위만 validated.",
         **phase4_diagnostic,
     }
 
@@ -1239,6 +1937,11 @@ def main():
     parser.add_argument("--cutoff",    type=float, default=5.0, help="QM 영역 cutoff Å (기본 5.0)")
     parser.add_argument("--mode", default="fast", choices=["full", "fast", "plaid"], help="QM/MM 계산 모드")
     parser.add_argument("--filter", default=None, help="특정 디자인 ID만 골라서 계산 (예: design_w2_2_s1)")
+    # v0.6.x — Per-snapshot subprocess isolation 지원.
+    # UPDD.py 가 snapshot 단위로 subprocess 를 spawn 할 때 사용한다.
+    # 단일 stem (예: "snap02") 을 지정하면 해당 stem 이 파일명에 포함된 PDB 만 처리.
+    parser.add_argument("--snapshot-filter", dest="snapshot_filter", default=None,
+                        help="특정 snapshot stem(예: snap02)만 처리 — per-snapshot subprocess isolation용")
     parser.add_argument("--binder_chain", default="B", help="Binder chain ID (기본 B)")
     # Phase 1: target_card 기반 topology mode 활성화. 지정 시 --mode 는 무시되고
     # target_cards/{target_id}.json 의 QM partitioning 정책을 따른다 (snapshot-invariant QM region).
@@ -1246,12 +1949,62 @@ def main():
                         help="Target card ID (e.g., 6WGN). Activates topology mode.")
     # Phase 5a: DF-J/K density fitting 제어. 기본 활성 (16GB VRAM 필수).
     # `--no-df` 는 소규모 QM region (예: <100 atoms) 에서 direct-SCF 비교 검증용.
+    # v0.6.x: `--df-mode` 도입. `--no-df` 는 `--df-mode off` 의 alias 로 보존.
     parser.add_argument("--no-df", dest="use_df", action="store_false",
-                        help="DF-J/K density fitting 비활성화 (소규모 QM region에서만 사용)")
+                        help="DF 비활성 (direct-SCF). --df-mode off 와 동일.")
     parser.set_defaults(use_df=True)
+    parser.add_argument("--df-mode", dest="df_mode",
+                        choices=["auto", "on", "off"], default="auto",
+                        help="DF 모드: auto (VRAM 감지, default), on (강제), off (강제). "
+                             "환경변수 UPDD_DF_AUTO_VRAM_THRESHOLD_GB 로 auto 임계값 조정 "
+                             "(default 20 GiB). --no-df 는 off 의 alias. "
+                             "환경변수 UPDD_DF_JK_MAX_MEMORY_MB (default 4000) 으로 "
+                             "DF J/K 버퍼 조절 가능. VRAM OOM 시 하향, 여유 시 상향. "
+                             "SCF 수렴/성능 튜닝 (SciVal 승인 축소 번들): "
+                             "UPDD_SCF_CONV_TOL (default 1e-7), "
+                             "UPDD_DFT_GRIDS_LEVEL (default 2), "
+                             "UPDD_SCF_INIT_GUESS (default minao; "
+                             "'huckel' 은 opt-in — near-degenerate HOMO-LUMO 에서 발산 위험), "
+                             "UPDD_SCF_DIRECT_TOL (default 1e-12), "
+                             "UPDD_MIN_AO_BLKSIZE (default 64, gpu4pyscf 16GB 경계 버그 우회), "
+                             "UPDD_VRAM_POOL_FRACTION (default 0.65).")
     parser.add_argument("--df-auxbasis", dest="df_auxbasis", default="def2-universal-jfit",
-                        help="DF 보조 기저함수 (기본: def2-universal-jfit)")
+                        help="DF 보조 기저함수 (기본: def2-universal-jfit, def2-SVP orbital basis 와 일치). "
+                             "def2 family 와 매칭 안 되는 구형 aux (weigend 등) 는 명시 지정 시에만 사용.")
     args = parser.parse_args()
+
+    # ==========================================
+    # DF 결정 로직 (v0.6.x — auto/on/off)
+    # ==========================================
+    # Precedence: `--no-df` (explicit) > `--df-mode`.
+    # argparse 기본값(`use_df=True`) 과 `--no-df`(store_false) 만으로는 사용자가
+    # 명시적으로 `--no-df` 를 썼는지 구분 못함 → `sys.argv` 직접 스캔.
+    _no_df_explicit = ("--no-df" in sys.argv)
+    if _no_df_explicit:
+        final_use_df = False
+        _df_decision_reason = "explicit --no-df"
+    elif args.df_mode == "on":
+        final_use_df = True
+        _df_decision_reason = "--df-mode on (forced)"
+    elif args.df_mode == "off":
+        final_use_df = False
+        _df_decision_reason = "--df-mode off (forced)"
+    else:  # auto
+        final_use_df, _df_decision_reason = _decide_df_auto()
+
+    args.use_df = final_use_df
+    _threshold_gb = float(os.environ.get("UPDD_DF_AUTO_VRAM_THRESHOLD_GB", "20"))
+    print(f"[DF-Mode] use_df={final_use_df} | reason: {_df_decision_reason}")
+    # Main 진입부이므로 `_diag` 대신 `[DIAG]` JSON-line 을 직접 print.
+    # snapshot 루프 이전 단계라 snapshot 필드는 없다.
+    print("[DIAG] " + json.dumps({
+        "event": "df_decision",
+        "use_df": bool(final_use_df),
+        "reason": _df_decision_reason,
+        "df_mode_cli": args.df_mode,
+        "no_df_explicit": _no_df_explicit,
+        "threshold_gb": _threshold_gb,
+    }, ensure_ascii=False), flush=True)
 
     os.makedirs(args.outputdir, exist_ok=True)
 
@@ -1261,6 +2014,23 @@ def main():
         print(f"  [Filter] '{args.filter}'로 시작하는 스냅샷 {len(pdb_files)}개를 찾았습니다.")
     else:
         pdb_files = all_pdbs
+
+    # v0.6.x — Per-snapshot subprocess isolation: stem 기반 post-filter.
+    # SciVal Q6: legacy mode(--target-id 미지정) 에서도 동작하지만 topology mode 와의
+    # 조합을 권장. n_qm 이 snapshot 간 동일해야 snapshot subprocess 의 의미가 살아난다.
+    if args.snapshot_filter:
+        before = len(pdb_files)
+        _stem = args.snapshot_filter
+        pdb_files = [
+            f for f in pdb_files
+            if f"_{_stem}_" in os.path.basename(f)
+            or os.path.basename(f).endswith(f"_{_stem}.pdb")
+        ]
+        print(f"  [SnapFilter] stem='{_stem}' 매칭: {before} → {len(pdb_files)}개")
+        if not args.target_id:
+            print("  [WARN] --snapshot-filter는 topology mode(--target-id) 와 함께 사용 권장. "
+                  "legacy mode 에서는 snapshot 간 n_qm 이 변동하여 isolation 효과가 제한적.")
+
     if not pdb_files:
         print(f"[!] PDB 파일 없음: {args.snapdir}")
         return

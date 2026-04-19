@@ -580,9 +580,14 @@ def partition_qmmm(atoms, qm_cutoff=5.0, mode="full", binder_chain="B", target_c
 
         rules = target_card.get("partition_rules", {})
         contact_resnums = set(target_card.get("target_contact_residues", []))
-        # whole_residue_exceptions: target contact residues that
-        # must be treated as whole-residue QM despite the default sidechain_only
-        # policy (e.g. GLY_60 DxxGQ motif backbone N-H contributes to KD2 binding).
+        # Stage 2 (Option B3) — partition_rules.target_residues_mode 지원:
+        #   "whole"             : 모든 contact residue 를 whole-residue QM 로
+        #                         (chemistry-consistent; cyclic peptide binder 의
+        #                          unequal ARG/ASP/GLU 수를 허용).
+        #   "sidechain_from_cb" : legacy (Stage 1 이전). sidechain 만 QM, backbone MM.
+        # whole_residue_exceptions 는 schema 0.6.3 (sidechain mode) 의 per-residue
+        # override 였다. 0.6.4+ whole mode 에서는 의미 없음 → 무시/경고.
+        target_residues_mode = rules.get("target_residues_mode", "sidechain_from_cb")
         whole_res_exceptions = set(target_card.get("whole_residue_exceptions", []))
         cofactor_residues = target_card.get("cofactor_residues", [])
         cofactor_resnames = {c.get("resname") for c in cofactor_residues if c.get("resname")}
@@ -594,6 +599,14 @@ def partition_qmmm(atoms, qm_cutoff=5.0, mode="full", binder_chain="B", target_c
             warnings.warn(
                 f"target_card '{target_card.get('target_id')}' missing qm_atom_budget — "
                 "using fallback max_n_qm=600. Regenerate with generate_target_card.py.",
+                stacklevel=2,
+            )
+        if target_residues_mode == "whole" and whole_res_exceptions:
+            import warnings as _w2
+            _w2.warn(
+                "target_residues_mode=whole makes whole_residue_exceptions "
+                "redundant; field is being ignored. Regenerate target_card "
+                "with schema 0.6.4 (generate_target_card.py).",
                 stacklevel=2,
             )
 
@@ -616,12 +629,17 @@ def partition_qmmm(atoms, qm_cutoff=5.0, mode="full", binder_chain="B", target_c
                 # Binder 는 whole residue QM (ncAA 포함 전체 잔기)
                 qm_atoms.extend(res_atoms)
             elif chain == target_chain and resnum in contact_resnums:
-                if resnum in whole_res_exceptions:
-                    # Whole-residue QM (e.g., GLY backbone-mediated DxxGQ contact).
-                    # Entire residue (backbone + sidechain) enters QM region.
+                # Stage 2 (2026-04-19) — target_residues_mode dispatch.
+                if target_residues_mode == "whole":
+                    # Option B3 — 모든 contact residue 전체가 QM.
+                    # Sidechain_from_cb 의 Cα-Cβ artificial cut 없음 →
+                    # 전하 consistency + link atom 수 대폭 감소.
+                    qm_atoms.extend(res_atoms)
+                elif resnum in whole_res_exceptions:
+                    # Legacy per-residue override (schema 0.6.3 path).
                     qm_atoms.extend(res_atoms)
                 else:
-                    # Target contact 잔기 → sidechain 만 QM, backbone 은 MM
+                    # Legacy sidechain-only path: sidechain QM, backbone MM.
                     sc = _select_sidechain_atoms(res_atoms)
                     sc_ids = {id(a) for a in sc}
                     backbone = [a for a in res_atoms if id(a) not in sc_ids]
@@ -642,9 +660,10 @@ def partition_qmmm(atoms, qm_cutoff=5.0, mode="full", binder_chain="B", target_c
 
         print(
             "  [Calculate Mode: TOPOLOGY] target_card={} | binder_chain={} | "
-            "contacts={} | n_qm={} (budget {})".format(
+            "contacts={} | target_residues_mode={} | n_qm={} (budget {})".format(
                 target_card.get("target_id"), tc_binder_chain,
-                len(contact_resnums), len(qm_atoms), max_n_qm,
+                len(contact_resnums), target_residues_mode,
+                len(qm_atoms), max_n_qm,
             )
         )
         return qm_atoms, mm_atoms
@@ -948,6 +967,37 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
         from utils_common import load_target_card
         target_card = load_target_card(target_id)
 
+        # Stage 2 (2026-04-19) — numbering_convention 소비 + 진단.
+        # schema 0.6.4 부터 필수. 0.6.3 이하 card 는 offset=0 default + 경고.
+        nc = target_card.get("numbering_convention")
+        if isinstance(nc, dict):
+            _nc_source = str(nc.get("source", "MD"))
+            _nc_offset = int(nc.get("md_to_crystal_offset", 0))
+            _nc_note = str(nc.get("note", ""))
+            _nc_missing = False
+        else:
+            import warnings as _wnc
+            _wnc.warn(
+                "target_card '%s' is missing the v0.6.4 numbering_convention "
+                "object — defaulting to source=MD, md_to_crystal_offset=0. "
+                "Regenerate with generate_target_card.py to remove this warning."
+                % target_card.get("target_id"),
+                stacklevel=2,
+            )
+            _nc_source = "MD"
+            _nc_offset = 0
+            _nc_note = "missing in pre-0.6.4 card — assumed zero offset, verify!"
+            _nc_missing = True
+        _diag(
+            "numbering_convention",
+            target_id=target_card.get("target_id"),
+            source=_nc_source,
+            md_to_crystal_offset=_nc_offset,
+            missing_from_card=bool(_nc_missing),
+            schema_version=target_card.get("schema_version", "unknown"),
+            note=_nc_note[:200],
+        )
+
     # topology mode 여부 결정 — target_card 있으면 topology, 없으면 legacy mode 유지
     use_mode = "topology" if target_card is not None else mode
 
@@ -1055,9 +1105,15 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
         }
 
     # [v4 S-2] QM/MM 경계 H-cap link atom 추가 (Senn & Thiel 2009)
-    # topology mode 에서는 Cα-Cβ 경계에도 H-cap 삽입 (sidechain-only QM)
-    # binder_topology 전달 — cyclic peptide 의 last→first bond 처리
-    include_cb = (use_mode == "topology")
+    # topology mode 에서는 target_residues_mode 에 따라 경계가 달라진다:
+    #   - "sidechain_from_cb" (legacy): Cα-Cβ 절단 → include_cb_breaks=True
+    #   - "whole"               (B3) : peptide-bond 경계만 → include_cb_breaks=False
+    # binder_topology 전달 — cyclic peptide 의 last→first bond 처리.
+    _t_rules = (target_card.get("partition_rules", {}) if target_card else {})
+    _target_res_mode_for_link = _t_rules.get("target_residues_mode",
+                                             "sidechain_from_cb")
+    include_cb = (use_mode == "topology"
+                  and _target_res_mode_for_link != "whole")
     _binder_topo = (target_card.get("binder_topology", "linear")
                     if target_card else "linear")
     _binder_chain_for_link = (target_card.get("binder_chain", effective_binder_chain)
@@ -1081,6 +1137,7 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
         n_link=_n_link_diag,
         n_mm=len(mm_atoms),
         partitioning_mode=use_mode,
+        target_residues_mode=_target_res_mode_for_link,
         target_id=(target_card.get("target_id") if target_card else None),
         binder_topology=_binder_topo,
     )

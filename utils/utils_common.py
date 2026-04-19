@@ -357,6 +357,10 @@ def load_target_card(target_id, cards_dir=None):
         - 0.6.2 — multi-snapshot occupancy filtering
         - 0.6.3 — [v0.6.5 Phase 4] target_iso_net_charge / binder_net_charge added
                    for supermolecular qm_int_kcal_frozen decomposition.
+        - 0.6.4 — Stage 2 (2026-04-19): numbering_convention object, auto-generated
+                   target_iso_charge_rationale, target_residues_mode=whole as default
+                   (Option B3), max_n_qm 500→600. whole_residue_exceptions removed
+                   (redundant under whole mode; kept optional for 0.6.3 backward compat).
 
     Args:
         target_id: Target identifier (e.g. "6WGN"). Must match the JSON filename
@@ -378,7 +382,7 @@ def load_target_card(target_id, cards_dir=None):
         raise FileNotFoundError("target_card not found: {}".format(path))
     with open(path, "r", encoding="utf-8") as f:
         card = json.load(f)
-    supported = {"0.6.0", "0.6.1", "0.6.2", "0.6.3"}
+    supported = {"0.6.0", "0.6.1", "0.6.2", "0.6.3", "0.6.4"}
     if card.get("schema_version") not in supported:
         raise ValueError(
             "Unsupported target_card schema_version: {} (supported: {})".format(

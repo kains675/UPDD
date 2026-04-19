@@ -80,6 +80,163 @@ def compute_target_iso_charge(contact_residues_with_names):
     return total, "pH7.4: {} = {:+d}".format(rationale, total)
 
 
+# ==========================================
+# Stage 2 (2026-04-19) — schema 0.6.4 auto-rationale generator
+# ==========================================
+def generate_target_iso_rationale(
+    contact_residues_with_names,
+    md_to_crystal_offset=0,
+    schema_version="0.6.4",
+    today_iso=None,
+):
+    """Generate an R-15 compliant target_iso_charge_rationale string.
+
+    The string includes both MD and crystal numbering for every contributing
+    residue (per Stage 2 numbering_convention spec) and a breakdown of the
+    ionization contribution (ASP/GLU/ARG/LYS/HIP counts).
+
+    Args:
+        contact_residues_with_names: list of {resnum, resname} dicts in MD
+            numbering (as produced by ``extract_contacts``).
+        md_to_crystal_offset: integer offset (crystal_resnum = md_resnum +
+            offset). 0 means MD and crystal share a coordinate system.
+        schema_version: emitted verbatim into the rationale for traceability.
+        today_iso: ISO date string (YYYY-MM-DD). Defaults to today.
+
+    Returns:
+        Tuple[int, str]: (net_charge, rationale_string).
+    """
+    if today_iso is None:
+        today_iso = str(date.today())
+
+    total = 0
+    ionized_details = []   # list of (resname, md, crystal, charge)
+    neutral_details = []   # list of (md, crystal, resname)
+    tautomer_notes = []    # e.g. HIS92/95 = HID (neutral)
+
+    for r in contact_residues_with_names:
+        md_num = r.get("resnum")
+        rn = (r.get("resname") or "").upper()
+        crystal_num = (md_num + md_to_crystal_offset
+                       if md_num is not None else None)
+        q = _RESIDUE_CHARGE_AT_PH7.get(rn, 0)
+        if q != 0:
+            ionized_details.append((rn, md_num, crystal_num, q))
+            total += q
+        else:
+            neutral_details.append((md_num, crystal_num, rn))
+        # Mark explicit HIS tautomer variants for human auditability.
+        if rn in ("HID", "HIE"):
+            tautomer_notes.append(
+                "HIS{}/{} = {} (neutral)".format(md_num, crystal_num, rn)
+            )
+        elif rn == "HIP":
+            tautomer_notes.append(
+                "HIS{}/{} = HIP (+1 explicit)".format(md_num, crystal_num)
+            )
+        elif rn == "HIS":
+            # Ambiguous HIS in card — flagged but treated as neutral default.
+            tautomer_notes.append(
+                "HIS{}/{} = HIS (tautomer resolved at runtime from atom names)"
+                .format(md_num, crystal_num)
+            )
+
+    # Breakdown counts by residue family.
+    by_family = {"GLU": 0, "ASP": 0, "ARG": 0, "LYS": 0, "HIP": 0}
+    for rn, _, _, q in ionized_details:
+        if rn in by_family:
+            by_family[rn] += 1
+    breakdown_parts = []
+    for fam, sign, label in (
+        ("GLU", -1, "GLU"), ("ASP", -1, "ASP"),
+        ("ARG", +1, "ARG"), ("LYS", +1, "LYS"),
+        ("HIP", +1, "HIP"),
+    ):
+        if by_family[fam]:
+            breakdown_parts.append(
+                "{}x{}({:+d})".format(by_family[fam], label, sign)
+            )
+    if not breakdown_parts:
+        breakdown_parts.append("all neutral")
+    breakdown_str = " + ".join(breakdown_parts)
+
+    # Ionized residue list (MD/crystal pairs).
+    ion_list = ", ".join(
+        "{}{}/{}".format(rn, md, crys)
+        for rn, md, crys, _ in ionized_details
+    ) or "none"
+
+    # Non-ionizable contact list (MD/crystal pairs, resname in parens).
+    neutral_list_parts = []
+    for md, crys, rn in neutral_details:
+        # Skip HIS variants: they already appear in tautomer_notes.
+        if rn in ("HIS", "HID", "HIE", "HIP"):
+            continue
+        neutral_list_parts.append("{}/{}".format(md, crys))
+    neutral_list = (", ".join(neutral_list_parts)
+                    if neutral_list_parts else "none")
+
+    tautomer_str = "; ".join(tautomer_notes) if tautomer_notes else "none"
+
+    rationale = (
+        "Auto-generated {today} (schema {schema}): "
+        "target QM region net charge = {total:+d} = {breakdown}. "
+        "Contributing residues (MD/crystal): {ionized}. "
+        "Tautomers: {tautomers}. "
+        "Non-ionizable contacts (MD/crystal): {neutrals}."
+    ).format(
+        today=today_iso,
+        schema=schema_version,
+        total=total,
+        breakdown=breakdown_str,
+        ionized=ion_list,
+        tautomers=tautomer_str,
+        neutrals=neutral_list,
+    )
+    return total, rationale
+
+
+def validate_numbering_convention(atoms, contact_residues_with_names,
+                                  md_to_crystal_offset, target_chain):
+    """Cross-check that `md_to_crystal_offset` is consistent with PDB identities.
+
+    We can't verify crystal identity without a reference PDB, but we do
+    verify per-contact residue identity exists at MD numbering (since the
+    target card is MD-based). This is a minimal sanity check.
+
+    Args:
+        atoms: parsed PDB atom list (from :func:`parse_pdb`).
+        contact_residues_with_names: list of {resnum, resname}.
+        md_to_crystal_offset: int (unused at this check, reserved for future
+            PDB cross-validation).
+        target_chain: chain ID of the target protein.
+
+    Returns:
+        list[str]: warnings (empty if clean).
+    """
+    warnings_out = []
+    target_by_rn = {}
+    for a in atoms:
+        if a["chain"] != target_chain:
+            continue
+        target_by_rn.setdefault(a["resnum"], a["resname"])
+    for r in contact_residues_with_names:
+        md_num = r.get("resnum")
+        declared = (r.get("resname") or "").upper()
+        found = (target_by_rn.get(md_num) or "").upper()
+        if not found:
+            warnings_out.append(
+                "MD {} not present in PDB chain {}".format(md_num, target_chain)
+            )
+        elif found != declared:
+            warnings_out.append(
+                "MD {} identity mismatch: card={} pdb={}".format(
+                    md_num, declared, found
+                )
+            )
+    return warnings_out
+
+
 def parse_pdb(pdb_path):
     """Parse ATOM/HETATM records. Returns list of atom dicts."""
     atoms = []
@@ -233,7 +390,10 @@ def estimate_qm_atoms(contact_residues, binder_atoms):
 def build_target_card(
     pdb_path, target_chain, binder_chain, cutoff_A,
     target_id, binder_topology, max_n_qm,
-    all_pdb_paths=None, occupancy_threshold=0.6, cofactor_mandatory=False
+    all_pdb_paths=None, occupancy_threshold=0.6, cofactor_mandatory=False,
+    md_to_crystal_offset=0,
+    numbering_source="MD",
+    target_residues_mode="whole",
 ):
     """Build the full target_card dict.
 
@@ -273,8 +433,11 @@ def build_target_card(
 
     contact_resnums = [r for r, _ in contacts]
     extended_resnums = [r for r, _ in extended]
-    whole_exceptions = [r for r, rname in contacts
-                        if qm_partition_rule(rname) == 'whole_residue']
+    # Schema 0.6.4 (Stage 2): target_residues_mode=whole → entire residue is QM.
+    # whole_residue_exceptions list no longer has a functional meaning
+    # (it only applied in 0.6.3 sidechain_from_cb mode). Kept as empty
+    # for backward-compat field presence.
+    whole_exceptions = []
 
     n_qm_est = estimate_qm_atoms(contacts, binder_atoms)
 
@@ -296,40 +459,71 @@ def build_target_card(
 
     n_snapshots = len(all_pdb_paths) if all_pdb_paths else 1
 
-    # [v0.6.5 Phase 4] target_iso_net_charge — Phase 4 (qm_int_kcal_frozen) 활성화용.
-    # contacts 는 [(resnum, resname), ...] 튜플 리스트 (extract_contacts 출력 규약).
+    # Stage 2 (2026-04-19) — schema 0.6.4 auto-rationale with MD/crystal pairs.
+    # contacts 는 [(resnum, resname), ...] (extract_contacts 출력 규약).
     contact_res_for_charge = [
         {"resnum": r, "resname": rname} for r, rname in contacts
     ]
-    target_iso_charge, target_iso_rationale = compute_target_iso_charge(
+    target_iso_charge, _legacy_rationale = compute_target_iso_charge(
         contact_res_for_charge
     )
+    _, auto_rationale = generate_target_iso_rationale(
+        contact_res_for_charge,
+        md_to_crystal_offset=int(md_to_crystal_offset),
+        schema_version="0.6.4",
+    )
+
+    # Validate numbering convention against PDB identities at each contact.
+    nc_warnings = validate_numbering_convention(
+        atoms_main, contact_res_for_charge,
+        md_to_crystal_offset=int(md_to_crystal_offset),
+        target_chain=target_chain,
+    )
+    for w in nc_warnings:
+        print(
+            "  [WARN] numbering_convention validator: " + w,
+            file=sys.stderr,
+        )
+
+    numbering_convention = {
+        "source": numbering_source,
+        "md_to_crystal_offset": int(md_to_crystal_offset),
+        "note": (
+            "numbering_source={}; crystal_resnum = md_resnum + {}. "
+            "Generated by generate_target_card.py at {}."
+        ).format(numbering_source, int(md_to_crystal_offset),
+                 str(date.today())),
+    }
 
     card = {
-        "schema_version": "0.6.3",
+        "schema_version": "0.6.4",
         "target_id": target_id,
         "target_chain": target_chain,
         "binder_chain": binder_chain,
         "binder_topology": binder_topology,
-        "numbering_convention": "md_snapshot",
-        "qm_partitioning": "sidechain_only",
+        "numbering_convention": numbering_convention,
+        "qm_partitioning": (
+            "whole_residue" if target_residues_mode == "whole"
+            else "sidechain_only"
+        ),
         "target_contact_residues": contact_resnums,
-        "whole_residue_exceptions": whole_exceptions,
         "extended_contacts": extended_resnums,
-        # [v0.6.5 Phase 4] 초분자 분해용 전하 정보 (pH 7.4 approx).
+        # R-16 hint — runtime PDB is the ground truth; R-16 guard fails
+        # fast when this hint does not match. Default 0 is conservative.
         "binder_net_charge": 0,
         "binder_charge_note": (
-            "computed at runtime from binder QM atom proton parity "
-            "(default 0 if even electrons)"
+            "R-16 hint — runtime PDB chemistry is the source of truth. "
+            "Override with actual binder net charge if known (e.g. -1 for "
+            "cyclic ARG+ASP+GLU)."
         ),
         "target_iso_net_charge": target_iso_charge,
-        "target_iso_charge_rationale": target_iso_rationale,
+        "target_iso_charge_rationale": auto_rationale,
         "cofactor_residues": [
             dict(c, treatment="mm_point_charge") for c in cofactors
         ] if cofactors else [],
         "partition_rules": {
             "binder_residues_mode": "whole",
-            "target_residues_mode": "sidechain_from_cb",
+            "target_residues_mode": target_residues_mode,
             "glycine_handling": "whole_residue",
             "proline_handling": "whole_residue",
             "link_atom_model": "senn_thiel_2009_hcap",
@@ -342,6 +536,7 @@ def build_target_card(
         },
         "provenance": {
             "generated_by": "generate_target_card.py",
+            "schema_version": "0.6.4",
             "source_pdb": os.path.abspath(pdb_path),
             "contact_cutoff_A": cutoff_A,
             "generated_date": str(date.today()),
@@ -349,10 +544,7 @@ def build_target_card(
             "n_snapshots_used": n_snapshots,
             "occupancy_threshold": occupancy_threshold,
             "occupancy_map": {str(r): round(v, 2) for r, v in occ_map.items()},
-            "whole_residue_exceptions_resnames": {
-                str(r): rname for r, rname in contacts
-                if r in whole_exceptions
-            },
+            "numbering_validation_warnings": nc_warnings,
         },
         "backbone_keep_residues": [],
         "notes": (
@@ -361,7 +553,7 @@ def build_target_card(
             f"(occupancy >= {occupancy_threshold}, n_snap={n_snapshots}) "
             f"at {cutoff_A}Å cutoff. "
             f"{len(extended_resnums)} extended (transient) contacts. "
-            f"n_qm estimate: {n_qm_est}. "
+            f"n_qm estimate: {n_qm_est}. target_residues_mode={target_residues_mode}. "
             + ("Cofactor absent in MD snapshot — verify MD prep." if not cofactors else "")
         ),
     }
@@ -396,6 +588,17 @@ def main():
                         help='Contact occupancy 임계값 (기본 0.6 = 5 snap 중 3개 이상).')
     parser.add_argument('--cofactor-mandatory', action='store_true', default=False,
                         help='cofactor 가 MD 에 없으면 오류 발생 (GTP-bound 타겟 등).')
+    parser.add_argument('--md-to-crystal-offset', type=int, default=0,
+                        help=('crystal_resnum = md_resnum + offset '
+                              '(schema 0.6.4 numbering_convention). '
+                              '예: 6WGN MD→crystal = +3.'))
+    parser.add_argument('--numbering-source', default='MD',
+                        choices=['MD', 'crystal', 'Uniprot'],
+                        help='target_contact_residues 의 좌표계 (기본 MD).')
+    parser.add_argument('--target-residues-mode', default='whole',
+                        choices=['whole', 'sidechain_from_cb'],
+                        help=('target contact residue QM 포함 방식 '
+                              '(Stage 2 default = whole; legacy = sidechain_from_cb).'))
     args = parser.parse_args()
 
     if not os.path.exists(args.pdb):
@@ -436,16 +639,19 @@ def main():
         all_pdb_paths=all_pdbs,
         occupancy_threshold=args.occupancy_threshold,
         cofactor_mandatory=args.cofactor_mandatory,
+        md_to_crystal_offset=args.md_to_crystal_offset,
+        numbering_source=args.numbering_source,
+        target_residues_mode=args.target_residues_mode,
     )
 
     with open(out_path, 'w') as f:
         json.dump(card, f, indent=2)
 
     n = len(card['target_contact_residues'])
-    exc = card['whole_residue_exceptions']
     est = card['qm_atom_budget']['expected_n_qm_estimate']
+    mode = card['partition_rules']['target_residues_mode']
     print(f"  contacts   : {n} residues", file=sys.stderr)
-    print(f"  whole-res  : {exc} (GLY/PRO)", file=sys.stderr)
+    print(f"  mode       : target_residues_mode={mode}", file=sys.stderr)
     print(f"  n_qm est   : {est}", file=sys.stderr)
     print(f"  output     : {out_path}", file=sys.stderr)
     print(f"[generate_target_card] DONE", file=sys.stderr)

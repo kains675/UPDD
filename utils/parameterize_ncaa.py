@@ -917,23 +917,36 @@ def _apply_name_map_to_xml(xml_path: str, name_map: dict) -> bool:
 
 def _rename_xml_to_pdb_names(xml_path: str, mol2_path: str, ncaa_code: str,
                              ncaa_mutation_type: str, ncaa_def=None) -> bool:
-    """[v3 5-1 | v0.6.6 ext] _build_pdb_name_map + _apply_name_map_to_xml 의 얇은 오케스트레이터.
+    """[v3 5-1 | v0.6.6/v0.6.7 ext] _build_pdb_name_map + _apply_name_map_to_xml 의 얇은 오케스트레이터.
 
-    기존 인터페이스(인자, 반환값)를 그대로 유지하되, v0.6.6 에서 ncaa_def
-    을 선택적으로 받아 STANDARD + parent_residue 경우 parent-bootstrap 경로
-    (예: MTR → _build_pdb_name_map_trp_bootstrap) 를 선택한다.
+    Dispatch 우선순위:
+    1. ncaa_def.parent_residue 지정 시 → generic amber14 template-driven walker
+       (utils/parent_topology.build_pdb_name_map_via_parent). 모든 canonical
+       amino acid parent 자동 지원.
+    2. mutation_type == "N-M" (sidechain 없는 ncAA, 예: NMA) → legacy walker.
+    3. 그 외 → no-op (rename skip).
     """
     if not HAS_PARMED:
         return False
-    # parent_residue 기반 dispatch (v0.6.6 Strategy A)
     parent_residue = getattr(ncaa_def, "parent_residue", None) if ncaa_def else None
+    extension_defs = getattr(ncaa_def, "extension_atoms", ()) if ncaa_def else ()
     if ncaa_mutation_type != "N-M" and parent_residue is None:
         return False
     try:
         mol2_obj = pmd.load_file(mol2_path)
         atoms = list(list(mol2_obj.to_library().values())[0].atoms) if isinstance(mol2_obj, pmd.modeller.ResidueTemplateContainer) else list(mol2_obj.residues[0].atoms) if hasattr(mol2_obj, "residues") else list(mol2_obj.atoms)
-        if parent_residue == "TRP":
-            name_map = _build_pdb_name_map_trp_bootstrap(atoms)
+        if parent_residue:
+            # v0.6.7: generic parent walker (any canonical amino acid parent)
+            from parent_topology import build_pdb_name_map_via_parent
+            name_map = build_pdb_name_map_via_parent(
+                atoms, parent_residue, extension_defs or (),
+            )
+            if not name_map:
+                log.warning(
+                    f"[XML rename] generic parent walker failed for {ncaa_code} "
+                    f"(parent={parent_residue}). Falling back to legacy N-M walker."
+                )
+                name_map = _build_pdb_name_map(atoms, ncaa_mutation_type)
         else:
             name_map = _build_pdb_name_map(atoms, ncaa_mutation_type)
         if not name_map:
@@ -1182,9 +1195,17 @@ def frcmod_to_openmm_xml(mol2_path, frcmod_path, output_xml, res_name, ncaa_muta
     # 잘못 picking 하여 spurious ExternalBond 발생. parent-bootstrap rename map
     # 을 먼저 계산하여 backbone N/C 를 지정한다.
     parent_residue = getattr(ncaa_def, "parent_residue", None) if ncaa_def else None
+    extension_defs = getattr(ncaa_def, "extension_atoms", ()) if ncaa_def else ()
     pre_name_map = {}
-    if parent_residue == "TRP":
-        pre_name_map = _build_pdb_name_map_trp_bootstrap(list(tmpl.atoms))
+    if parent_residue:
+        try:
+            from parent_topology import build_pdb_name_map_via_parent
+            pre_name_map = build_pdb_name_map_via_parent(
+                list(tmpl.atoms), parent_residue, extension_defs or (),
+            )
+        except Exception as _e:
+            log.warning(f"[head/tail] generic parent walker failed: {_e}")
+            pre_name_map = {}
     for atom in tmpl.atoms:
         mapped = pre_name_map.get(atom.name)
         if mapped == "N":

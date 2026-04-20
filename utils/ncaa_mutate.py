@@ -336,34 +336,26 @@ def _generate_cb_from_backbone(n_coord, ca_coord, c_coord):
     return (float(cb[0]), float(cb[1]), float(cb[2]))
 
 
-# Parent-residue별 extension atom 의 attach anchor 의 heavy neighbor 힌트.
-# extension atom 은 attach 의 "바깥쪽 bisector" 에 배치된다 (sp2 N-alkyl 관습).
-# Ref: Capece 2012 §2 (N1-methyltryptophan geometry), amber14SB TRP indole plane.
-_PARENT_NEIGHBOR_HINT = {
-    "TRP": {"NE1": ("CD1", "CE2")},   # MTR (1-Me-Trp): CM 은 indole 평면에 배치
-}
+# [v0.6.7] Generic parent-topology helpers moved to utils.parent_topology.
+# The legacy hardcoded _PARENT_NEIGHBOR_HINT / _PARENT_RESIDUE_BONDS dicts are
+# replaced by functions that query amber14 ff14SB.xml templates for any parent.
+# Import lazy to avoid hard dependency at module load if parent_topology itself
+# fails to import (e.g., networkx not available).
+
+def _get_neighbor_hint(parent_residue: str, attach_name: str):
+    try:
+        from parent_topology import parent_neighbor_hint
+        return parent_neighbor_hint(parent_residue, attach_name)
+    except ImportError:
+        return ()
 
 
-# Parent-residue 의 heavy-atom bond topology (amber14SB 표준).
-# mutate_pdb 는 parent_residue 가 지정된 ncAA 에 대해 아래 bond 리스트 + extension
-# attach bond 를 CONECT records 로 PDB 에 명시한다. run_restrained_md 의 graph_policy
-# = "strict" 는 거리 기반 bond 추정을 금지하므로 CONECT 명시가 필수.
-# Ref: amber14SB ff14SB.xml residue definitions (Maier 2015 doi:10.1021/acs.jctc.5b00255).
-_PARENT_RESIDUE_BONDS = {
-    "TRP": [
-        ("N", "CA"), ("CA", "C"), ("CA", "CB"),
-        ("C", "O"),
-        ("CB", "CG"),
-        ("CG", "CD1"), ("CG", "CD2"),
-        ("CD1", "NE1"),
-        ("CD2", "CE2"), ("CD2", "CE3"),
-        ("NE1", "CE2"),
-        ("CE2", "CZ2"),
-        ("CE3", "CZ3"),
-        ("CZ2", "CH2"),
-        ("CZ3", "CH2"),
-    ],
-}
+def _get_parent_bonds(parent_residue: str):
+    try:
+        from parent_topology import parent_heavy_bonds
+        return parent_heavy_bonds(parent_residue)
+    except ImportError:
+        return []
 
 
 def _place_extension_atom_sp2(attach_coord, neighbor1_coord, neighbor2_coord, bond_length):
@@ -531,7 +523,6 @@ def _substitute_residue(atom_lines, chain_id, res_num, ncaa_def):
                 f"{chain_id}, resnum {res_num}). MTR 같은 parent-bootstrap ncAA "
                 f"는 source 잔기가 parent 와 동일해야 합니다."
             )
-        neighbor_hint = _PARENT_NEIGHBOR_HINT.get(parent_residue, {})
         for (ext_name, ext_elem, attach_name, bond_len) in extension_atoms:
             if attach_name not in source_heavy_coords:
                 raise RuntimeError(
@@ -540,20 +531,33 @@ def _substitute_residue(atom_lines, chain_id, res_num, ncaa_def):
                     f"parent '{parent_residue}' 와 일치하는지 확인."
                 )
             attach_coord = source_heavy_coords[attach_name]
-            hint = neighbor_hint.get(attach_name)
-            if hint and hint[0] in source_heavy_coords and hint[1] in source_heavy_coords:
+            # v0.6.7: amber14 template 로부터 attach 의 heavy neighbor hint 조회
+            hint = _get_neighbor_hint(parent_residue, attach_name)
+            if len(hint) >= 2 and hint[0] in source_heavy_coords and hint[1] in source_heavy_coords:
                 ext_coord = _place_extension_atom_sp2(
                     attach_coord,
                     source_heavy_coords[hint[0]],
                     source_heavy_coords[hint[1]],
                     bond_len,
                 )
+            elif len(hint) == 1 and hint[0] in source_heavy_coords:
+                # Single neighbor (e.g., backbone N in internal form has only CA).
+                # For N-alkyl extension (CM on backbone N), compute along the
+                # trans-peptide direction: away from CA, in the backbone plane.
+                # Fallback: place opposite the single neighbor.
+                import numpy as _np
+                a = _np.array(attach_coord, dtype=float)
+                n1 = _np.array(source_heavy_coords[hint[0]], dtype=float)
+                v = a - n1
+                v = v / max(_np.linalg.norm(v), 1e-8)
+                ext_xyz = a + v * bond_len
+                ext_coord = (float(ext_xyz[0]), float(ext_xyz[1]), float(ext_xyz[2]))
             else:
                 raise RuntimeError(
                     f"[ncAA mutate] parent='{parent_residue}' attach="
-                    f"'{attach_name}' 에 대한 _PARENT_NEIGHBOR_HINT 가 없거나 "
-                    f"neighbor 좌표가 불완전. ncaa_mutate.py 의 "
-                    f"_PARENT_NEIGHBOR_HINT 에 항목 추가 필요."
+                    f"'{attach_name}' 에 대한 neighbor hint 획득 실패. "
+                    f"amber14 ff14SB.xml 에 parent 또는 attach atom 이 "
+                    f"정의되어 있는지 확인."
                 )
             last_serial += 1
             ext_line = _make_extension_atom_line(
@@ -591,7 +595,10 @@ def _emit_conect_records_for_mutation(atom_lines, chain_id, res_num, ncaa_def):
         list[str]: CONECT 라인 리스트. 빈 리스트면 parent_residue 미지정.
     """
     parent = getattr(ncaa_def, "parent_residue", None)
-    if not parent or parent not in _PARENT_RESIDUE_BONDS:
+    if not parent:
+        return []
+    bonds = _get_parent_bonds(parent)
+    if not bonds:
         return []
 
     # atom name → serial 매핑 (target 잔기에 한정)
@@ -607,7 +614,7 @@ def _emit_conect_records_for_mutation(atom_lines, chain_id, res_num, ncaa_def):
             continue
         name_to_serial[line[12:16].strip()] = serial
 
-    bonds = list(_PARENT_RESIDUE_BONDS[parent])
+    bonds = list(bonds)
     # Extension atoms 의 attach bond 추가 (예: NE1-CM for MTR)
     for (ext_name, _ext_elem, attach_name, _bond_len) in (getattr(ncaa_def, "extension_atoms", ()) or ()):
         bonds.append((attach_name, ext_name))

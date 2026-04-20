@@ -523,16 +523,29 @@ def _substitute_residue(atom_lines, chain_id, res_num, ncaa_def):
                 f"{chain_id}, resnum {res_num}). MTR 같은 parent-bootstrap ncAA "
                 f"는 source 잔기가 parent 와 동일해야 합니다."
             )
+        # [v0.6.7] Support chained extensions: attach_name may refer to a
+        # previously-placed extension atom (e.g., phosphate O1P attaches to
+        # extension P, not a parent atom). placed_ext_coords tracks them.
+        placed_ext_coords: dict = {}
+        declared_ext_names = {ed[0] for ed in extension_atoms}
         for (ext_name, ext_elem, attach_name, bond_len) in extension_atoms:
-            if attach_name not in source_heavy_coords:
+            if attach_name in source_heavy_coords:
+                attach_coord = source_heavy_coords[attach_name]
+            elif attach_name in placed_ext_coords:
+                attach_coord = placed_ext_coords[attach_name]
+            else:
                 raise RuntimeError(
                     f"[ncAA mutate] extension_atom '{ext_name}' 의 attach "
-                    f"'{attach_name}' 가 source 잔기에 없음. Source 잔기가 "
-                    f"parent '{parent_residue}' 와 일치하는지 확인."
+                    f"'{attach_name}' 가 source 잔기 또는 이전에 배치된 "
+                    f"extension 에 없음. Extension 순서 (root 먼저) 확인 + "
+                    f"parent '{parent_residue}' 일치 확인."
                 )
-            attach_coord = source_heavy_coords[attach_name]
             # v0.6.7: amber14 template 로부터 attach 의 heavy neighbor hint 조회
-            hint = _get_neighbor_hint(parent_residue, attach_name)
+            # (chained extension 의 경우 hint 는 empty — bond extension 로만 fallback)
+            if attach_name in declared_ext_names:
+                hint = ()  # chained: no amber template hint
+            else:
+                hint = _get_neighbor_hint(parent_residue, attach_name)
             if len(hint) >= 2 and hint[0] in source_heavy_coords and hint[1] in source_heavy_coords:
                 ext_coord = _place_extension_atom_sp2(
                     attach_coord,
@@ -552,6 +565,26 @@ def _substitute_residue(atom_lines, chain_id, res_num, ncaa_def):
                 v = v / max(_np.linalg.norm(v), 1e-8)
                 ext_xyz = a + v * bond_len
                 ext_coord = (float(ext_xyz[0]), float(ext_xyz[1]), float(ext_xyz[2]))
+            elif len(hint) == 0:
+                # Chained extension (e.g., phosphate O-P-O tetrahedral).
+                # Place radially outward from attach atom along a canonical
+                # tetrahedral direction, staggered among siblings.
+                import numpy as _np
+                a = _np.array(attach_coord, dtype=float)
+                # Count prior chained siblings already placed
+                siblings_placed = sum(
+                    1 for nm in placed_ext_coords
+                    if any(ed2[0] == nm and ed2[2] == attach_name for ed2 in extension_atoms)
+                )
+                # Tetrahedral vertices around a central atom (unit vectors)
+                tet_dirs = [
+                    (1, 1, 1), (1, -1, -1), (-1, 1, -1), (-1, -1, 1),
+                ]
+                dx, dy, dz = tet_dirs[siblings_placed % 4]
+                v = _np.array([dx, dy, dz], dtype=float)
+                v = v / _np.linalg.norm(v)
+                ext_xyz = a + v * bond_len
+                ext_coord = (float(ext_xyz[0]), float(ext_xyz[1]), float(ext_xyz[2]))
             else:
                 raise RuntimeError(
                     f"[ncAA mutate] parent='{parent_residue}' attach="
@@ -559,6 +592,7 @@ def _substitute_residue(atom_lines, chain_id, res_num, ncaa_def):
                     f"amber14 ff14SB.xml 에 parent 또는 attach atom 이 "
                     f"정의되어 있는지 확인."
                 )
+            placed_ext_coords[ext_name] = ext_coord
             last_serial += 1
             ext_line = _make_extension_atom_line(
                 last_serial, chain_id, res_num, new_res_name_padded,

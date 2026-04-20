@@ -571,14 +571,30 @@ def build_pdb_name_map_via_parent(
 
     # Hydrogens via amber14 template H-to-parent table
     h_table = parent_h_name_table(parent_resname)
-    # Extension H naming convention: H{ext_name_letter}1, H{letter}2, ...
-    # e.g., CM → HM1/HM2/HM3 (MTR pattern, Capece 2012)
+    # Extension H naming: unique per extension atom to avoid collisions.
+    # Convention: "H" + atom_name[1:] for primary H, then + suffix "2"/"3" for
+    # multi-H methyl-like extensions. Examples:
+    #   CM  → HM, HM2, HM3 (methyl 3 H's)  — but amber Trp-methyl is HM1/HM2/HM3,
+    #                                         so for single-letter suffix use old scheme
+    #   O1P → H1P    (hydroxyl 1 H)
+    #   O2P → H2P
+    #   FZ  → (no H, fluorine terminal)
     ext_h_tables: Dict[str, Tuple[str, ...]] = {}
     for gaff_name, pdb_name in ext_map.items():
-        # If extension is CM, H's are HM1/HM2/HM3
-        # If extension is a non-C single atom (e.g., F, O), no H
-        letter = pdb_name[-1] if pdb_name else ""
-        ext_h_tables[gaff_name] = tuple(f"H{letter}{i+1}" for i in range(3))
+        if not pdb_name:
+            continue
+        suffix = pdb_name[1:]  # e.g., "M" for CM, "1P" for O1P, "Z" for FZ/BRZ
+        if not suffix:
+            continue
+        # Methyl-like (3 H's) if extension is sp3 C with 3 H placeholders.
+        # Single-H (hydroxyl) for O-type extensions.
+        # Generate max 3 candidates; caller takes as many as the mol actually has.
+        if len(suffix) == 1:
+            # e.g., CM → HM1/HM2/HM3 (amber convention for methyl on CM)
+            ext_h_tables[gaff_name] = tuple(f"H{suffix}{i+1}" for i in range(3))
+        else:
+            # e.g., O1P → H1P (and if multi-H hypothetically H1Pb, H1Pc)
+            ext_h_tables[gaff_name] = (f"H{suffix}", f"H{suffix}b", f"H{suffix}c")
 
     gaff_to_amber = dict(name_map)
     h_idx: Dict[str, int] = {}

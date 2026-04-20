@@ -391,9 +391,136 @@ def save_snapshots(traj, selected_frames, output_dir, basename):
             f"{basename}_snap{i+1:02d}_f{fidx}.pdb"
         )
         frame.save_pdb(out_pdb)
+        # [v0.6.7] Inject ncAA CONECT so MM-GBSA can template-match the
+        # mutated residue + its flanking peptide bonds. mdtraj's save_pdb
+        # does not emit CONECT for non-standard residues, so we post-patch.
+        _inject_ncaa_conect(out_pdb)
         saved.append(out_pdb)
         print(f"  스냅샷 {i+1:2d}: 프레임 {fidx:5d} → {os.path.basename(out_pdb)}")
     return saved
+
+
+def _inject_ncaa_conect(pdb_path):
+    """Scan the PDB for ncAA residues (non-standard names present in registry)
+    and emit CONECT records for their internal bonds + flanking peptide bonds.
+
+    Required because mdtraj.save_pdb omits CONECT for non-standard residues,
+    and downstream MM-GBSA + ForceField template matching cannot infer bonds
+    at the ncAA boundary (the surrounding standard residues fail "bonds
+    different" if the external peptide bond is missing).
+    """
+    try:
+        import sys as _sys
+        if os.path.dirname(__file__) not in _sys.path:
+            _sys.path.insert(0, os.path.dirname(__file__))
+        from ncaa_registry import NCAA_REGISTRY_DATA  # lazy import
+        from parent_topology import parent_heavy_bonds, parent_h_name_table
+    except Exception:
+        return  # registry unavailable — skip injection
+
+    # Build PDB resname → ncaa_def index for quick lookup
+    pdb_to_def = {d.pdb_resname: d for d in NCAA_REGISTRY_DATA}
+
+    # Read file, locate ncAA residues
+    with open(pdb_path, "r", encoding="utf-8") as f:
+        lines = f.readlines()
+
+    # Map (chain, resnum) → {atom_name: serial}
+    residues = {}
+    # Map serial → (chain, resnum, resname)
+    by_serial = {}
+    for line in lines:
+        if not line.startswith(("ATOM", "HETATM")) or len(line) < 54:
+            continue
+        try:
+            serial = int(line[6:11])
+            resnum = int(line[22:26].strip())
+        except (ValueError, IndexError):
+            continue
+        name = line[12:16].strip()
+        chain = line[21]
+        resname = line[17:20].strip()
+        residues.setdefault((chain, resnum), {})[name] = serial
+        by_serial[serial] = (chain, resnum, resname)
+
+    # Collect existing CONECT pairs
+    existing = set()
+    for line in lines:
+        if line.startswith("CONECT"):
+            parts = line[6:].split()
+            try:
+                s = [int(p) for p in parts]
+            except ValueError:
+                continue
+            for j in range(1, len(s)):
+                existing.add(frozenset((s[0], s[j])))
+
+    new_conect = []
+
+    def _add(s1, s2):
+        if s1 is None or s2 is None:
+            return
+        key = frozenset((s1, s2))
+        if key in existing or s1 == s2:
+            return
+        existing.add(key)
+        new_conect.append(f"CONECT{s1:5d}{s2:5d}\n")
+
+    # For each residue, if its resname is an ncAA in our registry with
+    # parent_residue, emit internal + extension + peptide CONECT.
+    for (chain, resnum), atom_map in residues.items():
+        # Identify resname from serial
+        any_serial = next(iter(atom_map.values()))
+        resname = by_serial[any_serial][2]
+        d = pdb_to_def.get(resname)
+        if d is None or not getattr(d, "parent_residue", None):
+            continue
+        # Parent residue heavy bonds (e.g., TRP canonical bonds for MTR)
+        for a1, a2 in parent_heavy_bonds(d.parent_residue):
+            _add(atom_map.get(a1), atom_map.get(a2))
+        # Extension atom bonds (e.g., NE1-CM for MTR)
+        for (ext_name, _e, attach, _bl) in (getattr(d, "extension_atoms", ()) or ()):
+            _add(atom_map.get(attach), atom_map.get(ext_name))
+        # H-to-heavy bonds from amber14 parent template (HB2 on CB, HD1 on
+        # CD1, etc.) — non-standard residues need CONECT for H's too.
+        for heavy_name, h_names in parent_h_name_table(d.parent_residue).items():
+            for h_name in h_names:
+                _add(atom_map.get(heavy_name), atom_map.get(h_name))
+        # Extension H names (HM1/HM2/HM3 on CM, H1P on O1P, etc.)
+        for (ext_name, _e, _attach, _bl) in (getattr(d, "extension_atoms", ()) or ()):
+            if not ext_name:
+                continue
+            suffix = ext_name[1:]  # e.g., "M" for CM, "1P" for O1P
+            if not suffix:
+                continue
+            candidates = ([f"H{suffix}{i+1}" for i in range(3)]
+                          if len(suffix) == 1 else
+                          [f"H{suffix}", f"H{suffix}b", f"H{suffix}c"])
+            for h in candidates:
+                if h in atom_map:
+                    _add(atom_map.get(ext_name), atom_map.get(h))
+        # External peptide bonds (prev_C→N and C→next_N)
+        prev_map = residues.get((chain, resnum - 1), {})
+        next_map = residues.get((chain, resnum + 1), {})
+        _add(prev_map.get("C"), atom_map.get("N"))
+        _add(atom_map.get("C"), next_map.get("N"))
+
+    if not new_conect:
+        return
+
+    # Insert before END
+    inserted = False
+    new_lines = []
+    for line in lines:
+        if line.startswith("END") and not inserted:
+            new_lines.extend(new_conect)
+            inserted = True
+        new_lines.append(line)
+    if not inserted:
+        new_lines.extend(new_conect)
+
+    with open(pdb_path, "w", encoding="utf-8") as f:
+        f.writelines(new_lines)
 
 
 # ==========================================

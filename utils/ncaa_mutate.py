@@ -648,6 +648,29 @@ def _emit_conect_records_for_mutation(atom_lines, chain_id, res_num, ncaa_def):
             continue
         name_to_serial[line[12:16].strip()] = serial
 
+    # [v0.6.7] External peptide bonds: mutated residue is mid-chain, so the
+    # backbone C must bond to next_residue.N and backbone N must bond to
+    # prev_residue.C. Without these CONECT records, OpenMM templates for the
+    # adjacent standard residues (e.g., VAL3 flanking MTR4) have mismatched
+    # bond patterns and fail template matching.
+    prev_c_serial = None
+    next_n_serial = None
+    for line in atom_lines:
+        if not line.startswith(("ATOM", "HETATM")) or len(line) < 54:
+            continue
+        if line[21] != chain_id:
+            continue
+        try:
+            line_resnum = int(line[22:26].strip())
+            line_serial = int(line[6:11])
+        except ValueError:
+            continue
+        atom_nm = line[12:16].strip()
+        if line_resnum == res_num - 1 and atom_nm == "C":
+            prev_c_serial = line_serial
+        elif line_resnum == res_num + 1 and atom_nm == "N":
+            next_n_serial = line_serial
+
     bonds = list(bonds)
     # Extension atoms 의 attach bond 추가 (예: NE1-CM for MTR)
     for (ext_name, _ext_elem, attach_name, _bond_len) in (getattr(ncaa_def, "extension_atoms", ()) or ()):
@@ -666,6 +689,19 @@ def _emit_conect_records_for_mutation(atom_lines, chain_id, res_num, ncaa_def):
         emitted_pairs.add(key)
         # CONECT 표준: CONECT <serial1> <serial2>  (columns 7-11, 12-16)
         conect_lines.append(f"CONECT{s1:5d}{s2:5d}\n")
+    # v0.6.7: emit external peptide-bond CONECT
+    mutated_n = name_to_serial.get("N")
+    mutated_c = name_to_serial.get("C")
+    if prev_c_serial is not None and mutated_n is not None:
+        key = frozenset((prev_c_serial, mutated_n))
+        if key not in emitted_pairs:
+            emitted_pairs.add(key)
+            conect_lines.append(f"CONECT{prev_c_serial:5d}{mutated_n:5d}\n")
+    if mutated_c is not None and next_n_serial is not None:
+        key = frozenset((mutated_c, next_n_serial))
+        if key not in emitted_pairs:
+            emitted_pairs.add(key)
+            conect_lines.append(f"CONECT{mutated_c:5d}{next_n_serial:5d}\n")
     return conect_lines
 
 

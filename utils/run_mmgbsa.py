@@ -26,6 +26,31 @@ from openmm.app import HBonds  # [v39 FIX — Bug 2] GBn2 enum 더 이상 create
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from utils_common import KNOWN_COFACTORS, parse_pdb_atom_line  # noqa: E402
 
+# [R-17 G6 FIX 2026-04-20] MM-GBSA implicit-solvent createSystem 은 GNP/ATP
+# 등 비표준 cofactor 에 대해 OpenMM ForceField 의 residue template 을 필요로
+# 한다. MD 쪽에서 쓰는 register_cofactor_templates / inject_cofactor_bonds
+# 헬퍼를 재활용하여 동일 패턴으로 해결한다. 모듈 글로벌 변수는 multiprocessing
+# 워커가 자신의 프로세스 공간에만 설정 → race condition 없음.
+_COFACTOR_MOL2_PATHS: list = []
+
+# [Option β, 2026-04-20 — SciVal Verdict 19 + ultrareview]
+# Cyclic peptide HTC / SS bond 는 MD 에서 이미 검증된 helper 함수로 처리.
+# 이전 write_temp_pdb 의 +5Å translation + 합성 OXT hack (F2, dominant ΔG
+# bias 원인) 은 **제거**되었음. 올바른 순서: addHydrogens → trim termini →
+# detect HTC pair (post-trim) → addBond. `residueTemplates` override 없이
+# amber14 의 atom-set + external-bond-count 매칭이 자동으로 mid-chain GLU
+# 템플릿을 선택함 (ultrareview 확증).
+try:
+    from run_restrained_md import (  # noqa: E402
+        detect_head_to_tail_pair,
+        detect_disulfide_pair,
+        _trim_termini_for_htc,
+        commit_bond_if_missing,
+    )
+    _CYCLIC_HELPERS_AVAILABLE = True
+except ImportError:
+    _CYCLIC_HELPERS_AVAILABLE = False
+
 
 # ==========================================
 # GB 반경 Override 테이블
@@ -36,6 +61,20 @@ GB_RADII_OVERRIDE = {
     "Cl": 1.75,
     "F":  1.47,
     "P":  1.80,
+    # [SciVal Verdict 18, 2026-04-20] mbondi2-style extension for divalent
+    # metal ions (Mg/Zn/Ca/Mn/Fe/Cu/Co/Ni). GBn2 (Nguyen 2013) does not
+    # define Born radii for metal cations; these are literature-backed
+    # values (Li-Merz 2014 + Bondi 1964 VDW + SciVal Verdict 18 §4).
+    # Pool-symmetric in ΔG_bind (metal lives only in receptor/complex
+    # pools), so minor radius error cancels in rank ordering.
+    "Mg": 1.18,
+    "Zn": 1.09,
+    "Ca": 1.37,
+    "Mn": 1.13,
+    "Fe": 1.08,
+    "Cu": 1.00,
+    "Co": 1.03,
+    "Ni": 1.00,
 }
 
 GB_SCALE_OVERRIDE = {
@@ -44,6 +83,9 @@ GB_SCALE_OVERRIDE = {
     "Cl": 0.80,
     "F":  0.80,
     "P":  0.86,
+    # [SciVal Verdict 18] Divalent metal ions — GB scale 0.85 (uniform).
+    "Mg": 0.85, "Zn": 0.85, "Ca": 0.85, "Mn": 0.85,
+    "Fe": 0.85, "Cu": 0.85, "Co": 0.85, "Ni": 0.85,
 }
 
 
@@ -51,21 +93,31 @@ GB_SCALE_OVERRIDE = {
 # ==========================================
 # PDB 분리 유틸 — Complex / Receptor / Ligand
 # ==========================================
-# [v39 FIX] implicit/gbn2.xml 은 물·카운터이온 템플릿을 포함하지 않으므로,
-# MM-GBSA 에 투입하기 전에 반드시 제거해야 한다. explicit water 와 단순
-# 카운터이온은 implicit 용매 모델이 연속 매질로 대체한다. 구조적 금속
-# 이온 (MG, ZN, CA 등) 도 현재 implicit FF 에 템플릿이 없어 제거하되,
-# 향후 커스텀 이온 XML 로 복원 가능하도록 별도 카운트를 남긴다.
+# [v39 FIX 2026-04-19] implicit/gbn2.xml 은 물·카운터이온 템플릿을 포함하지
+# 않으므로, MM-GBSA 에 투입하기 전에 반드시 제거해야 한다. explicit water 와
+# 단순 카운터이온은 implicit 용매 모델이 연속 매질로 대체한다.
+# [SciVal Verdict 17/18 ROLLBACK 2026-04-20] 이전 v39 FIX 의 "구조적 금속
+# 이온 제거" 조항은 **literature 위반 (Gohlke-Case 2004, Panteva 2015,
+# Kazemi 2021 모두 Mg 유지)** + F1 root cause (verdict_mmgbsa_rootcause)
+# 로 확인되어 철회한다. Li-Merz 12-6-4 ion XML (amber14/tip3p_HFE_multivalent.xml)
+# 이 OpenMM 기본 탑재 → structural metal 유지, GB radius 는
+# GB_RADII_OVERRIDE 의 mbondi2 extension 이 담당.
 # [v52 FIX] MD 말단 캡핑 잔기. PDBFixer가 MD 안정화를 위해 추가한 것이므로
 # MM-GBSA implicit solvent 계산 전에 제거한다. 이 잔기들은 실제 단백질의
 # 일부가 아니며, implicit/gbn2.xml에 템플릿이 없어 에러를 유발한다.
 _CAP_RESNAMES = {"NME", "ACE", "NHE"}
 
 _MMGBSA_STRIP_RESNAMES = {
-    "HOH", "WAT", "TIP", "TIP3", "SOL",                    # water
-    "NA", "CL", "K", "BR", "IOD",                           # counterions
-    "MG", "ZN", "CA", "FE", "MN", "CU", "CO", "NI",        # structural metals
-    "FE2", "FE3",
+    "HOH", "WAT", "TIP", "TIP3", "SOL",       # water
+    "NA", "CL", "K", "BR", "IOD",              # monovalent counterions
+    # [P0-2 ultrareview 2026-04-20] Crystallographic artifacts (buffer /
+    # cryoprotectant / precipitant) — KNOWN_COFACTORS 에 들어있지만 implicit
+    # GBn2 FF 에 template 없음. Receptor pool 로 routing 되면 createSystem 이
+    # "No template for GOL/EDO/..." 로 silent fail → snapshot drop.
+    "SO4", "PO4", "GOL", "EDO", "PEG", "MPD", "ACT", "IMD",
+    # Structural divalents (MG/ZN/CA/MN/FE/CU/CO/NI/FE2/FE3) DELIBERATELY
+    # NOT stripped — SciVal Verdict 18 winner (Li-Merz 12-6-4 via
+    # amber14/tip3p_HFE_multivalent.xml) provides their templates.
 }
 
 
@@ -97,10 +149,20 @@ def split_complex(pdb_path, receptor_chain="A", binder_chain="B"):
     n_blank_chain = 0
     n_cofactor_to_receptor = 0
     n_stripped = 0
+    # [v0.6.7] Track serial → bucket mapping so CONECT records survive the
+    # split. Without this, external peptide bonds for ncAA residues (e.g.,
+    # VAL3-MTR4 in Cp4) are dropped and OpenMM falls back to residue-name
+    # bond inference, which fails at the ncAA boundary because MTR is not
+    # a standard residue.
+    serial_bucket: dict = {}  # serial -> set of buckets {"complex","receptor","ligand"}
+    conect_raw_lines: list = []
 
     with open(pdb_path, encoding="utf-8") as f:
         for line in f:
             rec = line[:6].strip()
+            if rec == "CONECT":
+                conect_raw_lines.append(line)
+                continue
             if rec not in ("ATOM", "HETATM", "TER", "END"):
                 continue
 
@@ -122,18 +184,56 @@ def split_complex(pdb_path, receptor_chain="A", binder_chain="B"):
                 continue
 
             complex_lines.append(line)
+            try:
+                atom_serial = int(line[6:11])
+            except (ValueError, IndexError):
+                atom_serial = None
+            if atom_serial is not None:
+                serial_bucket.setdefault(atom_serial, set()).add("complex")
 
             if chain == receptor_chain:
                 receptor_lines.append(line)
+                if atom_serial is not None:
+                    serial_bucket[atom_serial].add("receptor")
             elif rec == "HETATM" and resname in KNOWN_COFACTORS:
                 receptor_lines.append(line)
                 n_cofactor_to_receptor += 1
+                if atom_serial is not None:
+                    serial_bucket[atom_serial].add("receptor")
             elif chain == binder_chain:
                 ligand_lines.append(line)
+                if atom_serial is not None:
+                    serial_bucket[atom_serial].add("ligand")
             elif chain == " " or rec == "HETATM":
                 ligand_lines.append(line)
+                if atom_serial is not None:
+                    serial_bucket[atom_serial].add("ligand")
                 if chain == " ":
                     n_blank_chain += 1
+
+    # Filter CONECT lines per bucket: emit only those where ALL referenced
+    # serials are in that bucket (otherwise the bond would point at a removed
+    # atom and PDBFile would fail to parse).
+    def _filter_conect(bucket_name: str) -> list:
+        out = []
+        for cl in conect_raw_lines:
+            parts = cl[6:].split()
+            try:
+                serials = [int(p) for p in parts]
+            except ValueError:
+                continue
+            if not serials:
+                continue
+            if all(bucket_name in serial_bucket.get(s, set()) for s in serials):
+                out.append(cl)
+        return out
+
+    complex_conect  = _filter_conect("complex")
+    receptor_conect = _filter_conect("receptor")
+    ligand_conect   = _filter_conect("ligand")
+    complex_lines.extend(complex_conect)
+    receptor_lines.extend(receptor_conect)
+    ligand_lines.extend(ligand_conect)
 
     if n_stripped > 0:
         print(f"  [split_complex] implicit GB 호환: water/ion/metal {n_stripped}개 원자 제거")
@@ -141,6 +241,8 @@ def split_complex(pdb_path, receptor_chain="A", binder_chain="B"):
         print(f"  [split_complex] 보조인자 {n_cofactor_to_receptor}개 원자를 receptor 풀에 포함 (KNOWN_COFACTORS).")
     if n_blank_chain > 0:
         print(f"  [!] split_complex 경고: chain ID가 공백인 원자 {n_blank_chain}개를 ligand로 분류했습니다.")
+    if conect_raw_lines:
+        print(f"  [split_complex] CONECT: complex={len(complex_conect)}, receptor={len(receptor_conect)}, ligand={len(ligand_conect)} (of {len(conect_raw_lines)} total)")
 
     return complex_lines, receptor_lines, ligand_lines
 
@@ -148,106 +250,61 @@ def split_complex(pdb_path, receptor_chain="A", binder_chain="B"):
 def write_temp_pdb(lines, path):
     """임시 PDB 를 작성한다.
 
-    [v44 FIX] CONECT 레코드를 제거하고, cyclic HTC bond 가 감지되면
-    말단 잔기 좌표를 분리하여 OpenMM 의 자동 결합 검출이 cyclic bond 를
-    형성하지 않도록 한다. 이는 MM-GBSA 에너지 계산에서 cyclic 펩타이드의
-    템플릿 불일치를 방지한다 (amide bond 1.33 Å → auto-bond 검출 문턱 이내).
-    cyclic bond 에너지 기여분은 complex 와 ligand 양쪽에서 동일하게 취급되므로
-    ΔG_bind ranking 에 영향을 주지 않는다.
+    [Option β 2026-04-20] 이전 v44 FIX 의 cyclic HTC disruption hack
+    (+5 Å x-translation + fabricated OXT) 는 F2 root cause 로 확인되어 철회.
+    [v0.6.7] CONECT 제거도 철회 — parent-based ncAA (MTR, SEP, PTR, ...) 는
+    비표준 잔기 경계에서 peptide-bond CONECT 가 필요 (VAL3.C ↔ MTR4.N).
+    split_complex 가 이미 bucket 별 CONECT 를 정확히 분배하므로 그대로 기록.
     """
-    # CONECT 제거 + cyclic HTC 해제
-    cleaned = []
-    atom_lines_by_chain = {}  # chain → list of (idx_in_cleaned, resnum, atom_name, x, y, z)
-    for line in lines:
-        rec = line[:6].strip()
-        if rec == "CONECT":
-            continue
-        cleaned.append(line)
-        if rec in ("ATOM", "HETATM") and len(line) >= 54:
-            chain = line[21:22]
-            try:
-                resnum = int(line[22:26])
-                atom_name = line[12:16].strip()
-                x, y, z = float(line[30:38]), float(line[38:46]), float(line[46:54])
-                atom_lines_by_chain.setdefault(chain, []).append(
-                    (len(cleaned) - 1, resnum, atom_name, x, y, z))
-            except ValueError:
-                pass
-
-    # 각 chain 에서 cyclic N-C contact (< 2.0 Å) 를 감지하고 해제
-    for chain, atoms in atom_lines_by_chain.items():
-        if len(atoms) < 4:
-            continue
-        resnums = sorted({a[1] for a in atoms})
-        if len(resnums) < 2:
-            continue
-        first_res, last_res = resnums[0], resnums[-1]
-        n_info = next(((i, x, y, z) for i, rn, an, x, y, z in atoms
-                       if rn == first_res and an == "N"), None)
-        c_info = next(((i, x, y, z) for i, rn, an, x, y, z in atoms
-                       if rn == last_res and an == "C"), None)
-        if n_info and c_info:
-            _, nx, ny, nz = n_info
-            ci, cx, cy, cz = c_info
-            dist = ((nx - cx)**2 + (ny - cy)**2 + (nz - cz)**2) ** 0.5
-            if dist < 2.0:
-                # cyclic HTC bond 감지 → 마지막 잔기 전체를 5 Å 이동 + OXT 원자 추가.
-                # 이동만으로는 C-terminal OXT 부재로 CGLU 템플릿 불일치가 발생.
-                c_atom = o_atom = ca_atom = None
-                for ai, arn, aan, ax, ay, az in atoms:
-                    if arn == last_res:
-                        old_line = cleaned[ai]
-                        cleaned[ai] = old_line[:30] + f"{ax + 5.0:8.3f}{ay:8.3f}{az:8.3f}" + old_line[54:]
-                        if aan == "C":
-                            c_atom = (ax + 5.0, ay, az)
-                        elif aan == "O":
-                            o_atom = (ax + 5.0, ay, az)
-                        elif aan == "CA":
-                            ca_atom = (ax + 5.0, ay, az)
-
-                # OXT 원자 추가 (C-terminal carboxylate 의 두 번째 산소)
-                # 위치: C 를 중심으로 O 의 반대편, C 에서 1.25 Å
-                if c_atom and o_atom:
-                    dx = c_atom[0] - o_atom[0]
-                    dy = c_atom[1] - o_atom[1]
-                    dz = c_atom[2] - o_atom[2]
-                    d_co = max((dx**2 + dy**2 + dz**2)**0.5, 0.01)
-                    scale = 1.25 / d_co
-                    oxt_x = c_atom[0] + dx * scale
-                    oxt_y = c_atom[1] + dy * scale
-                    oxt_z = c_atom[2] + dz * scale
-                    # 마지막 잔기의 chain/resnum 정보 추출
-                    ref_line = None
-                    for ai, arn, aan, _, _, _ in atoms:
-                        if arn == last_res and aan == "O":
-                            ref_line = cleaned[ai]
-                            break
-                    if ref_line:
-                        serial = len([l for l in cleaned if l[:4] in ("ATOM", "HETA")]) + 1
-                        # PDB ATOM 80-char 정확한 컬럼 포맷
-                        buf = list(" " * 80)
-                        buf[0:6]   = list("ATOM  ")
-                        buf[6:11]  = list(f"{serial:5d}")
-                        buf[12:16] = list(" OXT")
-                        buf[17:20] = list(ref_line[17:20])  # resName
-                        buf[21:22] = list(ref_line[21:22])  # chainID
-                        buf[22:26] = list(ref_line[22:26])  # resSeq
-                        buf[30:38] = list(f"{oxt_x:8.3f}")
-                        buf[38:46] = list(f"{oxt_y:8.3f}")
-                        buf[46:54] = list(f"{oxt_z:8.3f}")
-                        buf[54:60] = list("  1.00")
-                        buf[60:66] = list("  0.00")
-                        buf[76:78] = list(" O")
-                        oxt_line = "".join(buf).rstrip() + "\n"
-                        # 마지막 잔기의 마지막 ATOM 행 바로 뒤에 삽입
-                        last_atom_idx = max(ai for ai, arn, _, _, _, _ in atoms
-                                            if arn == last_res)
-                        cleaned.insert(last_atom_idx + 1, oxt_line)
-
     with open(path, "w", encoding="utf-8") as f:
-        f.writelines(cleaned)
-        if not cleaned or not cleaned[-1].startswith("END"):
+        f.writelines(lines)
+        if not lines or not lines[-1].startswith("END"):
             f.write("END\n")
+
+
+def _apply_cyclic_bonds_mmgbsa(modeller, binder_chain: str = ""):
+    """[Option β] MM-GBSA Complex / Ligand sub-system 에 cyclic peptide
+    HTC 또는 SS bond 를 주입. Receptor sub-system (binder_chain 미포함)
+    에서는 no-op. addHydrogens 직후, createSystem 직전에 호출.
+
+    Args:
+        modeller: OpenMM Modeller (already addHydrogens 된 상태)
+        binder_chain: binder chain id ("B" 기본). 빈 문자열이면 no-op
+            (receptor-only PDB 에서 skip 용).
+
+    Returns:
+        (modeller, cyclic_info_dict)
+    """
+    info = {"htc_formed": False, "ss_formed": False, "binder_chain": binder_chain}
+    if not binder_chain or not _CYCLIC_HELPERS_AVAILABLE:
+        return modeller, info
+
+    # 1. HTC (head-to-tail) 감지 → trim 말단 cap → re-detect → addBond
+    htc_pair = detect_head_to_tail_pair(modeller, binder_chain)
+    if htc_pair:
+        modeller = _trim_termini_for_htc(modeller, binder_chain)
+        htc_pair = detect_head_to_tail_pair(modeller, binder_chain)
+        if htc_pair:
+            is_new = commit_bond_if_missing(modeller.topology, *htc_pair)
+            if is_new:
+                print(f"  [cyclic_htc] binder chain {binder_chain} HTC peptide "
+                      f"bond 주입: {htc_pair[0].residue.name}{htc_pair[0].residue.id}"
+                      f".{htc_pair[0].name} → {htc_pair[1].residue.name}"
+                      f"{htc_pair[1].residue.id}.{htc_pair[1].name}")
+                info["htc_formed"] = True
+
+    # 2. Disulfide bridge (cyclic_ss) 감지
+    try:
+        ss_pair = detect_disulfide_pair(modeller, binder_chain)
+    except RuntimeError:
+        ss_pair = None  # ambiguous disulfide — MD 에서 error, MM-GBSA 는 skip
+    if ss_pair:
+        is_new = commit_bond_if_missing(modeller.topology, *ss_pair)
+        if is_new:
+            print(f"  [cyclic_ss] binder chain {binder_chain} SS bond 주입")
+            info["ss_formed"] = True
+
+    return modeller, info
 
 
 # ==========================================
@@ -277,38 +334,58 @@ def apply_gb_radius_override(system, topology, ncaa_elem,
     elif ncaa_elem and ncaa_elem != "none":
         override_map["Si"] = si_radius  # 하위 호환: Si 단일 인자 경로
 
+    # [P0-1 FIX, ultrareview 2026-04-20] GBn2 (implicit/gbn2.xml) uses
+    # OpenMM's CustomGBForce with per-particle slots:
+    #   params[0] = charge (e)
+    #   params[1] = offset_radius (Born_radius − 0.009 Å  == 0.0009 nm)
+    #   params[2] = scaled_offset_radius (scale * offset_radius)
+    #   params[3] = radius_index_for_Ni (lookup table index)
+    # Writing our Born radius directly into params[1] was OFF-BY-0.009 Å
+    # (small). More critically, writing scale into params[2] without the
+    # `scale × offset_radius` product silently zeroed the atom's GB pair
+    # screening. This patch handles CustomGBForce (isinstance check)
+    # explicitly with the correct offset formula.
+    _GBN2_OFFSET_NM = 0.0009  # Nguyen 2013 offset
     n_overridden = 0
     for force in system.getForces():
         force_type = type(force).__name__
         if "GB" not in force_type and "GBSA" not in force_type:
             continue
+        is_custom_gb = isinstance(force, mm.CustomGBForce)
 
         for atom in topology.atoms():
             elem = atom.element.symbol if atom.element else "C"
-            if elem in override_map:
-                idx = atom.index
+            if elem not in override_map:
+                continue
+            idx = atom.index
+            r_nm = override_map[elem] * 0.1  # Å → nm
+            scale = GB_SCALE_OVERRIDE.get(elem, 0.80)
+            if is_custom_gb:
+                try:
+                    params = list(force.getParticleParameters(idx))
+                    if len(params) >= 3:
+                        offset_r = max(r_nm - _GBN2_OFFSET_NM, 0.01)
+                        params[1] = offset_r
+                        params[2] = scale * offset_r
+                        force.setParticleParameters(idx, params)
+                        n_overridden += 1
+                    else:
+                        print(f"  [!] CustomGBForce unexpected param count "
+                              f"{len(params)} for atom {idx} ({elem})")
+                except Exception as _cgb_err:
+                    print(f"  [!] CustomGBForce param set failed for atom "
+                          f"{idx} ({elem}): {_cgb_err.__class__.__name__}")
+            else:
                 try:
                     # GBSAOBCForce signature: (charge, radius, scale)
-                    charge, radius, scale = force.getParticleParameters(idx)
-                    new_r = override_map[elem] * unit.angstrom
-                    new_s = GB_SCALE_OVERRIDE.get(elem, 0.80)
-                    force.setParticleParameters(idx, charge, new_r, new_s)
+                    charge, _r, _s = force.getParticleParameters(idx)
+                    force.setParticleParameters(
+                        idx, charge, r_nm * unit.nanometer, scale,
+                    )
                     n_overridden += 1
                 except Exception as _obc_err:
-                    # [v35 AUDIT] Principle 1: CustomGBForce fallback retained —
-                    # it is a valid routing for GBn2/CustomGB systems. Principle 5:
-                    # final failure path now logs rather than silently passing, so
-                    # operators can trace GB-radius override misses that corrupt
-                    # ΔG_bind magnitudes for Si/Br/Cl/F-bearing ncAAs.
-                    try:
-                        params = list(force.getParticleParameters(idx))
-                        if len(params) >= 2:
-                            params[1] = override_map[elem] * unit.angstrom
-                            force.setParticleParameters(idx, params)
-                            n_overridden += 1
-                    except Exception as _custom_err:
-                        print(f"  [!] GB radius override failed for atom idx={idx} elem={elem}: "
-                              f"OBC={_obc_err.__class__.__name__}, Custom={_custom_err.__class__.__name__}")
+                    print(f"  [!] GBSAOBCForce param set failed for atom "
+                          f"{idx} ({elem}): {_obc_err.__class__.__name__}")
 
     if n_overridden > 0:
         print(f"  GB 반경 Override: {n_overridden}개 원자 ({ncaa_elem} {override_map.get(ncaa_elem,'?')} Å)")
@@ -318,9 +395,17 @@ def apply_gb_radius_override(system, topology, ncaa_elem,
 # ==========================================
 # 단일 PDB → OpenMM 에너지 계산
 # ==========================================
-def calc_energy(pdb_path, ff, ncaa_elem, si_radius):
+def calc_energy(pdb_path, ff, ncaa_elem, si_radius, binder_chain: str = ""):
     """
     PDB → OpenMM implicit solvent 에너지 (kcal/mol)
+
+    Args:
+        pdb_path: input PDB path
+        ff: OpenMM ForceField (cofactor + metal ion + GBn2 templates registered)
+        ncaa_elem: ncAA key element (e.g., "C")
+        si_radius: Si GB radius Å (legacy)
+        binder_chain: [Option β] Complex / Ligand sub-PDB 의 binder chain id.
+            비어 있으면 cyclic bond 주입 skip (receptor-only path).
     """
     # [v55 FIX] NME/ACE 캡 잔기를 PDB 로드 전에 제거.
     # split_complex에서 이미 필터하지만, 방어적으로 여기서도 필터.
@@ -365,7 +450,29 @@ def calc_energy(pdb_path, ff, ncaa_elem, si_radius):
         # 가 없어서 amber14-all.xml 템플릿과 불일치한다. addHydrogens 는 누락된
         # 말단 원자를 자동으로 추가하여 이 불일치를 해소한다.
         modeller = app.Modeller(pdb.topology, pdb.positions)
-        modeller.addHydrogens(ff)
+        # [R-17 G6 FIX] GNP / ATP 등 비표준 cofactor 는 mol2 connectivity 가
+        # 없으면 GAFFTemplateGenerator 의 graph-isomorphism match 실패 →
+        # "No template found". MD 와 동일 패턴으로 topology 에 결합 주입.
+        if _COFACTOR_MOL2_PATHS:
+            try:
+                from run_restrained_md import inject_cofactor_bonds  # type: ignore
+                inject_cofactor_bonds(modeller, _COFACTOR_MOL2_PATHS)
+            except ImportError:
+                pass
+
+        # [Option β 2026-04-20] Cyclic HTC / SS bond 주입을 **addHydrogens
+        # 이전** 에 수행. MD snapshot 은 이미 H 원자 완비 상태로 저장되므로
+        # addHydrogens 는 불필요 (더구나 cyclic 경계에서 addHydrogens 의
+        # internal createSystem 이 positional N/C-term detection 으로 인해
+        # template match 실패함, ultrareview 확증).
+        if binder_chain:
+            modeller, _cyclic_info = _apply_cyclic_bonds_mmgbsa(modeller, binder_chain)
+            # SKIP addHydrogens — cyclic 경계 template match 실패 방지.
+            # MD snap 에 모든 H 가 이미 있어 no-op 에 가까움.
+        else:
+            # Receptor sub-PDB: cyclic 무관, addHydrogens 안전하게 호출 가능
+            # (혹시 snap 에 결측 H 가 있을 때 보완).
+            modeller.addHydrogens(ff)
 
         system = ff.createSystem(
             modeller.topology,
@@ -382,12 +489,31 @@ def calc_energy(pdb_path, ff, ncaa_elem, si_radius):
     system = apply_gb_radius_override(system, modeller.topology, ncaa_elem, si_radius)
 
     integrator = mm.VerletIntegrator(1.0 * unit.femtoseconds)
-    platform   = mm.Platform.getPlatformByName("CPU")
+    # [2026-04-20] Platform 선택: UPDD_MMGBSA_PLATFORM 환경변수 우선,
+    # 기본값은 CUDA fallback CPU. CPU 만 쓰려면 UPDD_MMGBSA_PLATFORM=CPU
+    # 로 명시. 대형 복합체 (2QKI ~10k 원자) 에서 CPU 는 실용적이지 않음.
+    _pref = os.environ.get("UPDD_MMGBSA_PLATFORM", "CUDA")
+    platform = None
+    for name in (_pref, "CUDA", "OpenCL", "CPU"):
+        try:
+            platform = mm.Platform.getPlatformByName(name)
+            break
+        except Exception:
+            continue
+    if platform is None:
+        platform = mm.Platform.getPlatformByName("CPU")
     sim = Simulation(modeller.topology, system, integrator, platform)
     sim.context.setPositions(modeller.positions)
 
-    # 에너지 최소화 (구조 충돌 방지)
-    sim.minimizeEnergy(maxIterations=500, tolerance=10.0)
+    # [P1 ultrareview 2026-04-20] 500 iter / tol=10 은 large protein
+    # (≥10k atom) receptor 에 완전히 불충분. 2QKI C3c (9896 원자) benchmark
+    # 에서 500 iter 미완료 PE = +76,600 kcal/mol → 5000 iter/tol=1 → -20,768
+    # kcal/mol (정상). 문헌 (Hou 2011, Genheden 2015) 기준 tolerance 0.1-1.0
+    # kJ/mol/nm 필요. 환경변수 UPDD_MMGBSA_MIN_ITER / UPDD_MMGBSA_MIN_TOL
+    # 로 override 가능.
+    _min_iter = int(os.environ.get("UPDD_MMGBSA_MIN_ITER", "5000"))
+    _min_tol = float(os.environ.get("UPDD_MMGBSA_MIN_TOL", "1.0"))
+    sim.minimizeEnergy(maxIterations=_min_iter, tolerance=_min_tol)
 
     state = sim.context.getState(getEnergy=True)
     e_kj  = state.getPotentialEnergy().value_in_unit(unit.kilojoules_per_mole)
@@ -496,14 +622,19 @@ def calc_mmgbsa(pdb_path, output_dir, ff, ncaa_elem, si_radius, receptor_chain="
         write_temp_pdb(ligand_lines,   lig_pdb)
 
         # ── 2. 각 파트 에너지 계산 ──────────────────────────────
+        # [Option β] binder_chain 을 Complex / Ligand 에 전달 → cyclic HTC
+        # peptide bond 가 올바르게 주입됨. Receptor 는 binder 부재 → skip.
         print("  Complex  에너지 계산 중...")
-        e_complex  = calc_energy(cplx_pdb, ff, ncaa_elem, si_radius)
+        e_complex  = calc_energy(cplx_pdb, ff, ncaa_elem, si_radius,
+                                 binder_chain=binder_chain)
 
         print("  Receptor 에너지 계산 중...")
-        e_receptor = calc_energy(recv_pdb, ff, ncaa_elem="none", si_radius=si_radius)
+        e_receptor = calc_energy(recv_pdb, ff, ncaa_elem="none",
+                                 si_radius=si_radius, binder_chain="")
 
         print("  Ligand   에너지 계산 중...")
-        e_ligand   = calc_energy(lig_pdb,  ff, ncaa_elem, si_radius)
+        e_ligand   = calc_energy(lig_pdb,  ff, ncaa_elem, si_radius,
+                                 binder_chain=binder_chain)
 
         # ── 3. ΔG 계산 ──────────────────────────────────────────
         if None in (e_complex, e_receptor, e_ligand):
@@ -554,7 +685,8 @@ def _mmgbsa_worker(worker_args):
     스냅샷을 중단시키지 않도록 예외를 포착하여 None 을 반환한다.
     """
     (pdb_path, outputdir, ff_files, ncaa_xmls, ncaa_hydrogens,
-     ncaa_elem, si_radius, receptor_chain, binder_chain) = worker_args
+     ncaa_elem, si_radius, receptor_chain, binder_chain,
+     cofactor_mol2_paths) = worker_args
     try:
         # ncAA Hydrogens 는 프로세스별로 한 번만 로드
         for h_xml in ncaa_hydrogens:
@@ -566,6 +698,16 @@ def _mmgbsa_worker(worker_args):
             ff = ForceField(*ff_files, *ncaa_xmls)
         except Exception:
             ff = ForceField(*ff_files)
+        # [R-17 G6 FIX] per-process GAFF template registration for cofactors.
+        # Also set module-global so calc_energy can inject bonds per PDB.
+        global _COFACTOR_MOL2_PATHS
+        _COFACTOR_MOL2_PATHS = list(cofactor_mol2_paths or [])
+        if _COFACTOR_MOL2_PATHS:
+            try:
+                from run_restrained_md import register_cofactor_templates  # type: ignore
+                register_cofactor_templates(ff, _COFACTOR_MOL2_PATHS)
+            except ImportError:
+                pass
         return calc_mmgbsa(
             pdb_path, outputdir, ff, ncaa_elem, si_radius, receptor_chain, binder_chain
         )
@@ -587,6 +729,10 @@ def main():
     parser.add_argument("--si_radius", type=float, default=2.10, help="Si GB 반경 Å (기본 2.10)")
     parser.add_argument("--receptor_chain", default="A",     help="Receptor chain ID (기본 A)")
     parser.add_argument("--binder_chain", default="B",       help="Binder chain ID (기본 B)")
+    parser.add_argument("--target_id", default="",
+                        help="[R-17 G6] target_card stem (예: 6WGN). 지정 시 "
+                             "GNP/ATP 등 cofactor GAFF 템플릿을 OpenMM ForceField 에 "
+                             "등록하여 implicit-solvent createSystem 이 성공하도록 한다.")
     args = parser.parse_args()
 
     os.makedirs(args.outputdir, exist_ok=True)
@@ -599,7 +745,16 @@ def main():
     # 올바른 조합은 `amber14-all.xml + implicit/gbn2.xml` 이며, 이 경우
     # createSystem 은 implicitSolvent 인자 없이 GBn2 파라미터를 자동 적용한다.
     # tip3pfb.xml 은 explicit water 정의로 implicit 계산과 무관하므로 제거한다.
-    ff_files  = ["amber14-all.xml", "implicit/gbn2.xml"]
+    # [SciVal Verdict 18, 2026-04-20] Li-Merz 12-6-4 divalent ion FF via
+    # OpenMM-shipped amber14/tip3p_HFE_multivalent.xml. Provides residue
+    # templates + 12-6-4 r⁻⁴ polarization term for Mg/Zn/Ca/Mn/Fe/Cu/Co/Ni.
+    # Mandatory for KRAS-GNP where Mg²⁺ screens the β,γ-phosphate charge
+    # in the receptor pool (v39 FIX metal-strip rollback per verdict §5.3).
+    ff_files  = [
+        "amber14-all.xml",
+        "amber/tip3p_HFE_multivalent.xml",
+        "implicit/gbn2.xml",
+    ]
     # [v55 FIX] manifest 기반 ncAA XML 로딩.
     # 기존 glob("*_resp.xml")은 GAFF2 파라미터화(resp_used=false)일 때
     # NMA_gaff2.xml을 찾지 못해 ForceField에 ncAA 템플릿이 누락되었다.
@@ -633,6 +788,36 @@ def main():
               f"표준 amber14 only 로 폴백합니다 — 결과 해석 시 주의!")
         ff = ForceField(*ff_files)
 
+    # [R-17 G6] Load cofactor mol2 paths from target_card (for workers).
+    cofactor_mol2_paths = []
+    if args.target_id:
+        try:
+            from run_restrained_md import load_cofactor_ff_parameters  # type: ignore
+            from utils_common import load_target_card  # type: ignore
+            _cards_dir = os.path.join(
+                os.path.dirname(os.path.abspath(__file__)),
+                os.pardir, "target_cards",
+            )
+            _card = load_target_card(args.target_id, cards_dir=_cards_dir)
+            cofactor_mol2_paths = [
+                (r, p) for r, p in load_cofactor_ff_parameters(_card)
+                if p.endswith(".mol2")
+            ]
+            if cofactor_mol2_paths:
+                print(f"  [R-17 G6] cofactor mol2 감지: "
+                      f"{[r for r,_ in cofactor_mol2_paths]} — 워커에 전달")
+                # Also register on the main-process ff (for any non-worker paths)
+                try:
+                    from run_restrained_md import register_cofactor_templates  # type: ignore
+                    register_cofactor_templates(ff, cofactor_mol2_paths)
+                    global _COFACTOR_MOL2_PATHS
+                    _COFACTOR_MOL2_PATHS = list(cofactor_mol2_paths)
+                except ImportError:
+                    pass
+        except (FileNotFoundError, ValueError, ImportError) as _tc_err:
+            print(f"  [R-17 G6][WARN] target_card '{args.target_id}' 로드 실패 "
+                  f"({_tc_err}) — cofactor FF 등록 생략")
+
     # final PDB 파일 탐색
     pdb_files = sorted(glob.glob(os.path.join(args.md_dir, "*_final.pdb")))
     if not pdb_files:
@@ -658,6 +843,7 @@ def main():
             pdb_path, args.outputdir,
             list(ff_files), list(ncaa_xmls), list(ncaa_hydrogens),
             args.ncaa_elem, args.si_radius, args.receptor_chain, args.binder_chain,
+            list(cofactor_mol2_paths),
         )
         for pdb_path in pdb_files
     ]

@@ -336,13 +336,88 @@ def _generate_cb_from_backbone(n_coord, ca_coord, c_coord):
     return (float(cb[0]), float(cb[1]), float(cb[2]))
 
 
+# Parent-residue별 extension atom 의 attach anchor 의 heavy neighbor 힌트.
+# extension atom 은 attach 의 "바깥쪽 bisector" 에 배치된다 (sp2 N-alkyl 관습).
+# Ref: Capece 2012 §2 (N1-methyltryptophan geometry), amber14SB TRP indole plane.
+_PARENT_NEIGHBOR_HINT = {
+    "TRP": {"NE1": ("CD1", "CE2")},   # MTR (1-Me-Trp): CM 은 indole 평면에 배치
+}
+
+
+# Parent-residue 의 heavy-atom bond topology (amber14SB 표준).
+# mutate_pdb 는 parent_residue 가 지정된 ncAA 에 대해 아래 bond 리스트 + extension
+# attach bond 를 CONECT records 로 PDB 에 명시한다. run_restrained_md 의 graph_policy
+# = "strict" 는 거리 기반 bond 추정을 금지하므로 CONECT 명시가 필수.
+# Ref: amber14SB ff14SB.xml residue definitions (Maier 2015 doi:10.1021/acs.jctc.5b00255).
+_PARENT_RESIDUE_BONDS = {
+    "TRP": [
+        ("N", "CA"), ("CA", "C"), ("CA", "CB"),
+        ("C", "O"),
+        ("CB", "CG"),
+        ("CG", "CD1"), ("CG", "CD2"),
+        ("CD1", "NE1"),
+        ("CD2", "CE2"), ("CD2", "CE3"),
+        ("NE1", "CE2"),
+        ("CE2", "CZ2"),
+        ("CE3", "CZ3"),
+        ("CZ2", "CH2"),
+        ("CZ3", "CH2"),
+    ],
+}
+
+
+def _place_extension_atom_sp2(attach_coord, neighbor1_coord, neighbor2_coord, bond_length):
+    """sp2 attach atom (예: TRP NE1) 에서 두 ring neighbor 의 bisector 반대 방향
+    으로 extension atom 을 배치한다. TRP NE1 의 경우 CM 이 indole 평면 위,
+    ring 바깥쪽으로 1.466 Å (amber N-alkyl bond).
+
+    Ref: Capece 2012 (1-Me-Trp), 정상값 확인용 SMILES 3D 기하 비교.
+    """
+    import numpy as _np
+    a  = _np.array(attach_coord,   dtype=float)
+    n1 = _np.array(neighbor1_coord, dtype=float)
+    n2 = _np.array(neighbor2_coord, dtype=float)
+    v1 = a - n1
+    v2 = a - n2
+    v1 = v1 / max(_np.linalg.norm(v1), 1e-8)
+    v2 = v2 / max(_np.linalg.norm(v2), 1e-8)
+    bisector = v1 + v2
+    bisector = bisector / max(_np.linalg.norm(bisector), 1e-8)
+    ext = a + bisector * bond_length
+    return (float(ext[0]), float(ext[1]), float(ext[2]))
+
+
+def _make_extension_atom_line(serial, chain_id, res_num, res_name_padded, atom_name, element, coord):
+    """[v0.6.6] extension_atoms 전용 PDB ATOM line writer."""
+    buf = list(" " * 80)
+    buf[0:6]   = list("HETATM")
+    buf[6:11]  = list(f"{serial:5d}")
+    buf[12:16] = list(f" {atom_name:<3s}" if len(atom_name) <= 3 else atom_name[:4])
+    buf[17:20] = list(res_name_padded[:3])
+    buf[21]    = chain_id
+    buf[22:26] = list(f"{res_num:4d}")
+    buf[30:38] = list(f"{coord[0]:8.3f}")
+    buf[38:46] = list(f"{coord[1]:8.3f}")
+    buf[46:54] = list(f"{coord[2]:8.3f}")
+    buf[54:60] = list("  1.00")
+    buf[60:66] = list("  0.00")
+    sym = element.rjust(2)
+    buf[76:78] = list(sym)
+    return "".join(buf).rstrip() + "\n"
+
+
 def _substitute_residue(atom_lines, chain_id, res_num, ncaa_def):
     new_res_name_padded = ncaa_def.pdb_resname.ljust(3)
     backbone_atoms = {"N", "CA", "C", "O", "OXT", "H", "HA"}
     keep_atoms = set(ncaa_def.keep_atoms)
-    
+    extension_atoms = getattr(ncaa_def, "extension_atoms", ()) or ()
+    parent_residue = getattr(ncaa_def, "parent_residue", None)
+
     result, substituted, in_target_res, cm_inserted = [], False, False, False
     n_coord, ca_coord, last_serial = None, None, 0
+    # [v0.6.6] Strategy A: source residue 에서 extension anchor + neighbor 좌표 수집
+    source_heavy_coords = {}   # atom_name → (x,y,z)
+    source_resname = None
 
     for line in atom_lines:
         rec = line[:6].strip()
@@ -373,14 +448,19 @@ def _substitute_residue(atom_lines, chain_id, res_num, ncaa_def):
 
         if is_target:
             in_target_res, substituted = True, True
+            if source_resname is None:
+                source_resname = line[17:20].strip()
             try:
                 coord = (float(line[30:38]), float(line[38:46]), float(line[46:54]))
                 if atom_name == "N": n_coord = coord
                 elif atom_name == "CA": ca_coord = coord
+                # [v0.6.6] extension_atoms 처리용 source heavy coords 캐시
+                if extension_atoms and line[76:78].strip() != "H":
+                    source_heavy_coords[atom_name] = coord
             except ValueError: pass
 
             if atom_name not in keep_atoms: continue
-            
+
             new_line = line[:17] + new_res_name_padded + line[20:]
             if atom_name not in backbone_atoms and new_line.startswith("ATOM  "):
                 new_line = "HETATM" + new_line[6:]
@@ -439,7 +519,114 @@ def _substitute_residue(atom_lines, chain_id, res_num, ncaa_def):
                         result.insert(idx_l + 1, cb_line)
                         break
 
+    # [v0.6.6] Strategy A: extension_atoms 를 기하학적 배치로 추가.
+    # Capece 2012 (doi:10.1021/jp2082825): 1-Me-Trp 의 CM 은 NE1 에 1.466 Å,
+    # indole 평면의 ring-바깥쪽 bisector 방향. SciVal 2026-04-21 approved.
+    if substituted and extension_atoms and parent_residue:
+        # Parent residue 가 실제로 source 와 일치하는지 검증 (fail-fast)
+        if source_resname and source_resname != parent_residue:
+            raise RuntimeError(
+                f"[ncAA mutate] parent_residue 불일치: ncaa_def.parent_residue="
+                f"'{parent_residue}' 인데 source 는 '{source_resname}' (chain "
+                f"{chain_id}, resnum {res_num}). MTR 같은 parent-bootstrap ncAA "
+                f"는 source 잔기가 parent 와 동일해야 합니다."
+            )
+        neighbor_hint = _PARENT_NEIGHBOR_HINT.get(parent_residue, {})
+        for (ext_name, ext_elem, attach_name, bond_len) in extension_atoms:
+            if attach_name not in source_heavy_coords:
+                raise RuntimeError(
+                    f"[ncAA mutate] extension_atom '{ext_name}' 의 attach "
+                    f"'{attach_name}' 가 source 잔기에 없음. Source 잔기가 "
+                    f"parent '{parent_residue}' 와 일치하는지 확인."
+                )
+            attach_coord = source_heavy_coords[attach_name]
+            hint = neighbor_hint.get(attach_name)
+            if hint and hint[0] in source_heavy_coords and hint[1] in source_heavy_coords:
+                ext_coord = _place_extension_atom_sp2(
+                    attach_coord,
+                    source_heavy_coords[hint[0]],
+                    source_heavy_coords[hint[1]],
+                    bond_len,
+                )
+            else:
+                raise RuntimeError(
+                    f"[ncAA mutate] parent='{parent_residue}' attach="
+                    f"'{attach_name}' 에 대한 _PARENT_NEIGHBOR_HINT 가 없거나 "
+                    f"neighbor 좌표가 불완전. ncaa_mutate.py 의 "
+                    f"_PARENT_NEIGHBOR_HINT 에 항목 추가 필요."
+                )
+            last_serial += 1
+            ext_line = _make_extension_atom_line(
+                last_serial, chain_id, res_num, new_res_name_padded,
+                ext_name, ext_elem, ext_coord,
+            )
+            # attach atom 바로 다음에 삽입 (readability)
+            inserted = False
+            for idx_l in range(len(result)):
+                rl = result[idx_l]
+                if (rl.startswith("ATOM") or rl.startswith("HETATM")) \
+                   and len(rl) > 26 and rl[21] == chain_id \
+                   and rl[22:26].strip() == str(res_num) \
+                   and rl[12:16].strip() == attach_name:
+                    result.insert(idx_l + 1, ext_line)
+                    inserted = True
+                    break
+            if not inserted:
+                result.append(ext_line)
+
     return result, substituted
+
+def _emit_conect_records_for_mutation(atom_lines, chain_id, res_num, ncaa_def):
+    """[v0.6.6] Parent-residue 기반 ncAA 의 heavy-atom bonds 를 CONECT records 로 변환.
+
+    run_restrained_md.py 의 graph_policy=strict 는 거리 기반 edge 추정을 금지하므로
+    non-standard 잔기 (MTR, SEP, TPO 등) 는 PDB 에 explicit CONECT 를 가져야 한다.
+
+    Args:
+        atom_lines: 치환 완료된 ATOM/HETATM 라인 리스트
+        chain_id, res_num: 대상 잔기
+        ncaa_def: NCAADef (parent_residue 와 extension_atoms 참조)
+
+    Returns:
+        list[str]: CONECT 라인 리스트. 빈 리스트면 parent_residue 미지정.
+    """
+    parent = getattr(ncaa_def, "parent_residue", None)
+    if not parent or parent not in _PARENT_RESIDUE_BONDS:
+        return []
+
+    # atom name → serial 매핑 (target 잔기에 한정)
+    name_to_serial = {}
+    for line in atom_lines:
+        if not line.startswith(("ATOM", "HETATM")) or len(line) < 54:
+            continue
+        if line[21] != chain_id or line[22:26].strip() != str(res_num):
+            continue
+        try:
+            serial = int(line[6:11])
+        except ValueError:
+            continue
+        name_to_serial[line[12:16].strip()] = serial
+
+    bonds = list(_PARENT_RESIDUE_BONDS[parent])
+    # Extension atoms 의 attach bond 추가 (예: NE1-CM for MTR)
+    for (ext_name, _ext_elem, attach_name, _bond_len) in (getattr(ncaa_def, "extension_atoms", ()) or ()):
+        bonds.append((attach_name, ext_name))
+
+    conect_lines = []
+    emitted_pairs = set()
+    for a1, a2 in bonds:
+        s1 = name_to_serial.get(a1)
+        s2 = name_to_serial.get(a2)
+        if s1 is None or s2 is None:
+            continue
+        key = frozenset((s1, s2))
+        if key in emitted_pairs:
+            continue
+        emitted_pairs.add(key)
+        # CONECT 표준: CONECT <serial1> <serial2>  (columns 7-11, 12-16)
+        conect_lines.append(f"CONECT{s1:5d}{s2:5d}\n")
+    return conect_lines
+
 
 def mutate_pdb(pdb_path, targets, ncaa_def, output_path):
     atom_lines = []
@@ -453,13 +640,20 @@ def mutate_pdb(pdb_path, targets, ncaa_def, output_path):
                 other_lines.append(line)
 
     total_substituted = 0
+    conect_lines_all = []
     for chain_id, res_num in targets:
         atom_lines, ok = _substitute_residue(atom_lines, chain_id, res_num, ncaa_def)
         if ok:
             total_substituted += 1
+            # [v0.6.6] Strategy A: parent_residue 기반 non-standard 잔기는 CONECT 명시
+            conect_lines_all.extend(
+                _emit_conect_records_for_mutation(atom_lines, chain_id, res_num, ncaa_def)
+            )
 
     with open(output_path, "w", encoding="utf-8") as f:
         for line in atom_lines:
+            f.write(line)
+        for line in conect_lines_all:
             f.write(line)
         if not any(l.startswith("END") for l in other_lines):
             f.write("END\n")

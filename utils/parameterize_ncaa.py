@@ -527,6 +527,369 @@ def _build_pdb_name_map(atoms, ncaa_mutation_type) -> dict:
     return name_map
 
 
+# [v0.6.6 Strategy A] MTR amber14SB charge patch table.
+# Source: /openmm/app/data/amber14/protein.ff14SB.xml <Residue name="TRP"> (verified
+# sum = 0.0000). Reference: Maier 2015 doi:10.1021/acs.jctc.5b00255.
+# HE1 (+0.3412) is removed in MTR (methylated); its charge is redistributed to
+# CM + 3×HM with total = +0.3412 so that MTR net charge preserves TRP's 0.0000.
+# NE1 kept at ff14SB value (−0.3418) — local dipole preserved per Capece 2012
+# (doi:10.1021/jp2082825) group-equivalence principle.
+_MTR_AMBER14_CHARGES = {
+    "N":  -0.4157, "H":   0.2719,
+    "CA": -0.0275, "HA":  0.1123,
+    "CB": -0.0050, "HB2": 0.0339, "HB3": 0.0339,
+    "CG": -0.1415,
+    "CD1":-0.1638, "HD1": 0.2062,
+    "NE1":-0.3418,
+    "CE2": 0.1380,
+    "CD2": 0.1243,
+    "CE3":-0.2387, "HE3": 0.1700,
+    "CZ3":-0.1972, "HZ3": 0.1447,
+    "CH2":-0.1134, "HH2": 0.1417,
+    "CZ2":-0.2601, "HZ2": 0.1572,
+    "C":   0.5973, "O":  -0.5679,
+    # Extension atoms (CM + HMs) sum = +0.3412 (replaces removed HE1)
+    # Split: CM carries residual (0.3412 - 3*HM_q), HMs equal.
+    # HM_q = 0.0975 (Capece 2012 indicative; local RESP would refine ±0.05 e).
+    "CM":  0.0487,
+    "HM1": 0.0975, "HM2": 0.0975, "HM3": 0.0975,
+}
+
+
+# [v0.6.6 Strategy A full] amber14 atom type patch table for MTR.
+# amber14 types (from amber14-all.xml AtomTypes block) — replaces GAFF2 types so
+# bonded params (bond/angle/dihedral) at MTR-neighbor junction come from amber14,
+# avoiding Khoury 2013 pure-GAFF2 backbone bias.
+# CM + HMs use amber14 CT/HC (sp3 C methyl on aromatic N) so all bonds are amber14.
+# Ref: Maier 2015 (doi:10.1021/acs.jctc.5b00255) TRP <Residue> ff14SB atom types.
+_MTR_AMBER14_TYPES = {
+    "N":   "protein-N",   "H":   "protein-H",
+    "CA":  "protein-CX",  "HA":  "protein-H1",
+    "CB":  "protein-CT",  "HB2": "protein-HC", "HB3": "protein-HC",
+    "CG":  "protein-C*",
+    "CD1": "protein-CW",  "HD1": "protein-H4",
+    "NE1": "protein-NA",
+    "CE2": "protein-CN",
+    "CD2": "protein-CB",
+    "CE3": "protein-CA",  "HE3": "protein-HA",
+    "CZ3": "protein-CA",  "HZ3": "protein-HA",
+    "CH2": "protein-CA",  "HH2": "protein-HA",
+    "CZ2": "protein-CA",  "HZ2": "protein-HA",
+    "C":   "protein-C",   "O":   "protein-O",
+    # CM/HMs: use amber14 CT/HC so NE1(NA)-CM(CT) bond param is found in amber14.
+    # amber14 has NA-CT (nucleic acid: ribose-base N-C bond) and CT-HC (alkyl).
+    "CM":  "protein-CT",
+    "HM1": "protein-HC",  "HM2": "protein-HC", "HM3": "protein-HC",
+}
+
+
+def _apply_mtr_amber14_charge_patch(xml_path: str) -> bool:
+    """[v0.6.6 Strategy A] Replace MTR atom charges with amber14SB TRP values.
+
+    Fixes pure-GAFF2 backbone bias (Khoury 2013 §2.3): GAFF2 assigns terminal-amine
+    charges (e.g., N=−0.89) to backbone N, causing NVT electrostatic explosion when
+    placed adjacent to amber14 internal amides (−0.42).
+
+    Side effect: removes spurious HX1 atom (2nd backbone H from capped SMILES's
+    free-amine N-terminus, invalid for internal residue).
+
+    Args:
+        xml_path: MTR_gaff2.xml path (in-place modification).
+
+    Returns:
+        bool: True if any atom was patched.
+    """
+    if not os.path.exists(xml_path):
+        return False
+    tree = ET.parse(xml_path)
+    root = tree.getroot()
+    modified = False
+
+    for res in root.iter("Residue"):
+        if res.get("name") not in ("MTR", "NMTR", "CMTR"):
+            continue
+        # Remove spurious HX1 atom + its bonds (before charge patch)
+        for atom in list(res.findall("Atom")):
+            if atom.get("name") == "HX1":
+                res.remove(atom)
+                modified = True
+                for bond in list(res.findall("Bond")):
+                    if "HX1" in (bond.get("atomName1"), bond.get("atomName2")):
+                        res.remove(bond)
+        # Patch charges + types (Strategy A full)
+        atom_names = set()
+        for atom in res.findall("Atom"):
+            name = atom.get("name")
+            atom_names.add(name)
+            if name in _MTR_AMBER14_CHARGES:
+                old_q = atom.get("charge")
+                new_q = _MTR_AMBER14_CHARGES[name]
+                if abs(float(old_q) - new_q) > 1e-5:
+                    atom.set("charge", f"{new_q:.4f}")
+                    modified = True
+            if name in _MTR_AMBER14_TYPES:
+                old_type = atom.get("type")
+                new_type = _MTR_AMBER14_TYPES[name]
+                if old_type != new_type:
+                    atom.set("type", new_type)
+                    modified = True
+        # Sanity: compute net charge sum for MTR variant
+        total = sum(float(a.get("charge", 0)) for a in res.findall("Atom"))
+        log.info(
+            f"[amber14 patch] {res.get('name')}: net charge = {total:+.4f} "
+            f"(expected ~0 for internal; HXT adds +0.4 for CMTR)"
+        )
+
+    # [v0.6.6 Strategy A] Inject cross-force-field bridge bonded params at CM-NE1 junction.
+    # amber14 ff14SB has no protein-CT↔protein-NA bond (TRP NE1 is only bonded to
+    # CW/CN in native Trp). Methylated NE1 (MTR) requires CT-NA bond param for
+    # Modeller.createSystem. We use DNA.OL15 CT-N* values (same chemical motif:
+    # sp3 methyl C to aromatic N-alkyl in nucleic acid methylation).
+    # Ref: DNA.OL15 CT-N* (amber14/DNA.OL15.xml) — 5-methylcytosine methyl model.
+    if modified:
+        # Find or create HarmonicBondForce block
+        bond_force = root.find("HarmonicBondForce")
+        if bond_force is None:
+            bond_force = ET.SubElement(root, "HarmonicBondForce")
+        existing_bond_keys = {
+            frozenset((b.get("type1"), b.get("type2")))
+            for b in bond_force.findall("Bond")
+        }
+        bridge_bond = ("protein-CT", "protein-NA")
+        if frozenset(bridge_bond) not in existing_bond_keys:
+            ET.SubElement(bond_force, "Bond", {
+                "type1": "protein-CT", "type2": "protein-NA",
+                "length": "0.1475", "k": "282001.6",
+            })
+        # HarmonicAngleForce: HC-CT-NA, CT-NA-CW, CT-NA-CN
+        angle_force = root.find("HarmonicAngleForce")
+        if angle_force is None:
+            angle_force = ET.SubElement(root, "HarmonicAngleForce")
+        existing_angle_keys = {
+            (a.get("type1"), a.get("type2"), a.get("type3"))
+            for a in angle_force.findall("Angle")
+        }
+        bridge_angles = [
+            # From DNA.OL15 H1-CT-N* (same tetrahedral sp3 geometry):
+            ("protein-HC", "protein-CT", "protein-NA", "1.9111355309", "418.40"),
+            # From DNA.OL15 CB-N*-CT: 5-ring junction (CW equivalent):
+            ("protein-CT", "protein-NA", "protein-CW", "2.1956241990", "585.76"),
+            # From DNA.OL15 CM-N*-CT: 5-6 ring junction (CN equivalent):
+            ("protein-CT", "protein-NA", "protein-CN", "2.1153390534", "585.76"),
+        ]
+        for t1, t2, t3, angle_rad, k in bridge_angles:
+            key = (t1, t2, t3)
+            key_rev = (t3, t2, t1)
+            if key not in existing_angle_keys and key_rev not in existing_angle_keys:
+                ET.SubElement(angle_force, "Angle", {
+                    "type1": t1, "type2": t2, "type3": t3,
+                    "angle": angle_rad, "k": k,
+                })
+        tree.write(xml_path)
+    return modified
+
+
+def _build_pdb_name_map_trp_bootstrap(atoms) -> dict:
+    """[v0.6.6 Strategy A] MTR (1-Me-Trp) 전용 GAFF2 → amber14 PDB 원자명 매핑.
+
+    구현 배경 (Capece 2012 §2 doi:10.1021/jp2082825, Khoury 2014 §2.3):
+    - MTR 은 amber14 TRP scaffold 에 N1-methyl 확장. 모든 backbone + indole
+      heavy atom 은 amber14 TRP 의 표준 원자명을 갖고, CM 은 NE1 에 부착된
+      methyl C. 이 함수는 GAFF2 mol2 의 atom graph 를 걸어 amber14 호환
+      이름을 산출한다.
+    - ncAA_mutate 에서 source TRP 의 sidechain 을 보존했고, CM 을 NE1 의
+      ring-바깥쪽 bisector 에 배치했으므로, PDB 측은 amber14 네이밍 완료 상태.
+      본 함수는 XML 측도 동일 네이밍으로 매핑해 OpenMM 템플릿 매칭 성공 보장.
+
+    Args:
+        atoms: parmed Atom 객체 리스트 (capped MTR mol2)
+
+    Returns:
+        dict: {gaff2_name: pdb_name} 매핑. 빈 dict → 매핑 실패 (수용 불가).
+    """
+    heavy = [a for a in atoms if a.atomic_number > 1]
+    name_map: dict = {}
+
+    def heavy_neighbors(atom):
+        return [
+            (b.atom1 if b.atom2 is atom else b.atom2)
+            for b in atom.bonds
+            if (b.atom1 if b.atom2 is atom else b.atom2).atomic_number > 1
+        ]
+
+    # 1. Backbone N: CA 이웃이 3개 heavy neighbor (N, C, CB) 를 갖고,
+    #    그 중 하나는 O 를 이웃으로 갖는 (C=O) 를 찾는다.
+    backbone_n = None
+    for n in [a for a in heavy if a.atomic_number == 7]:
+        for nb in heavy_neighbors(n):
+            if nb.atomic_number != 6:
+                continue
+            nb_heavy = heavy_neighbors(nb)
+            if len(nb_heavy) < 3:
+                continue
+            has_carbonyl = any(
+                x.atomic_number == 6 and any(y.atomic_number == 8 for y in heavy_neighbors(x))
+                for x in nb_heavy
+            )
+            if has_carbonyl:
+                backbone_n = n
+                name_map[n.name] = "N"
+                name_map[nb.name] = "CA"
+                ca_atom = nb
+                break
+        if backbone_n is not None:
+            break
+    if backbone_n is None:
+        return {}
+
+    ca_atom = next((a for a in heavy if a.name == name_map.get(next((n for n, v in name_map.items() if v == "CA"), ""))), None)
+    # Re-resolve ca_atom via name_map
+    ca_atom = None
+    for a in heavy:
+        if name_map.get(a.name) == "CA":
+            ca_atom = a
+            break
+    if ca_atom is None:
+        return {}
+
+    # 2. CA 에서 C (carbonyl), CB 분리
+    c_atom = cb_atom = None
+    for nbr in heavy_neighbors(ca_atom):
+        if nbr is backbone_n or nbr.name in name_map:
+            continue
+        if nbr.atomic_number != 6:
+            continue
+        if any(x.atomic_number == 8 for x in heavy_neighbors(nbr)):
+            name_map[nbr.name] = "C"
+            c_atom = nbr
+        else:
+            name_map[nbr.name] = "CB"
+            cb_atom = nbr
+    if c_atom is None or cb_atom is None:
+        return {}
+
+    # 3. C → O, OXT (free acid 용) 분리
+    for o in heavy_neighbors(c_atom):
+        if o.atomic_number != 8:
+            continue
+        has_h = any((b.atom1 if b.atom2 is o else b.atom2).atomic_number == 1 for b in o.bonds)
+        name_map[o.name] = "OXT" if has_h else "O"
+
+    # 4. CB → CG (sp2 aromatic C with 3 heavy neighbors)
+    cg_atom = None
+    for nbr in heavy_neighbors(cb_atom):
+        if nbr is ca_atom or nbr.name in name_map:
+            continue
+        if nbr.atomic_number == 6 and len(heavy_neighbors(nbr)) >= 3:
+            name_map[nbr.name] = "CG"
+            cg_atom = nbr
+            break
+    if cg_atom is None:
+        return {}
+
+    # 5. CG 의 2개 aromatic C neighbor (CB 제외): CD1 (→ NE1 N), CD2 (→ aromatic C 링 junction)
+    cd1_atom = cd2_atom = None
+    ne1_atom = None
+    for nbr in heavy_neighbors(cg_atom):
+        if nbr is cb_atom or nbr.name in name_map:
+            continue
+        if nbr.atomic_number != 6:
+            continue
+        nbr_heavy_N = [x for x in heavy_neighbors(nbr) if x.atomic_number == 7]
+        if nbr_heavy_N:
+            cd1_atom = nbr
+            ne1_atom = nbr_heavy_N[0]
+            name_map[nbr.name] = "CD1"
+            name_map[ne1_atom.name] = "NE1"
+        else:
+            cd2_atom = nbr
+            name_map[nbr.name] = "CD2"
+    if cd1_atom is None or cd2_atom is None or ne1_atom is None:
+        return {}
+
+    # 6. NE1 의 나머지 heavy neighbor: CE2 (5-ring 완성) + CM (methyl — MTR 전용)
+    ce2_atom = cm_atom = None
+    for nbr in heavy_neighbors(ne1_atom):
+        if nbr is cd1_atom or nbr.name in name_map:
+            continue
+        if nbr.atomic_number != 6:
+            continue
+        nbr_heavy = heavy_neighbors(nbr)
+        if len(nbr_heavy) == 1:
+            # only NE1 as heavy neighbor → sp3 CH3 methyl
+            cm_atom = nbr
+            name_map[nbr.name] = "CM"
+        else:
+            # aromatic ring junction
+            ce2_atom = nbr
+            name_map[nbr.name] = "CE2"
+    if ce2_atom is None:
+        return {}
+
+    # 7. CE2 → CZ2 (aromatic CH in 6-ring, neighbor not in {NE1, CD2})
+    for nbr in heavy_neighbors(ce2_atom):
+        if nbr is ne1_atom or nbr is cd2_atom or nbr.name in name_map:
+            continue
+        if nbr.atomic_number == 6:
+            name_map[nbr.name] = "CZ2"
+
+    # 8. CD2 → CE3 (aromatic CH in 6-ring, neighbor not in {CG, CE2})
+    ce3_atom = None
+    for nbr in heavy_neighbors(cd2_atom):
+        if nbr is cg_atom or nbr is ce2_atom or nbr.name in name_map:
+            continue
+        if nbr.atomic_number == 6:
+            name_map[nbr.name] = "CE3"
+            ce3_atom = nbr
+
+    # 9. CE3 → CZ3
+    cz3_atom = None
+    if ce3_atom is not None:
+        for nbr in heavy_neighbors(ce3_atom):
+            if nbr is cd2_atom or nbr.name in name_map:
+                continue
+            if nbr.atomic_number == 6:
+                name_map[nbr.name] = "CZ3"
+                cz3_atom = nbr
+
+    # 10. CZ3 → CH2
+    if cz3_atom is not None:
+        for nbr in heavy_neighbors(cz3_atom):
+            if nbr is ce3_atom or nbr.name in name_map:
+                continue
+            if nbr.atomic_number == 6:
+                name_map[nbr.name] = "CH2"
+
+    # 11. H 원자 명명: 부모 heavy atom PDB 이름 기반.
+    H_NAME_TABLE = {
+        "N":   ["H"],                 # amide H (backbone)
+        "CA":  ["HA"],
+        "CB":  ["HB2", "HB3"],
+        "CD1": ["HD1"],
+        "CM":  ["HM1", "HM2", "HM3"],
+        "CE3": ["HE3"],
+        "CZ2": ["HZ2"],
+        "CZ3": ["HZ3"],
+        "CH2": ["HH2"],
+        "OXT": ["HXT"],
+    }
+    h_idx: dict = {}
+    for atom in atoms:
+        if atom.atomic_number != 1:
+            continue
+        parents = [b.atom1 if b.atom2 is atom else b.atom2 for b in atom.bonds]
+        if not parents:
+            continue
+        pname = name_map.get(parents[0].name)
+        if pname in H_NAME_TABLE:
+            idx = h_idx.get(pname, 0)
+            tbl = H_NAME_TABLE[pname]
+            name_map[atom.name] = tbl[idx] if idx < len(tbl) else f"HX{idx}"
+            h_idx[pname] = idx + 1
+
+    return name_map
+
+
 def _apply_name_map_to_xml(xml_path: str, name_map: dict) -> bool:
     """[v3 5-1] XML 파일 내 원자명을 name_map 에 따라 일괄 치환한다.
 
@@ -552,18 +915,27 @@ def _apply_name_map_to_xml(xml_path: str, name_map: dict) -> bool:
     return True
 
 
-def _rename_xml_to_pdb_names(xml_path: str, mol2_path: str, ncaa_code: str, ncaa_mutation_type: str) -> bool:
-    """[v3 5-1] _build_pdb_name_map + _apply_name_map_to_xml 의 얇은 오케스트레이터.
+def _rename_xml_to_pdb_names(xml_path: str, mol2_path: str, ncaa_code: str,
+                             ncaa_mutation_type: str, ncaa_def=None) -> bool:
+    """[v3 5-1 | v0.6.6 ext] _build_pdb_name_map + _apply_name_map_to_xml 의 얇은 오케스트레이터.
 
-    기존 인터페이스(인자, 반환값)를 그대로 유지하여 frcmod_to_openmm_xml 의
-    호출부 변경 없이 동작한다.
+    기존 인터페이스(인자, 반환값)를 그대로 유지하되, v0.6.6 에서 ncaa_def
+    을 선택적으로 받아 STANDARD + parent_residue 경우 parent-bootstrap 경로
+    (예: MTR → _build_pdb_name_map_trp_bootstrap) 를 선택한다.
     """
-    if not HAS_PARMED or ncaa_mutation_type != "N-M":
+    if not HAS_PARMED:
+        return False
+    # parent_residue 기반 dispatch (v0.6.6 Strategy A)
+    parent_residue = getattr(ncaa_def, "parent_residue", None) if ncaa_def else None
+    if ncaa_mutation_type != "N-M" and parent_residue is None:
         return False
     try:
         mol2_obj = pmd.load_file(mol2_path)
         atoms = list(list(mol2_obj.to_library().values())[0].atoms) if isinstance(mol2_obj, pmd.modeller.ResidueTemplateContainer) else list(mol2_obj.residues[0].atoms) if hasattr(mol2_obj, "residues") else list(mol2_obj.atoms)
-        name_map = _build_pdb_name_map(atoms, ncaa_mutation_type)
+        if parent_residue == "TRP":
+            name_map = _build_pdb_name_map_trp_bootstrap(atoms)
+        else:
+            name_map = _build_pdb_name_map(atoms, ncaa_mutation_type)
         if not name_map:
             return False
         return _apply_name_map_to_xml(xml_path, name_map)
@@ -795,7 +1167,7 @@ def _postprocess_xml_for_internal_residue(xml_path: str, res_name: str) -> bool:
     return modified
 
 
-def frcmod_to_openmm_xml(mol2_path, frcmod_path, output_xml, res_name, ncaa_mutation_type, resp_result=None):
+def frcmod_to_openmm_xml(mol2_path, frcmod_path, output_xml, res_name, ncaa_mutation_type, resp_result=None, ncaa_def=None):
     if not HAS_PARMED:
         return {"HarmonicBondForce"}
     if resp_result:
@@ -805,13 +1177,29 @@ def frcmod_to_openmm_xml(mol2_path, frcmod_path, output_xml, res_name, ncaa_muta
     ff = pmd.openmm.OpenMMParameterSet.from_structure(struct)
     tmpl = pmd.modeller.ResidueTemplate.from_residue(struct.residues[0])
     tmpl.name, tmpl.head, tmpl.tail = res_name, None, None
+    # [v0.6.6 FIX] parent_residue 기반 ncAA (MTR 등) 는 residue 에 backbone 외
+    # sidechain N 이 추가로 존재 (MTR: NE1). 단순 "첫 N" 선택은 NE1 을 head 로
+    # 잘못 picking 하여 spurious ExternalBond 발생. parent-bootstrap rename map
+    # 을 먼저 계산하여 backbone N/C 를 지정한다.
+    parent_residue = getattr(ncaa_def, "parent_residue", None) if ncaa_def else None
+    pre_name_map = {}
+    if parent_residue == "TRP":
+        pre_name_map = _build_pdb_name_map_trp_bootstrap(list(tmpl.atoms))
     for atom in tmpl.atoms:
-        if atom.atomic_number == 7 and tmpl.head is None:
+        mapped = pre_name_map.get(atom.name)
+        if mapped == "N":
             tmpl.head = atom
-        elif atom.atomic_number == 6 and tmpl.tail is None and any(
-            (b.atom1 if b.atom2 is atom else b.atom2).atomic_number == 8 for b in atom.bonds
-        ):
+        elif mapped == "C":
             tmpl.tail = atom
+    if tmpl.head is None and tmpl.tail is None:
+        # Fall back to legacy first-N/carbonyl-C heuristic (non-bootstrap ncAAs)
+        for atom in tmpl.atoms:
+            if atom.atomic_number == 7 and tmpl.head is None:
+                tmpl.head = atom
+            elif atom.atomic_number == 6 and tmpl.tail is None and any(
+                (b.atom1 if b.atom2 is atom else b.atom2).atomic_number == 8 for b in atom.bonds
+            ):
+                tmpl.tail = atom
     ff.residues[res_name] = tmpl
     ff.write(output_xml)
 
@@ -819,7 +1207,7 @@ def frcmod_to_openmm_xml(mol2_path, frcmod_path, output_xml, res_name, ncaa_muta
     # 실패 시 XML 내부 원자명 목록을 로그로 출력하여 downstream addHydrogens 실패
     # 진단을 돕는다. STANDARD mutation type 은 현재 rename 대상이 아니므로 (N-M 에만
     # 수행) 이 경로에서도 원자명 로그만 남겨 운영자가 XML 상태를 확인할 수 있게 한다.
-    renamed = _rename_xml_to_pdb_names(output_xml, mol2_path, res_name, ncaa_mutation_type)
+    renamed = _rename_xml_to_pdb_names(output_xml, mol2_path, res_name, ncaa_mutation_type, ncaa_def=ncaa_def)
     if not renamed:
         log.warning(
             f"[XML Rename] GAFF2→PDB 원자명 변환 스킵 또는 실패 "
@@ -840,6 +1228,11 @@ def frcmod_to_openmm_xml(mol2_path, frcmod_path, output_xml, res_name, ncaa_muta
     # 본 호출은 {RES} 잔기명만 필터링하므로 위에서 추가된 N{RES}/C{RES} 는
     # 영향받지 않는다.
     _postprocess_xml_for_internal_residue(output_xml, res_name)
+
+    # NOTE: amber14SB TRP type+charge patch is applied AFTER _emit_hydrogen_definitions
+    # in main() — running it here would break hydrogen inference because
+    # _emit_hydrogen_definitions resolves element via <AtomTypes> which doesn't contain
+    # amber14 'protein-*' types. See main() for the correct ordering.
 
     return set()
 
@@ -915,7 +1308,7 @@ def main():
         _mol_to_xyz(mol_free, xyz_free)
         resp_result = run_pyscf_resp(xyz_free, ncaa_def.formal_charge)
 
-    frcmod_to_openmm_xml(mol2, frcmod, xml_out, res_name, ncaa_def.mutation_type, resp_result)
+    frcmod_to_openmm_xml(mol2, frcmod, xml_out, res_name, ncaa_def.mutation_type, resp_result, ncaa_def=ncaa_def)
 
     # [v36 CRITICAL FIX-2] Hydrogen Definitions XML 생성 — addHydrogens 가
     # ncAA 잔기에 수소를 추가하기 위해 필요. 본 파일이 부재하면 downstream
@@ -923,6 +1316,36 @@ def main():
     # mismatch 로 createSystem 에서 실패한다.
     hyd_out = os.path.join(args.outputdir, f"{res_name}_hydrogens.xml")
     _emit_hydrogen_definitions(xml_out, res_name, hyd_out)
+
+    # [v0.6.6 Strategy A] amber14SB TRP type+charge patch for MTR (parent_residue=TRP).
+    # 핵심: hydrogen definitions 생성 뒤에 실행해야 함 (_emit_hydrogen_definitions
+    # 는 <AtomTypes> 블록으로 element 추론하는데 amber14 'protein-*' type 은
+    # MTR_gaff2.xml 에 정의되지 않아 lookup 실패 → H entries 누락).
+    # Fixes Khoury 2013 §2.3 pure-GAFF2 backbone bias.
+    # Ref: Capece 2012 doi:10.1021/jp2082825, Maier 2015 doi:10.1021/acs.jctc.5b00255.
+    parent_residue = getattr(ncaa_def, "parent_residue", None)
+    # [v0.6.6 Strategy A] amber14 type+charge patch is OPT-IN via UPDD_MTR_AMBER14_PATCH=1.
+    # Default OFF: pure GAFF2 pipeline works reliably through template matching + graph
+    # isomorphism; NVT warmup may fail for bonded param inconsistency at cross-force-field
+    # junction (fix pending — requires full dihedral/improper param addition).
+    # Default ON would require complete hybrid force-field engineering (see UPDATE.md).
+    if parent_residue == "TRP" and os.environ.get("UPDD_MTR_AMBER14_PATCH") == "1":
+        patched = _apply_mtr_amber14_charge_patch(xml_out)
+        if patched:
+            log.info(f"[amber14 patch] {res_name}: amber14SB TRP type+charge overlay applied (opt-in)")
+        # hydrogens.xml 도 HX1 제거 (MTR template 에서 제거된 spurious 2nd amide H)
+        if os.path.exists(hyd_out):
+            hyd_tree = ET.parse(hyd_out)
+            hyd_root = hyd_tree.getroot()
+            removed = 0
+            for res in hyd_root.findall("Residue"):
+                for h in list(res.findall("H")):
+                    if h.get("name") == "HX1":
+                        res.remove(h)
+                        removed += 1
+            if removed:
+                hyd_tree.write(hyd_out, xml_declaration=True, encoding="utf-8")
+                log.info(f"[amber14 patch] {res_name}_hydrogens.xml: HX1 × {removed} 제거")
 
     write_manifest(
         args.outputdir, args, ncaa_def, xml_out,

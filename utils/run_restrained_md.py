@@ -122,6 +122,239 @@ def build_structural_ion_names(target_card):
     return out
 
 
+def _parse_mol2_bonds(mol2_path):
+    """Parse a Tripos .mol2 file and return:
+        atom_names : list of atom-name strings in ATOM-section order
+        bonds      : list of (idx_a, idx_b) 0-indexed pairs into ``atom_names``.
+
+    No chemistry validation — just structural connectivity for topology
+    injection.
+    """
+    atom_names = []
+    bonds = []
+    section = None
+    with open(mol2_path, "r", encoding="utf-8", errors="ignore") as f:
+        for line in f:
+            s = line.strip()
+            if s.startswith("@<TRIPOS>"):
+                section = s.split(">", 1)[1].strip().upper()
+                continue
+            if not s or s.startswith("#"):
+                continue
+            parts = s.split()
+            if section == "ATOM" and len(parts) >= 6:
+                atom_names.append(parts[1])
+            elif section == "BOND" and len(parts) >= 4:
+                try:
+                    i = int(parts[1]) - 1
+                    j = int(parts[2]) - 1
+                    if 0 <= i < len(atom_names) and 0 <= j < len(atom_names):
+                        bonds.append((i, j))
+                except ValueError:
+                    continue
+    return atom_names, bonds
+
+
+def inject_cofactor_bonds(modeller, cofactor_mol2_paths):
+    """[R-17 G4] Inject cofactor bonds into a Modeller topology from mol2.
+
+    When a cofactor residue (e.g. GNP) comes from a plain PDB, OpenMM's
+    topology has its atoms but no bonds — because the residue is not in the
+    standard amber14 template set. ``GAFFTemplateGenerator`` relies on
+    graph isomorphism between the topology subgraph and its registered
+    OpenFF ``Molecule``; without bonds the match fails with "Did not
+    recognize residue <resname>".
+
+    This helper pre-populates bonds for declared cofactor residues using
+    the reference mol2 connectivity shipped by G3. Atom matching is by
+    name (antechamber preserves PDB atom names through -rn/mol2).
+    Idempotent — re-invocations skip already-present bonds.
+
+    Returns the number of bonds injected.
+    """
+    if not cofactor_mol2_paths:
+        return 0
+    n_injected = 0
+    ref_bonds_by_resname = {}
+    for resname, mol2_path in cofactor_mol2_paths:
+        try:
+            atom_names, bonds = _parse_mol2_bonds(mol2_path)
+        except (OSError, ValueError) as _err:
+            print(f"  [R-17 G4][WARN] {resname} mol2 bond parse 실패 ({_err})")
+            continue
+        if not atom_names or not bonds:
+            continue
+        ref_bonds_by_resname[resname.upper()] = (atom_names, bonds)
+
+    if not ref_bonds_by_resname:
+        return 0
+
+    existing = {(min(b.atom1.index, b.atom2.index),
+                 max(b.atom1.index, b.atom2.index))
+                for b in modeller.topology.bonds()}
+    for residue in modeller.topology.residues():
+        rn = (residue.name or "").upper()
+        if rn not in ref_bonds_by_resname:
+            continue
+        atom_names, bonds = ref_bonds_by_resname[rn]
+        name_to_atom = {a.name: a for a in residue.atoms()}
+        for i, j in bonds:
+            if i >= len(atom_names) or j >= len(atom_names):
+                continue
+            ai = name_to_atom.get(atom_names[i])
+            aj = name_to_atom.get(atom_names[j])
+            if ai is None or aj is None:
+                continue
+            key = (min(ai.index, aj.index), max(ai.index, aj.index))
+            if key in existing:
+                continue
+            modeller.topology.addBond(ai, aj)
+            existing.add(key)
+            n_injected += 1
+    if n_injected:
+        print(f"  [R-17 G4] cofactor 결합 {n_injected}개 주입 완료 "
+              f"({list(ref_bonds_by_resname.keys())})")
+    return n_injected
+
+
+def register_cofactor_templates(forcefield, cofactor_mol2_paths):
+    """[R-17 G4] Register GAFF residue templates for cofactors on ``forcefield``.
+
+    ``cofactor_mol2_paths`` is a list of ``(resname, mol2_path)`` pairs from
+    :func:`load_cofactor_ff_parameters`. Each .mol2 is loaded as an OpenFF
+    ``Molecule`` and handed to ``openmmforcefields.GAFFTemplateGenerator``,
+    which produces residue templates on demand when OpenMM ForceField
+    looks up an unknown residue name (e.g. GNP, ATP, NAD).
+
+    No-op when ``cofactor_mol2_paths`` is empty or openmmforcefields /
+    openff-toolkit is not installed (we emit a WARNING so the operator can
+    install them if a cofactor-bearing target actually needs them).
+    """
+    if not cofactor_mol2_paths:
+        return
+    try:
+        from openmmforcefields.generators import GAFFTemplateGenerator  # type: ignore
+        from openff.toolkit.topology import Molecule  # type: ignore
+    except ImportError as _imp_err:
+        print(f"  [R-17 G4][WARN] openmmforcefields / openff-toolkit 미설치 "
+              f"({_imp_err}) — cofactor GAFF 템플릿 생성 생략. "
+              f"`pip install openmmforcefields openff-toolkit` 필요.")
+        return
+
+    # OpenFF loading preference order:
+    #   1) G3-written SYBYL-typed mol2 (RDKit-parseable + carries partial charges)
+    #   2) Direct mol2 via OpenFF (requires OpenEye toolkit — rarely installed)
+    #   3) Sibling SDF (loses partial charges → forces AM1-BCC recompute)
+    #   4) Raw GAFF2 mol2 via RDKit (fragile — GAFF atom types like 'p5' reject)
+    #
+    # Without pre-assigned partial charges, openmmforcefields will try
+    # AM1-BCC via sqm, which requires an OpenFF toolkit that supports it
+    # (not the default RDKit / NAGL / Built-in registry). So (1) is strongly
+    # preferred — it gives both a clean graph AND AM1-BCC charges from
+    # antechamber.
+    import numpy as np
+    try:
+        from openff.units import unit as _offunit  # type: ignore
+    except ImportError:
+        _offunit = None
+
+    def _load_sybyl_mol2(sybyl_path, resname):
+        """Return an OpenFF Molecule with partial charges set from the
+        SYBYL-typed mol2 file, or None on failure."""
+        try:
+            from rdkit import Chem  # type: ignore
+        except ImportError:
+            return None
+        rdmol = Chem.MolFromMol2File(sybyl_path, removeHs=False, sanitize=False)
+        if rdmol is None:
+            return None
+        charges = [
+            float(a.GetPropsAsDict().get("_TriposPartialCharge", 0.0))
+            for a in rdmol.GetAtoms()
+        ]
+        try:
+            Chem.SanitizeMol(rdmol)
+        except Exception:
+            pass
+        mol = Molecule.from_rdkit(rdmol, allow_undefined_stereo=True)
+        mol.name = resname
+        if _offunit is not None and len(charges) == mol.n_atoms:
+            mol.partial_charges = np.array(charges) * _offunit.elementary_charge
+        return mol
+
+    mols = []
+    for resname, mol2_path in cofactor_mol2_paths:
+        mol = None
+        base = mol2_path[:-5] if mol2_path.endswith(".mol2") else mol2_path
+        sybyl_path = base + "_sybyl.mol2"
+        sdf_path = base + ".sdf"
+
+        # (1) SYBYL mol2 — clean graph + AM1-BCC charges
+        if os.path.exists(sybyl_path):
+            try:
+                mol = _load_sybyl_mol2(sybyl_path, resname)
+            except Exception as _sy_err:
+                print(f"  [R-17 G4][WARN] {resname} SYBYL mol2 로드 실패 "
+                      f"({sybyl_path}): {_sy_err}")
+
+        # (2) Direct OpenFF mol2 (OpenEye path)
+        if mol is None:
+            try:
+                mol = Molecule.from_file(mol2_path, file_format="mol2",
+                                         allow_undefined_stereo=True)
+                mol.name = resname
+            except Exception:
+                pass
+
+        # (3) SDF — charges lost, will trigger AM1-BCC recompute at
+        # template-generation time (needs antechamber on PATH)
+        if mol is None and os.path.exists(sdf_path):
+            try:
+                mol = Molecule.from_file(sdf_path, file_format="sdf",
+                                         allow_undefined_stereo=True)
+                mol.name = resname
+            except Exception as _sdf_err:
+                print(f"  [R-17 G4][WARN] {resname} SDF 로드 실패 "
+                      f"({sdf_path}): {_sdf_err}")
+
+        # (4) Raw GAFF2 mol2 via RDKit (usually fails, last resort)
+        if mol is None:
+            try:
+                from rdkit import Chem  # type: ignore
+                rdmol = Chem.MolFromMol2File(mol2_path, removeHs=False,
+                                             sanitize=False)
+                if rdmol is None:
+                    raise ValueError("RDKit MolFromMol2File returned None")
+                try:
+                    Chem.SanitizeMol(rdmol)
+                except Exception:
+                    pass
+                mol = Molecule.from_rdkit(rdmol, allow_undefined_stereo=True)
+                mol.name = resname
+            except Exception as _mol_err:
+                print(f"  [R-17 G4][WARN] {resname} 분자 로드 실패 "
+                      f"(mol2={mol2_path}, sybyl={sybyl_path}, sdf={sdf_path}): "
+                      f"{_mol_err} — cofactor 템플릿 등록 생략. "
+                      f"G3 재실행으로 *_sybyl.mol2 생성을 확인하세요.")
+                continue
+        mols.append(mol)
+    if not mols:
+        return
+
+    # cache templates so antechamber only runs on first hit per session.
+    cache_dir = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), os.pardir,
+        "params", "_gaff_cache",
+    )
+    os.makedirs(cache_dir, exist_ok=True)
+    cache_path = os.path.join(cache_dir, "gaff_templates.json")
+    gaff = GAFFTemplateGenerator(molecules=mols, forcefield="gaff-2.11",
+                                 cache=cache_path)
+    forcefield.registerTemplateGenerator(gaff.generator)
+    print(f"  [R-17 G4] GAFFTemplateGenerator 등록 완료 "
+          f"({len(mols)}개 cofactor: {[m.name for m in mols]})")
+
+
 def load_cofactor_ff_parameters(target_card):
     """[R-17 G4] Collect absolute paths to cofactor force-field files to
     register with OpenMM ``ForceField.loadFile()``.
@@ -478,11 +711,25 @@ def apply_universal_xml_patch(mdl, n_xmls, xml_res_name, output_dir, patched_bas
 
     # ── 1. 템플릿 그래프 구성 ──
     atomtypes = {t.get("name"): {"element": t.get("element"), "class": t.get("class")} for t in root.findall("AtomTypes/Type")}
+    # [v0.6.6] Strategy A amber14-patched ncAA (MTR 등) 는 amber14 'protein-*' type
+    # 을 사용하는데, 해당 정의는 amber14-all.xml 에 있고 MTR_gaff2.xml 의 AtomTypes
+    # 블록에는 없다. 따라서 atomtypes dict lookup 이 None 을 반환 → element=None →
+    # graph match 실패. Fallback: atom name prefix 로 element 추정
+    # (PDB 규약: H* → H, N* → N, O* → O, 기타 → C).
+    def _infer_element_from_name(aname):
+        if aname.startswith("H"): return "H"
+        if aname.startswith("N"): return "N"
+        if aname.startswith("O"): return "O"
+        if aname.startswith("S"): return "S"
+        if aname.startswith("P"): return "P"
+        return "C"  # 기본: C (CA, CB, CG, ... 전부 C)
     G_tmpl = nx.Graph()
     for atom in xml_res_node.findall("Atom"):
         aname = atom.get("name").strip()
         atype = atom.get("type")
         element_sym = atomtypes.get(atype, {}).get("element")
+        if element_sym is None:
+            element_sym = _infer_element_from_name(aname)
         G_tmpl.add_node(aname, atom_name=aname, element=element_sym, anchor=(aname in {"N", "CA", "C"}), n_external=0)
     
     for bond in xml_res_node.findall("Bond"):
@@ -1067,7 +1314,7 @@ class _MDContext:
     def __init__(self, pdb_path, params_manifest, output_dir, n_steps,
                  topology_type, ncaa_label, ncaa_code, hdd_path,
                  binder_chain, seed, disp_corr, target_resid, graph_policy,
-                 platform_pref="CUDA", dt_fs=2.0):
+                 platform_pref="CUDA", dt_fs=2.0, target_id=""):
         # ── 입력 인자 (불변) ──
         self.pdb_path = pdb_path
         self.params_manifest = params_manifest
@@ -1084,10 +1331,40 @@ class _MDContext:
         self.graph_policy = graph_policy
         self.platform_pref = platform_pref
         self.dt_fs = dt_fs
+        self.target_id = target_id
+
+        # ── [R-17 G4] target_card 로드 + cofactor FF path 캐시 ──
+        self.target_card = None
+        self.cofactor_mol2_paths = []
+        if target_id:
+            try:
+                from utils_common import load_target_card  # type: ignore
+                _cards_dir = os.path.join(
+                    os.path.dirname(os.path.abspath(__file__)), os.pardir,
+                    "target_cards",
+                )
+                self.target_card = load_target_card(target_id, cards_dir=_cards_dir)
+                for resname, path in load_cofactor_ff_parameters(self.target_card):
+                    if path.endswith(".mol2"):
+                        self.cofactor_mol2_paths.append((resname, path))
+            except (FileNotFoundError, ValueError, ImportError) as _tc_err:
+                print(f"  [R-17 G4][WARN] target_card '{target_id}' 로드 실패 ({_tc_err}) "
+                      f"— cofactor FF 등록 생략")
 
         # ── 파일 경로 ──
         self.basename = os.path.basename(pdb_path).replace(".pdb", "")
-        self.out_dcd  = os.path.join(output_dir, f"{self.basename}_restrained.dcd")
+        # DCD trajectory can be multi-GB for 10ns production runs. When the
+        # user supplied an external-storage backup path (`--hdd_path`),
+        # stream the DCD **directly** to that path instead of SSD mdresult.
+        # Previously DCDReporter wrote to SSD throughout production and
+        # only moved post-hoc via shutil.move, which (a) burned SSD I/O +
+        # capacity for the full run, (b) left the DCD on SSD when MD was
+        # interrupted or the post-move step was skipped (resume / EXPLODED
+        # / SKIP paths). The orchestrator's Step 9.5 symlinks the HDD DCDs
+        # back into mdresult/ for downstream extract_snapshots, so the
+        # `md_dir` glob contract is preserved.
+        _dcd_dir = hdd_path if (hdd_path and os.path.isdir(hdd_path)) else output_dir
+        self.out_dcd  = os.path.join(_dcd_dir, f"{self.basename}_restrained.dcd")
         self.out_pdb  = os.path.join(output_dir, f"{self.basename}_final.pdb")
         self.out_log  = os.path.join(output_dir, f"{self.basename}_md.log")
         self.std_pdb  = None  # renumber 후 prepare_structure 가 채움
@@ -1398,9 +1675,17 @@ def prepare_structure(ctx: "_MDContext") -> None:
                 f"Hydrogen Definitions 로드 실패 ({ctx.hydrogens_path}): {_hd_err}",
                 log_suffix="_FAILED_HYDROGENS_LOAD.log",
             ) from _hd_err
+    # [R-17 G4] PDB from AF2 + reinsert_cofactors has cofactor atoms but no
+    # bonds (GNP/ATP/NAD/… aren't in amber14's standard residue set, so
+    # OpenMM skips bond assignment). GAFFTemplateGenerator needs the
+    # residue subgraph to be bonded for its graph-isomorphism match —
+    # inject mol2 connectivity first.
+    inject_cofactor_bonds(ctx.modeller, ctx.cofactor_mol2_paths)
+
     print("  [MD] OpenMM addHydrogens 실행 (선형 구조 토폴로지 동기화)...")
     try:
         ff_temp = ForceField(*ff_files)
+        register_cofactor_templates(ff_temp, ctx.cofactor_mol2_paths)
         if ctx.n_xmls:
             for xml_path in ctx.n_xmls:
                 try:
@@ -1514,6 +1799,7 @@ def build_openmm_system(ctx: "_MDContext") -> None:
     ff_files = ["amber14-all.xml", "amber14/tip3pfb.xml"]
     try:
         ff = ForceField(*ff_files, *ctx.ncaa_xmls)
+        register_cofactor_templates(ff, ctx.cofactor_mol2_paths)
     except (mm.OpenMMException, ValueError) as e:
         raise MDStageError(
             f"ForceField 로드 OpenMM 오류: {e}", log_suffix="_FAILED_FF.log"
@@ -1524,7 +1810,23 @@ def build_openmm_system(ctx: "_MDContext") -> None:
             log_suffix="_FAILED_FF.log",
         ) from e
 
-    ctx.modeller.addSolvent(ff, model="tip3p", padding=1.2 * unit.nanometers)
+    # [SciVal verdict_ionic_strength_20260420] Physiological salt at 0.15 M.
+    # Counter-ion chosen by target compartment (K+ for intracellular targets
+    # like KRAS; Na+ for extracellular / plasma targets like C3/Compstatin).
+    # Joung-Cheatham 2008 TIP3P-compatible ion parameters. Reviewer-defense
+    # for v0.7 publication — MD salt convention used in Lu 2016 Ras canonical
+    # ensemble + Tamamis 2010 Compstatin work.
+    _loc = ""
+    if ctx.target_card:
+        _loc = str(ctx.target_card.get("subcellular_localization", "")).strip().lower()
+    _pos_ion = "K+" if _loc == "intracellular" else "Na+"
+    ctx.modeller.addSolvent(
+        ff, model="tip3p", padding=1.2 * unit.nanometers,
+        ionicStrength=0.15 * unit.molar,
+        positiveIon=_pos_ion, negativeIon="Cl-",
+        neutralize=True,
+    )
+    print(f"  [Solvent] 0.15 M {_pos_ion}Cl (compartment='{_loc or 'default-Na+'}')")
     print(f"  원자 수 (용매화 후): {ctx.modeller.topology.getNumAtoms()}")
 
     ctx.system = ff.createSystem(
@@ -1538,7 +1840,7 @@ def build_openmm_system(ctx: "_MDContext") -> None:
 
     ctx.n_restrained = 0
     junction_resids = set()
-    if ctx.topology_type in ("cyclic_htc", "cyclic_nm"):
+    if ctx.topology_type in ("cyclic_htc", "cyclic_nm", "bicyclic"):
         binder_residues = [r for c in ctx.modeller.topology.chains() if c.id == ctx.binder_chain for r in c.residues()]
         if len(binder_residues) >= 4:
             junction_resids = {
@@ -1593,7 +1895,7 @@ def run_cyclic_relaxation(ctx: "_MDContext") -> None:
     Raises: MDStageError on relaxation 실패.
     """
     junction_resids = getattr(ctx, "junction_resids", set())
-    if ctx.topology_type not in ("cyclic_htc", "cyclic_nm"):
+    if ctx.topology_type not in ("cyclic_htc", "cyclic_nm", "bicyclic"):
         return
 
     binder_residues = [r for c in ctx.modeller.topology.chains() if c.id == ctx.binder_chain for r in c.residues()]
@@ -1682,7 +1984,15 @@ def run_equilibration(ctx: "_MDContext", k_stages=(100.0, 500.0, 1000.0)) -> Non
             partial_stage="Minimization", partial_suffix="_partial_min.pdb",
         ) from e
 
-    is_cyclic = ctx.topology_type in ("cyclic_htc", "cyclic_nm")
+    # [v0.6.7 FIX] Reset restraint stiffness to moderate value before NVT for ALL
+    # ncAA topologies. Stage 1 min 종료시 k=1000 이 유지되면 NVT thermal kick 이
+    # 과도한 restraint force 와 coupling 하여 NaN 폭발 발생 (특히 cyclic_ss 에서
+    # 관찰됨 — WT 는 n_restrained=0 으로 영향 없음). Fresh-session diagnostic 으로
+    # 확인: MTR 4W9A smoke test 에서 k=0 설정시 NVT 10K→300K 정상 완료.
+    if ctx.n_restrained > 0:
+        ctx.simulation.context.setParameter("k", 100.0)
+
+    is_cyclic = ctx.topology_type in ("cyclic_htc", "cyclic_nm", "bicyclic")
 
     if is_cyclic:
         print("  [Stage 1.5] Cyclic 추가 자유 minimization (restraint 완화)...")
@@ -1867,7 +2177,13 @@ def run_production(ctx: "_MDContext") -> None:
     if ctx.cycle_meta.get("is_cyclized"):
         append_conect_records(ctx.out_pdb, ctx.cycle_meta)
 
-    if ctx.hdd_path and os.path.exists(ctx.hdd_path):
+    # DCD destination is chosen at DCDReporter creation time (see _MDContext
+    # ctor). When hdd_path was provided + mounted, ctx.out_dcd already lives
+    # on HDD — nothing to move. Safety net: if the ctor couldn't see the
+    # mount (e.g. dir was unmounted at setup but came back mid-run), move
+    # now so the file lands on the requested storage.
+    if ctx.hdd_path and os.path.isdir(ctx.hdd_path) and \
+            os.path.dirname(ctx.out_dcd) != os.path.abspath(ctx.hdd_path):
         dest_dcd = os.path.join(ctx.hdd_path, os.path.basename(ctx.out_dcd))
         try:
             shutil.move(ctx.out_dcd, dest_dcd)
@@ -1878,9 +2194,11 @@ def run_production(ctx: "_MDContext") -> None:
                 status="SUCCESS_WITH_WARNING",
                 log_suffix="_WARNING_DCD_MOVE.log",
             ) from e
+    elif ctx.hdd_path and os.path.isdir(ctx.hdd_path):
+        print(f"  [DCD] 외장저장장치로 직접 스트리밍 완료: {ctx.out_dcd}")
 
 
-def run_md(pdb_path, params_manifest, output_dir, n_steps, topology_type, ncaa_label, ncaa_code, hdd_path="", binder_chain="B", seed=42, disp_corr="auto", target_resid="", graph_policy="strict", platform_pref="CUDA", dt_fs=2.0):
+def run_md(pdb_path, params_manifest, output_dir, n_steps, topology_type, ncaa_label, ncaa_code, hdd_path="", binder_chain="B", seed=42, disp_corr="auto", target_resid="", graph_policy="strict", platform_pref="CUDA", dt_fs=2.0, target_id=""):
     """[v48] 4 단계 헬퍼의 얇은 오케스트레이터.
 
     Returns:
@@ -1893,7 +2211,7 @@ def run_md(pdb_path, params_manifest, output_dir, n_steps, topology_type, ncaa_l
         ncaa_code=ncaa_code, hdd_path=hdd_path, binder_chain=binder_chain,
         seed=seed, disp_corr=disp_corr, target_resid=target_resid,
         graph_policy=graph_policy, platform_pref=platform_pref,
-        dt_fs=dt_fs,
+        dt_fs=dt_fs, target_id=target_id,
     )
 
     exploded_markers = glob.glob(os.path.join(output_dir, f"{ctx.basename}_EXPLODED_*.log"))
@@ -2001,6 +2319,11 @@ def main():
                         help="[v4 H-1] OpenMM 플랫폼 우선순위 (기본 CUDA mixed precision). auto 는 v3 의 기본 폴백 체인.")
     parser.add_argument("--dt_fs", type=float, default=2.0,
                         help="[v48] Production timestep (fs). 기본 2.0, cyclic 재시도 시 1.0")
+    parser.add_argument("--target_id", type=str, default="",
+                        help="[R-17 G4] target_card stem (e.g. '6WGN'). When "
+                             "provided, load_cofactor_ff_parameters() + GAFF "
+                             "template generator register cofactor residues "
+                             "(GNP, ATP, NAD, …) with the OpenMM ForceField.")
     args = parser.parse_args()
 
     os.makedirs(args.outputdir, exist_ok=True)
@@ -2047,6 +2370,7 @@ def main():
             graph_policy = args.graph_policy,
             platform_pref= args.platform,
             dt_fs        = args.dt_fs,
+            target_id    = args.target_id,
         )
         if status == "SUCCESS": success_cnt += 1
         elif status == "SUCCESS_WT": wt_cnt += 1

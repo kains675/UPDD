@@ -47,6 +47,26 @@ _ELEMENT_BY_Z = {
     15: "P", 16: "S", 17: "Cl", 35: "Br", 53: "I",
 }
 
+# GAFF atom type → element. parmed occasionally mis-infers element for
+# multi-char atom names (e.g., "Cl1" → atomic_number=6 via C-prefix heuristic).
+# Using the GAFF type column from mol2 is authoritative.
+_GAFF_TYPE_ELEMENT = {
+    "cl": "Cl", "br": "Br", "i":  "I",  "f":  "F",
+    "p":  "P",  "p2": "P",  "p3": "P",  "p4": "P", "p5": "P",
+    "pb": "P",  "pc": "P",  "pd": "P",  "pe": "P", "pf": "P",
+    "s":  "S",  "s2": "S",  "s4": "S",  "s6": "S", "sh": "S", "ss": "S",
+    "sy": "S",  "sx": "S",
+}
+
+
+def _atom_element(atom) -> str:
+    """Return element symbol, preferring GAFF type over parmed's atomic_number
+    to work around mis-inferred multi-char element names (Cl, Br, Mg, etc.)."""
+    atype = (getattr(atom, "type", "") or "").lower().strip()
+    if atype in _GAFF_TYPE_ELEMENT:
+        return _GAFF_TYPE_ELEMENT[atype]
+    return _ELEMENT_BY_Z.get(atom.atomic_number, "?")
+
 
 def _amber14_ff14SB_path() -> str:
     """Locate amber14/protein.ff14SB.xml in the OpenMM install."""
@@ -222,13 +242,19 @@ def _identify_caps_and_backbone(atoms) -> Tuple[Set[str], Set[str], Optional[obj
                 continue
             ace_atoms.add(x.name)
 
-    # Find backbone C (CA's carbonyl neighbor)
+    # Find backbone C (CA's carbonyl neighbor — C with terminal =O)
+    # The O must be TERMINAL (1 heavy neighbor = the C itself, i.e., double-bond
+    # carbonyl =O). A chain O like SEP's OG (bonded to CB AND P) must not pass.
     if ca_atom is not None:
         for c in _heavy_neighbors(ca_atom):
             if c is backbone_n or c.atomic_number != 6:
                 continue
             c_inner = _heavy_neighbors(c)
-            if any(x.atomic_number == 8 for x in c_inner):
+            has_terminal_o = any(
+                x.atomic_number == 8 and len(_heavy_neighbors(x)) == 1
+                for x in c_inner
+            )
+            if has_terminal_o:
                 backbone_c = c
                 break
 
@@ -292,7 +318,7 @@ def _gaff_heavy_subgraph(atoms, extension_atom_names: Set[str], cap_atom_names: 
     for a in atoms:
         if a.atomic_number <= 1 or a.name in excluded:
             continue
-        elem = _ELEMENT_BY_Z.get(a.atomic_number, "?")
+        elem = _atom_element(a)
         g.add_node(a.name, atom_name=a.name, element=elem)
     for a in atoms:
         if a.atomic_number <= 1 or a.name in excluded:
@@ -311,10 +337,15 @@ def _find_extensions_structurally(atoms, parent_resname: str, cap_atoms: Set[str
                                    extension_defs: Tuple[Tuple[str, str, str, float], ...]):
     """Identify GAFF2 atom names corresponding to declared extension atoms.
 
-    Uses iterative "remove + check isomorphism" strategy: try excluding each
-    combination of candidate methyl-like atoms and check if the remaining
-    heavy graph matches the parent template. The winning combination is the
-    extension set.
+    Handles two cases:
+      (A) Simple single-atom extensions (MTR CM, PFF FZ, HYP OD1): each extension
+          is a 1-heavy-neighbor terminal atom bonded to a parent-template atom.
+          Iterative "remove + check isomorphism" finds matching combinations.
+      (B) Multi-atom extensions with chained attachment (SEP/TPO/PTR phosphate):
+          a "root" extension atom (e.g., P) attaches to a parent atom, and
+          additional extensions (e.g., 3 phosphate O's) attach to the root.
+          Detected by finding the root element's atoms bonded to parent-attach
+          atoms and then walking outward.
 
     Args:
         atoms: parmed Atom list.
@@ -328,15 +359,102 @@ def _find_extensions_structurally(atoms, parent_resname: str, cap_atoms: Set[str
     """
     if not extension_defs or not HAS_NX:
         return {}
-    n_ext = len(extension_defs)
-    # Candidates: heavy atoms with exactly 1 heavy neighbor (methyl-like terminal),
-    # not in caps, whose element matches one of the declared extension elements.
-    ext_elements = [_elem.upper() for (_, _elem, *_rest) in extension_defs]
+    parent_g = _parent_heavy_graph(parent_resname)
+    if parent_g is None:
+        return {}
+
+    # Classify extensions: root (attach is in parent template) vs chained
+    # (attach is another extension's name).
+    ext_names_declared = {ed[0] for ed in extension_defs}
+    root_defs = []
+    chained_defs = []
+    for ed in extension_defs:
+        _name, _elem, attach, _bond = ed
+        if attach in ext_names_declared:
+            chained_defs.append(ed)
+        else:
+            root_defs.append(ed)
+
+    # ---- Case B: phosphate-like group (chained extensions present) ----
+    if chained_defs:
+        # Assume one root (e.g., P) with attach in parent; chained are bonded to it.
+        # Find root GAFF atom: matches root element, bonded to an atom whose
+        # amber name (after parent iso without roots) is the declared attach.
+        # Simplification: find all atoms of root element; for each, check if it
+        # has one heavy neighbor that is NOT in another extension-excluded set.
+        if len(root_defs) != 1:
+            # For now only support single root multi-atom extension (e.g., single P)
+            # Generalization possible but not required for SEP/TPO/PTR.
+            return {}
+        root_def = root_defs[0]
+        root_name, root_elem, root_attach, _bl = root_def
+        # Candidate root atoms: match element, not in caps
+        root_candidates = [
+            a for a in atoms
+            if _atom_element(a) == root_elem and a.name not in cap_atoms
+        ]
+        for root_atom in root_candidates:
+            # chained atoms = root_atom's heavy neighbors with matching elements
+            # (restricted to those bonded ONLY to root, i.e., terminal on root side)
+            chained_mapping: Dict[str, str] = {}
+            used_gaff = set()
+            for ed in chained_defs:
+                c_name, c_elem, c_attach, _b = ed
+                if c_attach != root_name:
+                    continue
+                for nbr in _heavy_neighbors(root_atom):
+                    if nbr.name in used_gaff:
+                        continue
+                    if _atom_element(nbr) != c_elem:
+                        continue
+                    # Terminal on root side: nbr has exactly 1 heavy neighbor (root)
+                    if len(_heavy_neighbors(nbr)) != 1:
+                        continue
+                    chained_mapping[nbr.name] = c_name
+                    used_gaff.add(nbr.name)
+                    break
+            # Count matched chained atoms
+            expected_chained = [ed for ed in chained_defs if ed[2] == root_name]
+            if len(chained_mapping) != len(expected_chained):
+                continue
+            # Build exclusion set: root + all chained
+            ext_names_gaff = {root_atom.name} | used_gaff
+            gaff_g = _gaff_heavy_subgraph(atoms, ext_names_gaff, cap_atoms)
+            if gaff_g is None or parent_g.number_of_nodes() != gaff_g.number_of_nodes():
+                continue
+            gm = GraphMatcher(
+                parent_g, gaff_g,
+                node_match=lambda p, g: p.get("element") == g.get("element"),
+            )
+            if not gm.is_isomorphic():
+                continue
+            # Verify root attaches to the declared parent attach atom
+            iso = next(gm.isomorphisms_iter())
+            amber_to_gaff = dict(iso)
+            gaff_to_amber = {v: k for k, v in amber_to_gaff.items()}
+            root_other_nbrs = [
+                nbr for nbr in _heavy_neighbors(root_atom) if nbr.name not in used_gaff
+            ]
+            if not root_other_nbrs:
+                continue
+            attach_gaff = root_other_nbrs[0].name
+            attach_amber = gaff_to_amber.get(attach_gaff)
+            if attach_amber != root_attach:
+                continue
+            # Success
+            result = {root_atom.name: root_name}
+            result.update(chained_mapping)
+            return result
+        return {}
+
+    # ---- Case A: simple single-atom extensions (each is 1-heavy-neighbor) ----
+    n_ext = len(root_defs)
+    ext_elements = [_elem.upper() for (_, _elem, *_rest) in root_defs]
     candidates = []
     for a in atoms:
         if a.atomic_number <= 1 or a.name in cap_atoms:
             continue
-        elem = _ELEMENT_BY_Z.get(a.atomic_number, "?")
+        elem = _atom_element(a)
         if elem.upper() not in ext_elements:
             continue
         heavy_nbrs = _heavy_neighbors(a)
@@ -348,9 +466,6 @@ def _find_extensions_structurally(atoms, parent_resname: str, cap_atoms: Set[str
         return {}
 
     from itertools import combinations
-    parent_g = _parent_heavy_graph(parent_resname)
-    if parent_g is None:
-        return {}
 
     for combo in combinations(candidates, n_ext):
         ext_names = set(a.name for a in combo)
@@ -363,21 +478,17 @@ def _find_extensions_structurally(atoms, parent_resname: str, cap_atoms: Set[str
         )
         if not gm.is_isomorphic():
             continue
-        # Good combo — now match each GAFF extension atom to its declared name
-        # via its attach atom (declared_pdb_name's amber attach atom in parent).
         iso = next(gm.isomorphisms_iter())  # parent → gaff
         amber_to_gaff = dict(iso)
         result: Dict[str, str] = {}
         for ext_atom in combo:
-            # ext_atom's single heavy neighbor's gaff_name maps back to amber
             attach_gaff = _heavy_neighbors(ext_atom)[0].name
             attach_amber = None
             for amber_n, gaff_n in amber_to_gaff.items():
                 if gaff_n == attach_gaff:
                     attach_amber = amber_n
                     break
-            # Find which extension_def has this attach_amber
-            for (ext_name, ext_elem, attach_name, _bond) in extension_defs:
+            for (ext_name, ext_elem, attach_name, _bond) in root_defs:
                 if attach_name == attach_amber and ext_name not in result.values():
                     result[ext_atom.name] = ext_name
                     break

@@ -38,6 +38,33 @@ UTILS_DIR   = os.environ.get("UPDD_UTILS_DIR", os.path.join(UPDD_DIR, "utils"))
 LOG_DIR     = os.environ.get("UPDD_LOG_DIR", os.path.join(UPDD_DIR, "log"))
 PROJECT_DIR = os.environ.get("UPDD_PROJECT_DIR", os.path.join(HOME_DIR, "ai_projects"))
 
+# ==========================================
+# Default tuning-knob environment
+# ==========================================
+# UPDD 가 내부 모듈 (utils/run_qmmm.py 등) 이나 subprocess (MD, Step 6.6 G2,
+# Step 8 G3 antechamber) 에 전달하는 tuning 상수들은 env 변수로 gate 되어
+# 있다 (SciVal-approved bundle + R-17). 개별 export 를 잊으면 조용히 기본
+# 동작이 달라지는 버그 지뢰가 되므로, **os.environ.setdefault** 로 안전한
+# default 를 주입한다. 사용자가 쉘에서 명시적으로 export 한 값은 그대로
+# 우선한다 (setdefault 가 덮어쓰지 않음).
+_UPDD_DEFAULT_ENV = {
+    # --- R-17 Stage 4 gates ---
+    "UPDD_ALLOW_ANTECHAMBER": "1",      # G3: cofactor FF param 자동 regen 허용
+    # --- SCF bundle (SciVal B-series, wB97X-D direct-SCF) ---
+    "UPDD_VRAM_POOL_FRACTION": "0.75",  # gpu4pyscf cupy mempool ceiling
+    "UPDD_MIN_AO_BLKSIZE":     "64",    # B8: 16 GB VRAM boundary
+    "UPDD_SCF_DIRECT_TOL":     "1e-12", # B5: direct-SCF tolerance
+    "UPDD_SCF_CONV_TOL":       "1e-7",  # B3: ranking-safe convergence
+    "UPDD_SCF_INIT_GUESS":     "minao", # B6: closed-shell safe init
+}
+for _k, _v in _UPDD_DEFAULT_ENV.items():
+    os.environ.setdefault(_k, _v)
+
+# The interim cofactor-injection diagnostic flag must be an **explicit**
+# opt-in per run — never inherit from a prior shell that tested it.
+# Clearing it here prevents stale leakage into production pipeline runs.
+os.environ.pop("UPDD_COFACTOR_INJECT_DIAGNOSTIC", None)
+
 # Registry Import (단일 계약)
 sys.path.append(UTILS_DIR)
 try:
@@ -898,14 +925,29 @@ def _reinsert_cofactors_into_af2_outputs(af2_dir: str, crystal_pdb: str,
 
     backup_dir = os.path.join(af2_dir, "_pre_reinsert_backup")
     os.makedirs(backup_dir, exist_ok=True)
+    # Rejected designs (e.g., G2 Kabsch RMSD > RED threshold) are moved here
+    # so downstream globs on ``af2_dir/*.pdb`` exclude them automatically.
+    rejected_dir = os.path.join(af2_dir, "_rejected_g2_reinsertion")
 
     cof_target_chain = target_card.get("target_chain") or target_chain or "A"
     print(f"  [R-17 G2] cofactor 재삽입 — target_id={target_id}, chain={cof_target_chain}, "
           f"declared={[e.get('resname') for e in required_entries]}")
 
+    # Lazy-import so the soft-reject path compiles even if upstream logic
+    # changes the import surface. `CofactorReinsertionError` is the ONLY
+    # exception we treat as fail-soft; other failures (IO, env, bugs)
+    # still propagate.
+    try:
+        from utils.cofactor_errors import CofactorReinsertionError as _G2_REJECT_EXC
+    except Exception:  # pragma: no cover — fall back to a sentinel we never raise
+        class _G2_REJECT_EXC(Exception):  # type: ignore[no-redef]
+            pass
+
     details: List[Dict[str, Any]] = []
+    rejected: List[Dict[str, Any]] = []
     n_processed = 0
     n_skipped = 0
+    n_rejected = 0
     for pdb_path in rank_pdbs:
         base = os.path.basename(pdb_path)
         backup_path = os.path.join(backup_dir, base)
@@ -935,9 +977,46 @@ def _reinsert_cofactors_into_af2_outputs(af2_dir: str, crystal_pdb: str,
                 "inserted": [m.get("resname") for m in report.get("inserted_cofactors", [])],
             })
             n_processed += 1
+        except _G2_REJECT_EXC as _g2_err:
+            # G2 filter rejection — soft-exclude this design so the pipeline
+            # continues with the remaining valid candidates. The failing
+            # design is moved out of the active af2_dir glob and logged.
+            if os.path.exists(tmp_out):
+                try:
+                    os.remove(tmp_out)
+                except OSError:
+                    pass
+            os.makedirs(rejected_dir, exist_ok=True)
+            reject_target = os.path.join(rejected_dir, base)
+            try:
+                # pdb_path was overwritten by shutil.copy2; move the original
+                # AF2 PDB (still in backup_path) into the rejected bin and
+                # remove the active file so downstream globs skip it.
+                shutil.copy2(backup_path, reject_target)
+            except (OSError, shutil.Error):
+                pass
+            try:
+                os.remove(pdb_path)
+            except OSError:
+                pass
+            reason = str(_g2_err)
+            # Record the reason + any structural signal we have (RMSD, pairs)
+            # from the exception message. The full diagnostic lives in
+            # `rejected_designs.json` written below.
+            rejected.append({
+                "design": base,
+                "status": "rejected_g2",
+                "reason": reason,
+                "rejected_pdb": reject_target,
+                "backup_pdb": backup_path,
+            })
+            details.append({"design": base, "status": "rejected_g2", "reason": reason})
+            n_rejected += 1
+            print(f"  [R-17 G2][REJECT] {base} — {reason}")
+            continue
         except Exception:
-            # On failure, restore the original AF2 PDB so subsequent resume
-            # can retry cleanly, then re-raise.
+            # Non-G2 failure (IO error, unexpected bug): restore the original
+            # AF2 PDB so a resume can retry cleanly, then re-raise.
             if os.path.exists(tmp_out):
                 try:
                     os.remove(tmp_out)
@@ -959,16 +1038,35 @@ def _reinsert_cofactors_into_af2_outputs(af2_dir: str, crystal_pdb: str,
                 "crystal_pdb": os.path.abspath(crystal_pdb),
                 "n_processed": n_processed,
                 "n_skipped": n_skipped,
+                "n_rejected": n_rejected,
                 "details": details,
             }, f, indent=2)
     except (IOError, OSError) as _rep_err:
         log(f"[R-17 G2] report 기록 실패 (무시): {_rep_err}", level="warning")
 
+    # Separate rejected-designs manifest (downstream consumers can read this
+    # to know which design_ids were filtered out and why).
+    if rejected:
+        try:
+            reject_manifest = os.path.join(rejected_dir, "rejected_designs.json")
+            with open(reject_manifest, "w", encoding="utf-8") as f:
+                json.dump({
+                    "target_id": target_id,
+                    "gate": "R-17 G2 cofactor reinsertion",
+                    "rejected_at": _datetime.datetime.now().isoformat(timespec="seconds"),
+                    "rejections": rejected,
+                }, f, indent=2)
+            print(f"  [R-17 G2][REJECT-MANIFEST] {reject_manifest}")
+        except (IOError, OSError, AttributeError) as _rm_err:
+            log(f"[R-17 G2] rejection manifest 기록 실패 (무시): {_rm_err}", level="warning")
+
     status_tag = "skip_cached" if (n_processed == 0 and n_skipped > 0) else "ok"
-    print(f"  [R-17 G2] 완료 — processed={n_processed}, skipped_cached={n_skipped}")
+    print(f"  [R-17 G2] 완료 — processed={n_processed}, "
+          f"skipped_cached={n_skipped}, rejected={n_rejected}")
     return {"status": status_tag, "target_id": target_id,
             "n_processed": n_processed, "n_skipped": n_skipped,
-            "details": details}
+            "n_rejected": n_rejected, "details": details,
+            "rejected": rejected}
 
 
 def _filter_top_rank(af2_dir):
@@ -1126,6 +1224,149 @@ def _filter_by_iptm(af2_dir, min_iptm=0.3):
     print(f"    리포트: {filter_report}")
 
 
+def _filter_by_rmsd(af2_dir, crystal_pdb, target_chain="A", rmsd_threshold_a=None):
+    # type: (str, str, str, float) -> None
+    """AF2 rank_001 PDB 의 target chain Cα RMSD (vs crystal) 로 필터링한다.
+
+    Fail-soft: 임계값 초과 design 은 ``_high_rmsd/`` 로 이동하여 downstream
+    glob 에서 제외된다. 이미 rank + ipTM 필터로 좁혀진 후보들에 대해
+    예측 구조적 타당성 (target backbone 정합도) 을 추가 필터로 적용한다.
+
+    과학적 근거:
+    - AF2-multimer chain A RMSD 2.5 Å 초과 = AF2 모델의 target fold 예측이
+      crystal 대비 크게 벗어남 → 이 상태로 MD/QM/MM 진행 시 cofactor
+      transplant (G2) 나 charge topology 분석이 불안정
+    - 2.0-2.5 Å 구간은 normal AF2 noise (Bryant 2022 Nat Commun IQR
+      1.5-3.2); 그 이상은 outlier → pre-filter 단계에서 제외하여
+      downstream compute (MD, SCF) 낭비 방지
+
+    비파괴적: PDB 삭제 없이 _high_rmsd/ 디렉토리로 이동.
+    멱등: _high_rmsd/ 이미 존재 시 스킵.
+    """
+    high_dir = os.path.join(af2_dir, "_high_rmsd")
+    if os.path.exists(high_dir):
+        print(f"  [Skip] RMSD 필터링 이미 완료됨")
+        return
+    if not crystal_pdb or not os.path.exists(crystal_pdb):
+        print(f"  [Info] crystal PDB 부재 ({crystal_pdb}) — RMSD 필터 건너뜀")
+        return
+
+    # Reuse Kabsch + CA extraction from the G2 module (DRY).
+    try:
+        from utils.reinsert_cofactors_post_af2 import (
+            DEFAULT_RMSD_THRESHOLD_A as _G2_DEFAULT_THRESHOLD,
+            MIN_CA_PAIRS as _G2_MIN_CA,
+            _extract_ca_by_chain_resnum as _extract_ca,
+            _kabsch as _kabsch_fn,
+        )
+    except ImportError as _ie:
+        print(f"  [Warning] reinsert module import 실패 ({_ie}) — RMSD 필터 건너뜀")
+        return
+
+    threshold = float(rmsd_threshold_a) if rmsd_threshold_a is not None else float(_G2_DEFAULT_THRESHOLD)
+    ca_cry = _extract_ca(crystal_pdb, target_chain)
+    if not ca_cry:
+        print(f"  [Warning] crystal chain '{target_chain}' Cα 없음 — RMSD 필터 건너뜀")
+        return
+
+    rank_pdbs = sorted([p for p in glob.glob(os.path.join(af2_dir, "*.pdb"))
+                        if "rank_001" in os.path.basename(p)])
+    if not rank_pdbs:
+        print(f"  [Info] rank_001 PDB 없음 — RMSD 필터 no-op")
+        return
+
+    import numpy as _np
+    pass_designs = []   # type: list
+    fail_designs = []   # type: list
+    for pdb_path in rank_pdbs:
+        base = os.path.basename(pdb_path)
+        design_id = base.split("_unrelaxed")[0]
+        ca_af2 = _extract_ca(pdb_path, target_chain)
+        shared = sorted(set(ca_cry) & set(ca_af2))
+        if len(shared) < _G2_MIN_CA:
+            # Too few pairs — cannot reliably RMSD-filter this design.
+            # Err on the side of keeping it (G2 itself will enforce again).
+            pass_designs.append((design_id, float("nan"), len(shared), "under_min_pairs"))
+            continue
+        P = _np.array([ca_cry[r] for r in shared])
+        Q = _np.array([ca_af2[r] for r in shared])
+        _, _, rmsd = _kabsch_fn(P, Q)
+        if rmsd <= threshold:
+            pass_designs.append((design_id, float(rmsd), len(shared), "pass"))
+        else:
+            fail_designs.append((design_id, float(rmsd), len(shared), pdb_path))
+
+    if not fail_designs:
+        print(f"  [RMSD Filter] 임계값: {threshold:.2f} Å | 통과: {len(pass_designs)}개 "
+              f"(전부 통과, no reject)")
+    else:
+        os.makedirs(high_dir, exist_ok=True)
+        moved = 0
+        for design_id, rmsd, n_pairs, pdb_path in fail_designs:
+            basename = os.path.basename(pdb_path)
+            dest = os.path.join(high_dir, basename)
+            if not os.path.exists(dest):
+                try:
+                    shutil.move(pdb_path, dest)
+                    moved += 1
+                except (OSError, shutil.Error):
+                    pass
+            # companion score json (if exists) goes with the PDB
+            json_candidates = [
+                pdb_path.replace(".pdb", ".json"),
+                pdb_path.replace("_unrelaxed_", "_scores_").replace(".pdb", ".json"),
+            ]
+            for jpath in json_candidates:
+                if os.path.exists(jpath):
+                    try:
+                        shutil.move(jpath, os.path.join(high_dir, os.path.basename(jpath)))
+                    except (OSError, shutil.Error):
+                        pass
+        print(f"  [RMSD Filter] 임계값: {threshold:.2f} Å")
+        print(f"    통과: {len(pass_designs)}개")
+        print(f"    탈락: {len(fail_designs)}개 → _high_rmsd/ 이동 ({moved}개 PDB)")
+        for did, rmsd, n_pairs, _p in sorted(fail_designs, key=lambda x: -x[1])[:5]:
+            print(f"      {did}: RMSD={rmsd:.3f} Å (n={n_pairs})")
+
+    # Unified report (pass + fail).
+    filter_report = os.path.join(af2_dir, "rmsd_filter_report.csv")
+    try:
+        with open(filter_report, "w", encoding="utf-8", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(["design_id", "rmsd_angstrom", "n_ca_pairs", "status"])
+            for did, rmsd, n_pairs, note in sorted(pass_designs, key=lambda x: x[1] if x[1] == x[1] else 0.0):
+                status = "PASS" if note != "under_min_pairs" else "PASS_WARN_FEW_PAIRS"
+                rmsd_str = f"{rmsd:.4f}" if rmsd == rmsd else "nan"
+                w.writerow([did, rmsd_str, n_pairs, status])
+            for did, rmsd, n_pairs, _p in sorted(fail_designs, key=lambda x: -x[1]):
+                w.writerow([did, f"{rmsd:.4f}", n_pairs, "FAIL"])
+        print(f"    리포트: {filter_report}")
+    except (IOError, OSError) as _rep_err:
+        log(f"[RMSD Filter] report 기록 실패 (무시): {_rep_err}", level="warning")
+
+
+def _run_pre_filter(af2_dir, min_iptm=0.3, crystal_pdb=None, target_chain="A",
+                     rmsd_threshold_a=None):
+    # type: (str, float, str, str, float) -> None
+    """통합 AF2 pre-filter: Rank → ipTM → RMSD (이 순서).
+
+    각 단계는 fail-soft (임계값 미달 design 은 전용 서브디렉토리로 이동;
+    downstream glob 에서 자동 제외). Pipeline 은 전체적으로 멈추지 않으며
+    통과한 design 들로 계속 진행한다. 과거 분리돼 있던 rank 필터 +
+    ipTM 필터를 하나로 묶고, RMSD 필터를 추가한다 — AF2 prediction 이
+    crystal 대비 구조적으로 크게 벗어난 design 을 downstream compute
+    (MD, QM/MM) 투입 이전에 솎아낸다.
+    """
+    _filter_top_rank(af2_dir)
+    _filter_by_iptm(af2_dir, min_iptm=min_iptm)
+    _filter_by_rmsd(
+        af2_dir,
+        crystal_pdb=crystal_pdb,
+        target_chain=target_chain or "A",
+        rmsd_threshold_a=rmsd_threshold_a,
+    )
+
+
 def _run_ncaa_mutation(af2_dir, ncaa_code, ncaa_label, positions, target_out_dir, binder_chain="B", target_chain="A"):
     if not ncaa_code or ncaa_code == "none":
         print("  [Info] Canonical Aminoacid 모드이므로 ncAA 치환 단계를 건너뜁니다.")
@@ -1151,7 +1392,48 @@ def _run_ncaa_mutation(af2_dir, ncaa_code, ncaa_label, positions, target_out_dir
     run_conda_command(SCRIPT_PATHS["ncaa_mutate"], args, "ncAA Mutation", env_key="ncaa")
     return ncaadir
 
-def _run_cofactor_parameterization(target_id: str) -> dict:
+def _extract_cofactor_source_pdbs(
+    crystal_pdb: str,
+    resnames,
+    out_dir: str,
+) -> dict:
+    """Extract per-resname HETATM/ATOM blocks from ``crystal_pdb`` and write
+    one minimal PDB per residue into ``out_dir``.
+
+    Returns a ``{resname_upper: abs_pdb_path}`` dict (resnames with zero
+    matching atoms are omitted).
+    """
+    if not crystal_pdb or not os.path.exists(crystal_pdb):
+        return {}
+    targets = {str(r).strip().upper() for r in resnames if r}
+    if not targets:
+        return {}
+
+    os.makedirs(out_dir, exist_ok=True)
+    buckets: dict = {r: [] for r in targets}
+    with open(crystal_pdb, "r", encoding="utf-8", errors="ignore") as f:
+        for line in f:
+            if not (line.startswith("HETATM") or line.startswith("ATOM")):
+                continue
+            if len(line) < 20:
+                continue
+            rn = line[17:20].strip().upper()
+            if rn in buckets:
+                buckets[rn].append(line)
+
+    out_map: dict = {}
+    for rn, lines in buckets.items():
+        if not lines:
+            continue
+        out_path = os.path.join(out_dir, f"{rn}_source.pdb")
+        with open(out_path, "w", encoding="utf-8") as f:
+            f.writelines(lines)
+            f.write("END\n")
+        out_map[rn] = os.path.abspath(out_path)
+    return out_map
+
+
+def _run_cofactor_parameterization(target_id: str, crystal_pdb: str = "") -> dict:
     """[R-17 G3] Ensure cofactor force-field parameters are cached.
 
     Dispatches ``utils/parameterize_cofactor.ensure_cofactor_params`` for
@@ -1164,11 +1446,18 @@ def _run_cofactor_parameterization(target_id: str) -> dict:
       resname and returns ``{"status": "ok", ...}``.
     - Cache miss and ``UPDD_ALLOW_ANTECHAMBER=1`` → regeneration attempt
       (opt-in). On success, files land under ``params/<resname>/``.
+      Per-cofactor source PDBs are extracted from ``crystal_pdb`` into
+      ``<project>/params/_sources/`` and passed to
+      ``ensure_cofactor_params(source_pdbs=...)``.
     - Cache miss and opt-in off → emit a WARNING (no halt). G4 (MD setup)
       will raise the hard error if the parameters are actually needed.
 
     Args:
         target_id: target_card stem (e.g. "6WGN"). Empty → no-op.
+        crystal_pdb: Crystal/preprocessed PDB path used to extract per-
+            cofactor source coordinates for antechamber. Required when
+            regeneration is needed; ignored when every cofactor is already
+            cached or is an ion_builtin.
 
     Returns:
         Dict with ``status`` in {``noop``, ``ok``, ``warn_missing``,
@@ -1203,8 +1492,29 @@ def _run_cofactor_parameterization(target_id: str) -> dict:
     if not required:
         return {"status": "noop", "reason": "no_required_cofactors"}
 
+    # Build source_pdbs dict from crystal PDB for any required cofactor that
+    # needs antechamber regeneration. Safe to compute unconditionally: if
+    # every cofactor is already cached, ensure_cofactor_params skips the
+    # regen branch and the extracted stubs are simply unused.
+    source_pdbs: dict = {}
+    if crystal_pdb and os.path.exists(crystal_pdb):
+        _src_dir = os.path.join(UPDD_DIR, "params", "_sources")
+        _resnames = [str(e.get("resname", "")).strip().upper() for e in required]
+        source_pdbs = _extract_cofactor_source_pdbs(crystal_pdb, _resnames, _src_dir)
+
+    # antechamber/parmchk2 ship inside conda envs (ncaa/md_simulation/qmmm),
+    # not on the orchestrator's base PATH. Inject the ncaa env bin dir so
+    # ensure_cofactor_params() can find them when UPDD_ALLOW_ANTECHAMBER=1.
+    import shutil as _shutil
+    if not _shutil.which("antechamber"):
+        for _env in ("ncaa", "md_simulation", "qmmm"):
+            _bin = f"/home/san/miniconda3/envs/{_env}/bin"
+            if os.path.isfile(os.path.join(_bin, "antechamber")):
+                os.environ["PATH"] = _bin + os.pathsep + os.environ.get("PATH", "")
+                break
+
     try:
-        report = ensure_cofactor_params(target_card)
+        report = ensure_cofactor_params(target_card, source_pdbs=source_pdbs)
     except CofactorParamMissingError as _param_err:
         # Do NOT halt — G4 will raise the hard error if the params are
         # actually consumed. Here we only emit an operator-visible WARN so
@@ -1224,21 +1534,32 @@ def _run_cofactor_parameterization(target_id: str) -> dict:
         elif status == "ion_builtin":
             print(f"  [R-17 G3] {resname}: ion_builtin ({method}) — AMBER-shipped")
         elif status == "regenerated":
-            print(f"  [R-17 G3] {resname}: regenerated via antechamber "
+            print(f"  [R-17 G3] {resname}: regenerated via antechamber AM1-BCC "
                   f"(mol2={entry.get('mol2')})")
+        elif status == "regenerated_bcc_fallback":
+            print(f"  [R-17 G3] {resname}: regenerated via antechamber AM1-BCC "
+                  f"FALLBACK ({method} requested external RESP .mol2; supply "
+                  f"ff_parameters.resp_mol2 before v0.7 calibration). "
+                  f"mol2={entry.get('mol2')}")
+        elif status == "regenerated_resp_external":
+            print(f"  [R-17 G3] {resname}: derived frcmod from user RESP .mol2 "
+                  f"via parmchk2 (mol2={entry.get('mol2')})")
         else:
             print(f"  [R-17 G3] {resname}: status={status}")
     return {"status": "ok", "report": report}
 
 
-def _run_parameterization(struct_dir, param_dir, ncaa_def, target_id: str = ""):
+def _run_parameterization(struct_dir, param_dir, ncaa_def, target_id: str = "",
+                          crystal_pdb: str = ""):
     # [R-17 G3] Before ncAA-specific parameterization, verify cofactor FF
     # parameters are cached for cofactor-present targets. No-op for
     # cofactor-absent targets (target_id empty, card missing, or empty
     # cofactor_residues). Non-blocking — WARNs only when cache is missing
     # and antechamber opt-in is off; G4 raises later if params are needed.
+    # crystal_pdb enables on-demand antechamber regeneration by supplying
+    # per-cofactor source coordinates extracted from the preprocessed PDB.
     if target_id:
-        _run_cofactor_parameterization(target_id)
+        _run_cofactor_parameterization(target_id, crystal_pdb=crystal_pdb)
 
     if ncaa_def is None:
         print("  [Info] 야생형(Wild-Type) 모드이므로 파라미터화 단계를 건너뜁니다.")
@@ -1341,14 +1662,79 @@ def _run_md_and_snapshots(struct_dir, params_manifest, target_out_dir, ncaa_labe
         ]
         if dcd_backup_path and os.path.exists(dcd_backup_path):
             md_args.extend(["--hdd_path", dcd_backup_path])
-        
+
+        # [R-17 G4] Forward target_id so run_restrained_md registers cofactor
+        # GAFF templates (GNP/ATP/NAD/…) on the ForceField before addHydrogens
+        # + createSystem. Silent no-op when the target_card is absent.
+        if target_id:
+            _card_path = os.path.join(UPDD_DIR, "target_cards", f"{target_id}.json")
+            if os.path.exists(_card_path):
+                md_args.extend(["--target_id", target_id])
+
         if not ncaa_code or ncaa_code == "none":
             md_args += ["--ncaa_label", "none", "--ncaa_code", ""]
         else:
             md_args += ["--params_manifest", params_manifest, "--ncaa_label", ncaa_label, "--ncaa_code", ncaa_code]
             
         md_args += ["--dt_fs", "2.0"]
+        # Extract current seed from md_args if present (default 42)
+        try:
+            _seed_idx = md_args.index("--seed")
+            _seed_val = int(md_args[_seed_idx + 1])
+        except (ValueError, IndexError):
+            _seed_val = 42
+            _seed_idx = None
         run_conda_command(SCRIPT_PATHS["run_md"], md_args, "Restrained MD (Pass 1: 2fs)", env_key="md")
+
+        # [v0.6.7] Probabilistic-NaN retry: before falling back to dt=1fs,
+        # try dt=2fs with a different seed. Seed changes affect Langevin
+        # random-number stream; some seed+state combinations trigger NaN
+        # on the first integration step even after a clean minimization.
+        # Empirically: 1 in 3-5 random draws; a single re-seed usually recovers.
+        exploded_after_pass1 = glob.glob(os.path.join(md_out_dir, "*_EXPLODED_dt2fs.log"))
+        all_input_pdbs_p1 = glob.glob(os.path.join(struct_dir, "*.pdb"))
+        failed_no_final_p1 = [
+            os.path.splitext(os.path.basename(p))[0] for p in all_input_pdbs_p1
+            if not os.path.exists(os.path.join(md_out_dir,
+                                               os.path.splitext(os.path.basename(p))[0] + "_final.pdb"))
+        ]
+        reseed_targets = set()
+        for elog in exploded_after_pass1:
+            reseed_targets.add(os.path.basename(elog).replace("_EXPLODED_dt2fs.log", ""))
+        for stem in failed_no_final_p1:
+            reseed_targets.add(stem)
+
+        if reseed_targets:
+            print(f"\n  [Pass 1b] {len(reseed_targets)}개 디자인 2fs 폭발 — seed 변경 재시도 먼저 시도...")
+            _archive_ts_1b = _datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            _archive_dir_1b = os.path.join(md_out_dir, "_archive", f"{_archive_ts_1b}_pre_reseed")
+            os.makedirs(_archive_dir_1b, exist_ok=True)
+            _archive_patterns_1b = [
+                "_EXPLODED_dt2fs.log", "_EXPLODED_MD.log", "_EXPLODED_NVT.log",
+                "_EXPLODED_COLD_NVT.log", "_EXPLODED_MIN.log",
+                "_EXPLODED_CYCLIC_MIN.log", "_EXPLODED_CYCLIC_RELAX.log",
+                "_partial_md.pdb", "_partial_nvt.pdb",
+                "_final.pdb", "_md.log", "_restrained.dcd",
+            ]
+            for stem in reseed_targets:
+                for pat in _archive_patterns_1b:
+                    src = os.path.join(md_out_dir, stem + pat)
+                    if os.path.exists(src) or os.path.islink(src):
+                        shutil.move(src, os.path.join(_archive_dir_1b, stem + pat))
+                if dcd_backup_path and os.path.isdir(dcd_backup_path):
+                    _hdd_dcd = os.path.join(dcd_backup_path, stem + "_restrained.dcd")
+                    if os.path.exists(_hdd_dcd):
+                        shutil.move(_hdd_dcd,
+                                    os.path.join(_archive_dir_1b, stem + "_restrained_HDD.dcd"))
+            reseed_args = list(md_args)
+            # Prime-offset for deterministic second attempt (not original seed).
+            new_seed = _seed_val + 13 if _seed_val != -1 else 7
+            if _seed_idx is not None:
+                reseed_args[_seed_idx + 1] = str(new_seed)
+            else:
+                reseed_args += ["--seed", str(new_seed)]
+            run_conda_command(SCRIPT_PATHS["run_md"], reseed_args,
+                              f"Restrained MD (Pass 1b: 2fs seed={new_seed})", env_key="md")
 
         # EXPLODED 마커가 있는 것 + _final.pdb가 없는 것 = 재시도 대상 전수
         exploded_2fs = glob.glob(os.path.join(md_out_dir, "*_EXPLODED_dt2fs.log"))
@@ -1384,11 +1770,29 @@ def _run_md_and_snapshots(struct_dir, params_manifest, target_out_dir, ncaa_labe
             _partial_patterns = PARTIAL_PLACEHOLDERS if _V05_MD_STATUS_AVAILABLE else [
                 "_partial_md.pdb", "_partial_nvt.pdb",
             ]
+            # BUGFIX (2026-04-20): Pass 1 explosion path with
+            # completion_ratio >= _MIN_COMPLETION_RATIO writes a checkpoint
+            # snapshot to ``<stem>_final.pdb`` (PARTIAL_SUCCESS tier). Without
+            # archiving that file, the Pass 2 (1fs) run_restrained_md SKIPs
+            # the design via ``os.path.exists(out_pdb) and not
+            # exploded_markers`` (markers already archived above).  Archive
+            # ``_final.pdb`` + ``_md.log`` + the HDD ``_restrained.dcd`` so
+            # Pass 2 retry actually re-enters MD.
+            _stale_final_patterns = ["_final.pdb", "_md.log",
+                                     "_restrained.dcd"]
             for stem in retry_targets:
-                for pat in _marker_patterns + _partial_patterns:
+                for pat in _marker_patterns + _partial_patterns + _stale_final_patterns:
                     src = os.path.join(md_out_dir, stem + pat)
-                    if os.path.exists(src):
+                    if os.path.exists(src) or os.path.islink(src):
                         shutil.move(src, os.path.join(_archive_dir, stem + pat))
+                # Also clear the HDD-side partial DCD if present (kept on
+                # the external drive by the direct-stream fix).
+                if dcd_backup_path and os.path.isdir(dcd_backup_path):
+                    _hdd_dcd = os.path.join(dcd_backup_path,
+                                            stem + "_restrained.dcd")
+                    if os.path.exists(_hdd_dcd):
+                        shutil.move(_hdd_dcd, os.path.join(
+                            _archive_dir, stem + "_restrained_HDD.dcd"))
 
             retry_args = list(md_args)
             dt_idx = retry_args.index("--dt_fs")
@@ -1855,7 +2259,11 @@ def validate_pipeline(base_name, design_dir, mpnn_out_dir, af2_out_dir,
         "af2":          _stage("Step 5 AlphaFold2",     af2_out_dir,  lambda p: _has_any(os.path.join(p, "**", "*.pdb"))),
         "ncaa_mutants": _stage("Step 7 ncAA Mutation",  ncaa_mut_dir if ncaa_code else "", lambda p: os.path.isdir(p) and _has_any(os.path.join(p, "*.pdb"))),
         "params":       _stage("Step 8 Parameterization", params_dir if ncaa_code else "", lambda p: os.path.isdir(p) and _has_any(os.path.join(p, "*_params_manifest.json"))),
-        "md":           _stage("Step 9 Restrained MD",  md_dir,      lambda p: os.path.isdir(p) and _has_any(os.path.join(p, "*.dcd"))),
+        # DCD trajectories live on the external drive when --hdd_path was
+        # supplied (run_restrained_md streams DCDReporter there directly).
+        # Validate MD completion via _final.pdb / _md.log which always stay
+        # on SSD md_dir regardless of the HDD backup toggle.
+        "md":           _stage("Step 9 Restrained MD",  md_dir,      lambda p: os.path.isdir(p) and (_has_any(os.path.join(p, "*_final.pdb")) or _has_any(os.path.join(p, "*_md.log")) or _has_any(os.path.join(p, "*.dcd")))),
         "snapshots":    _stage("Step 10 Snapshots",     snap_dir,    lambda p: _has_any(os.path.join(p, "**", "*.pdb"))),
         "qmmm":         _stage("Step 11 QM/MM",         qmmm_dir,    lambda p: _has_any(os.path.join(p, "**", "qmmm_summary.json"))),
         "mmgbsa":       _stage("Step 12 MM-GBSA",       mmgbsa_dir,  lambda p: _has_any(os.path.join(p, "**", "mmgbsa_summary.json"))),
@@ -2068,10 +2476,15 @@ def main() -> None:
     _orig_stdout = sys.stdout
     _orig_stderr = sys.stderr
     use_dashboard = (not NO_DASHBOARD) and (not VALIDATE_ONLY) and _V04_DASHBOARD_AVAILABLE
+    # [FIX 2026-04-20] PipelineState(state.json) 는 `--no-dashboard` 여부와
+    # 무관하게 항상 기록한다. --dashboard-only 옵저버나 외부 모니터가 현재
+    # 파이프라인의 진행 상태를 볼 수 있도록 한다. --no-dashboard 는 오직
+    # "live 화면 렌더링"만 끈다.
+    enable_state = (not VALIDATE_ONLY) and _V04_DASHBOARD_AVAILABLE
 
     log_dir_for_state = os.path.join(LOG_DIR, _target_name)
 
-    if use_dashboard:
+    if enable_state:
         try:
             os.makedirs(log_dir_for_state, exist_ok=True)
             state = PipelineState(
@@ -2089,7 +2502,19 @@ def main() -> None:
                     # 산출물 없으면 SKIPPED 마킹하지 않음 → wrapper 가 재실행 분기 진입.
             # preprocess 는 사용자 입력 단계에서 이미 완료되었다 (gather_all_inputs).
             state.complete_step("preprocess", skipped=True)
+            state.emit_event("info", f"📦 Project: {os.path.basename(target_out_dir)}")
 
+            # [v0.4.1] 모듈 글로벌 state 참조 공개 → run_rfdiffusion/execute_qmmm
+            # 같은 장시간 실행 함수가 진행도를 업데이트할 때 읽는다.
+            global _pipeline_state
+            _pipeline_state = state
+        except (OSError, RuntimeError, ImportError) as _state_err:
+            print(f"[!] state.json 초기화 실패 (비-dashboard 모드에서도 필요): "
+                  f"{_state_err}", file=_orig_stdout)
+            state = None
+
+    if use_dashboard and state is not None:
+        try:
             # stdout 리다이렉트 "전에" dashboard 용 Console 을 캡처한다.
             # (Console 이 sys.stdout 을 나중에 읽으면 pipeline.log 로 빨려 들어감.)
             from rich.console import Console as _RichConsole
@@ -2107,12 +2532,6 @@ def main() -> None:
             dashboard_thread, dashboard_stop = run_dashboard_in_thread(
                 log_dir_for_state, console=_dashboard_console,
             )
-            state.emit_event("info", f"📦 Project: {os.path.basename(target_out_dir)}")
-
-            # [v0.4.1] 모듈 글로벌 state 참조 공개 → run_rfdiffusion/execute_qmmm
-            # 같은 장시간 실행 함수가 진행도를 업데이트할 때 읽는다.
-            global _pipeline_state
-            _pipeline_state = state
 
             # atexit: 예외/정상 종료 모두에서 stdout 복원 보장 (finally 대체).
             import atexit as _atexit
@@ -2289,19 +2708,31 @@ def main() -> None:
         validate_pipeline(base_name, design_dir, mpnn_out_dir, af2_out_dir, target_out_dir + "/ncaa_mutants" if ncaa_def else "", target_out_dir + "/params", target_out_dir + "/mdresult", target_out_dir + "/snapshots", target_out_dir + "/qmmm_results", target_out_dir + "/mmgbsa_results", os.path.join(target_out_dir, "final_ranking.csv"), ncaa_def.code if ncaa_def else None)
         return
 
-    print_step("Step 6.5: AF2 Top Rank Filter (rank_001)")
-    _filter_top_rank(af2_out_dir)
-
-    print_step("Step 6.6: ipTM Pre-filter")
+    print_step("Step 6.5: Pre-Filter (Rank, ipTM, RMSD)")
     _iptm_cutoff = float(inputs.get("iptm_cutoff", 0.3))
-    _filter_by_iptm(af2_out_dir, min_iptm=_iptm_cutoff)
+    # RMSD threshold: user-configurable via gather_all_inputs (default 2.5 Å
+    # per AF2-multimer noise envelope, Bryant 2022 Nat Commun IQR 1.5-3.2).
+    # Missing or legacy inputs fall back to the G2 module default
+    # (DEFAULT_RMSD_THRESHOLD_A = 2.5) inside _run_pre_filter.
+    _rmsd_cutoff_in = inputs.get("rmsd_cutoff")
+    try:
+        _rmsd_cutoff = float(_rmsd_cutoff_in) if _rmsd_cutoff_in is not None else None
+    except (TypeError, ValueError):
+        _rmsd_cutoff = None
+    _run_pre_filter(
+        af2_out_dir,
+        min_iptm=_iptm_cutoff,
+        crystal_pdb=work_pdb,
+        target_chain=target_chain,
+        rmsd_threshold_a=_rmsd_cutoff,
+    )
 
     # [R-17 G2] Post-AF2 cofactor reinsertion — runs before Step 7 so
     # ncAA mutation and MD setup see HETATM-augmented rank_001 PDBs. For
     # cofactor-absent targets (target_card missing or cofactor_residues=[])
     # this is a logged no-op. For cofactor-present targets (e.g. 6WGN), a
     # CofactorReinsertionError halts the pipeline (fail-fast per R-17).
-    print_step("Step 6.7: R-17 G2 Cofactor Reinsertion (post-AF2)")
+    print_step("Step 6.6: R-17 G2 Cofactor Reinsertion (pre-ncAA/MD)")
     _reinsert_cofactors_into_af2_outputs(
         af2_out_dir, crystal_pdb=work_pdb,
         target_id=base_name, target_chain=target_chain,
@@ -2332,11 +2763,17 @@ def main() -> None:
     _param_really_done = check_outputs_exist("parameterize", inputs, target_out_dir)
     if _param_really_done:
         _mark_skipped("parameterize")
-        params_manifest = _run_parameterization(struct_dir, param_dir, ncaa_def, target_id=base_name)
+        params_manifest = _run_parameterization(
+            struct_dir, param_dir, ncaa_def, target_id=base_name,
+            crystal_pdb=work_pdb,
+        )
     else:
         _mark_running("parameterize", total=0, workers=1)
         try:
-            params_manifest = _run_parameterization(struct_dir, param_dir, ncaa_def, target_id=base_name)
+            params_manifest = _run_parameterization(
+                struct_dir, param_dir, ncaa_def, target_id=base_name,
+                crystal_pdb=work_pdb,
+            )
             _mark_complete("parameterize")
         except Exception as _e:
             _mark_failed("parameterize", str(_e))
@@ -2399,6 +2836,12 @@ def main() -> None:
         "--receptor_chain",  target_chain,
         "--binder_chain",    binder_chain,
     ]
+    # [R-17 G6] forward target_id so run_mmgbsa registers GNP / ATP cofactor
+    # GAFF templates on the ForceField before createSystem.
+    if base_name:
+        _card_path = os.path.join(UPDD_DIR, "target_cards", f"{base_name}.json")
+        if os.path.exists(_card_path):
+            mmgbsa_args.extend(["--target_id", base_name])
     if _step_really_done("mmgbsa"):
         _mark_skipped("mmgbsa")
         run_conda_command(SCRIPT_PATHS["run_mmgbsa"], mmgbsa_args, "MM-GBSA ΔG 계산", env_key="md")

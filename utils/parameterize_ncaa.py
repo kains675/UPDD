@@ -583,6 +583,115 @@ _MTR_AMBER14_TYPES = {
 }
 
 
+def _strip_spurious_ncaa_hydrogens(xml_path: str, ncaa_def) -> bool:
+    """[v0.6.7] parent_residue 기반 ncAA 의 XML 에서 amber14 parent template 보다
+    **많은** H 를 가진 heavy atom 의 남은 H 를 제거한다.
+
+    Free-acid smiles_free 의 NH2 (2 H on backbone N) 는 parent internal form
+    (amber14 TRP 등) 의 NH (1 H) 기대치를 초과한다. Walker rename 은 첫 H 만
+    표준 이름 부여하고 나머지 H 는 GAFF 이름 (H8, H9 등) 으로 남음. 이 스퍼리어스
+    H 는 downstream addHydrogens + MM-GBSA template match 에서 snap atom set 과
+    XML template atom set 의 불일치를 초래한다 (Cp4 MTR H9 버그).
+
+    Scan rules:
+      - Heavy atom 의 expected H 수 = parent_h_name_table(parent)[heavy] 의 len
+        + extension_atoms 의 해당 atom 의 H 예상 (CM: 3, OG/OH: 1 등)
+      - 실제 H 수가 expected 초과이면 **이름이 GAFF-pattern** (Hdigit-only) 인
+        H 부터 순차 제거.
+    """
+    parent_residue = getattr(ncaa_def, "parent_residue", None)
+    if not parent_residue or not os.path.exists(xml_path):
+        return False
+    try:
+        from parent_topology import parent_h_name_table  # type: ignore
+    except Exception:
+        return False
+
+    import re as _re
+    tree = ET.parse(xml_path)
+    root = tree.getroot()
+    modified = False
+    pdb_resname = getattr(ncaa_def, "pdb_resname", "") or ""
+    variant_names = {pdb_resname, f"N{pdb_resname}", f"C{pdb_resname}"}
+    h_table = parent_h_name_table(parent_residue)
+    extension_atoms = getattr(ncaa_def, "extension_atoms", ()) or ()
+
+    for res in root.iter("Residue"):
+        if res.get("name") not in variant_names:
+            continue
+        # Build atom_name -> atom_element map + H-to-heavy bond adjacency
+        atoms_by_name = {a.get("name"): a for a in res.findall("Atom")}
+        h_to_heavy: Dict[str, str] = {}
+        heavy_to_hs: Dict[str, List[str]] = {}
+        for b in res.findall("Bond"):
+            a1, a2 = b.get("atomName1"), b.get("atomName2")
+            if a1 is None or a2 is None:
+                continue
+            # H atoms start with 'H' (convention), heavy atoms don't
+            is_h1 = a1.startswith("H")
+            is_h2 = a2.startswith("H")
+            if is_h1 and not is_h2:
+                h_to_heavy[a1] = a2
+                heavy_to_hs.setdefault(a2, []).append(a1)
+            elif is_h2 and not is_h1:
+                h_to_heavy[a2] = a1
+                heavy_to_hs.setdefault(a1, []).append(a2)
+
+        # Expected H count per heavy, from parent template + extensions.
+        expected_h_count: Dict[str, int] = {}
+        for heavy, h_names in h_table.items():
+            expected_h_count[heavy] = len(h_names)
+        # Extensions: heuristic — suffix length 1 (e.g., CM) → 3 H's (methyl);
+        # suffix >1 (e.g., O1P) → 1 H (hydroxyl), unless element is not a
+        # hydrogen-acceptor (F/Cl/Br → 0 H).
+        for (ext_name, ext_elem, _attach, _bl) in extension_atoms:
+            if ext_elem in ("F", "Cl", "Br", "I"):
+                expected_h_count[ext_name] = 0
+                continue
+            if not ext_name:
+                continue
+            suffix = ext_name[1:]
+            expected_h_count[ext_name] = 3 if len(suffix) == 1 else 1
+
+        # For each heavy atom with excess H, drop GAFF-pattern-named H's first,
+        # then any H beyond expected count.
+        gaff_name_re = _re.compile(r"^H\d+[a-z]?$")  # H1, H12, H9b, etc.
+        atoms_to_remove: List[str] = []
+        for heavy, hs in heavy_to_hs.items():
+            limit = expected_h_count.get(heavy)
+            if limit is None:
+                # Unknown heavy — leave intact
+                continue
+            excess = len(hs) - limit
+            if excess <= 0:
+                continue
+            # Rank removal: GAFF-style first, then lexicographic
+            gaff_style = [h for h in hs if gaff_name_re.match(h)]
+            std_style = [h for h in hs if not gaff_name_re.match(h)]
+            to_drop = (gaff_style + std_style)[:excess]
+            atoms_to_remove.extend(to_drop)
+
+        if not atoms_to_remove:
+            continue
+
+        drop_set = set(atoms_to_remove)
+        for atom in list(res.findall("Atom")):
+            if atom.get("name") in drop_set:
+                res.remove(atom)
+                modified = True
+        for bond in list(res.findall("Bond")):
+            if bond.get("atomName1") in drop_set or bond.get("atomName2") in drop_set:
+                res.remove(bond)
+        log.info(
+            f"[spurious H strip] {res.get('name')}: removed {sorted(drop_set)} "
+            f"(parent={parent_residue} over-H cleanup)"
+        )
+
+    if modified:
+        tree.write(xml_path)
+    return modified
+
+
 def _apply_mtr_amber14_charge_patch(xml_path: str) -> bool:
     """[v0.6.6 Strategy A] Replace MTR atom charges with amber14SB TRP values.
 
@@ -1330,6 +1439,13 @@ def main():
         resp_result = run_pyscf_resp(xyz_free, ncaa_def.formal_charge)
 
     frcmod_to_openmm_xml(mol2, frcmod, xml_out, res_name, ncaa_def.mutation_type, resp_result, ncaa_def=ncaa_def)
+
+    # [v0.6.7] parent_residue ncAA 의 XML 에서 free-acid SMILES 기반 GAFF 생성물의
+    # 스퍼리어스 H (backbone N 의 2번째 H, 또는 rename 안 된 GAFF-이름 H) 를 제거.
+    # 이 cleanup 은 opt-in amber14 patch 와 무관하게 항상 실행되어야 함 —
+    # downstream MM-GBSA template match 에서 snap atom set 과 XML atom set 의
+    # 1:1 매칭을 강제.
+    _strip_spurious_ncaa_hydrogens(xml_out, ncaa_def)
 
     # [v36 CRITICAL FIX-2] Hydrogen Definitions XML 생성 — addHydrogens 가
     # ncAA 잔기에 수소를 추가하기 위해 필요. 본 파일이 부재하면 downstream

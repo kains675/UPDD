@@ -414,16 +414,69 @@ def _inject_ncaa_conect(pdb_path):
         if os.path.dirname(__file__) not in _sys.path:
             _sys.path.insert(0, os.path.dirname(__file__))
         from ncaa_registry import NCAA_REGISTRY_DATA  # lazy import
-        from parent_topology import parent_heavy_bonds, parent_h_name_table
+        from parent_topology import parent_heavy_bonds, parent_h_name_table, _load_parent_template
     except Exception:
         return  # registry unavailable — skip injection
 
     # Build PDB resname → ncaa_def index for quick lookup
     pdb_to_def = {d.pdb_resname: d for d in NCAA_REGISTRY_DATA}
 
+    def _allowed_atoms_for(ncaa_def) -> set:
+        """Return the set of atom names valid for this ncAA's internal-form
+        template: parent heavy + parent H names + extension heavy + extension H
+        names. Any atom in a snap PDB not in this set is a leftover from pre-fix
+        MTR H9 / HX1 spurious hydrogen and should be stripped.
+        """
+        parent = getattr(ncaa_def, "parent_residue", None)
+        if not parent:
+            return set()
+        tmpl = _load_parent_template(parent)
+        allowed = set()
+        if tmpl is not None:
+            atoms_in_parent, _bonds = tmpl
+            allowed.update(atoms_in_parent.keys())
+        # Extension atoms + their H's
+        for (ext_name, ext_elem, _attach, _bl) in (getattr(ncaa_def, "extension_atoms", ()) or ()):
+            if not ext_name:
+                continue
+            allowed.add(ext_name)
+            if ext_elem in ("F", "Cl", "Br", "I"):
+                continue
+            suffix = ext_name[1:]
+            if not suffix:
+                continue
+            if len(suffix) == 1:
+                allowed.update(f"H{suffix}{i+1}" for i in range(3))
+            else:
+                allowed.update((f"H{suffix}", f"H{suffix}b", f"H{suffix}c"))
+        return allowed
+
     # Read file, locate ncAA residues
     with open(pdb_path, "r", encoding="utf-8") as f:
         lines = f.readlines()
+
+    # Strip out atoms not allowed by each ncAA residue's template (e.g. H9 / HX1
+    # left over from pre-fix MTR XML). Must happen BEFORE CONECT building so
+    # the residue atom map below reflects the clean set.
+    atoms_to_keep = []
+    for line in lines:
+        if not line.startswith(("ATOM", "HETATM")):
+            atoms_to_keep.append(line)
+            continue
+        if len(line) < 54:
+            atoms_to_keep.append(line)
+            continue
+        resname = line[17:20].strip()
+        d = pdb_to_def.get(resname)
+        if d is None or not getattr(d, "parent_residue", None):
+            atoms_to_keep.append(line)
+            continue
+        allowed = _allowed_atoms_for(d)
+        atom_name = line[12:16].strip()
+        if atom_name in allowed:
+            atoms_to_keep.append(line)
+        # Else drop the spurious atom (do not append)
+    lines = atoms_to_keep
 
     # Map (chain, resnum) → {atom_name: serial}
     residues = {}

@@ -66,11 +66,14 @@ NCAA_REGISTRY_DATA = [
         xml_resname="NMA",
         element="C",
         formal_charge=0,
-        charge_model_note="Neutral backbone",
+        charge_model_note="Neutral N-methyl backbone (Nα-Me). Parent ALA per Strategy A; "
+                          "CM (Nα-methyl carbon) appended at N via extension_atoms.",
         smiles_free="CN[C@@H](C)C(=O)O",
         smiles_capped="CC(=O)N(C)[C@@H](C)C(=O)NC",
         mutation_type="N-M",
         keep_atoms=N_METHYL_BACKBONE,
+        parent_residue="ALA",
+        extension_atoms=(("CM", "C", "N", 1.47),),
         aliases=("nma", "n-me-ala", "n-methylalanine", "NMe-Ala"),
     ),
     NCAADef(

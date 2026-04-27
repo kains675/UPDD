@@ -1466,7 +1466,7 @@ def main():
     # isomorphism; NVT warmup may fail for bonded param inconsistency at cross-force-field
     # junction (fix pending — requires full dihedral/improper param addition).
     # Default ON would require complete hybrid force-field engineering (see UPDATE.md).
-    if parent_residue == "TRP" and os.environ.get("UPDD_MTR_AMBER14_PATCH") == "1":
+    if parent_residue == "TRP" and os.environ.get("UPDD_MTR_AMBER14_PATCH", "1") != "0":
         patched = _apply_mtr_amber14_charge_patch(xml_out)
         if patched:
             log.info(f"[amber14 patch] {res_name}: amber14SB TRP type+charge overlay applied (opt-in)")

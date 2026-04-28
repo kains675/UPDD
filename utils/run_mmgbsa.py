@@ -660,6 +660,8 @@ def calc_mmgbsa(pdb_path, output_dir, ff, ncaa_elem, si_radius, receptor_chain="
             "favorable":       delta_g < 0,
         }
 
+        result["protocol_variant"] = "3traj"
+
         # 개별 결과 저장
         out_json = os.path.join(output_dir, f"{basename}_mmgbsa.json")
         with open(out_json, "w", encoding="utf-8") as f:
@@ -674,6 +676,499 @@ def calc_mmgbsa(pdb_path, output_dir, ff, ncaa_elem, si_radius, receptor_chain="
                     os.remove(tmp)
                 except OSError as _rm_err:
                     print(f"  [!] 임시 파일 정리 실패(무시): {tmp} ({_rm_err})")
+
+
+# ==========================================
+# [v0.6.8 Fix 4] 1-trajectory MM-GBSA (opt-in via UPDD_MMGBSA_PROTOCOL=1traj)
+# ==========================================
+# Physical rationale (Genheden & Ryde 2015 §2.1, DOI:10.1517/17460441.2015.1032250):
+#   - Minimize ONLY the complex (bound state).
+#   - Evaluate E_receptor, E_ligand STATICALLY at the same bound geometry
+#     (subsystem-rebuild: new System with amber14 + GBn2, but positions
+#      transferred from the minimized complex — no independent minimization).
+#   - Bound-state strain cancels symmetrically between E_complex and
+#     (E_rec_static + E_lig_static) → variance ↓ + systematic bias ↓.
+#
+# Empirical backing:
+#   - SciVal verdict 2026-04-22: 2QKI_WT (σ₁/σ₃ = 0.111, 9.0× tighter)
+#     + 3IOL_WT (σ₁/σ₃ = 0.563, 1.77× tighter) both approved (Case A).
+#   - Reference standalone validator: scripts/mmgbsa_1traj_compare.py (513 LOC).
+#
+# Integration notes:
+#   - Co-exists with 3-traj default; dispatcher reads UPDD_MMGBSA_PROTOCOL.
+#   - Reuses split_complex() (CONECT bucket preservation) → ncAA boundary
+#     bonds survive. 1-traj does not alter F1/F2 behavior; F1 Mg²⁺ preserved
+#     via _MMGBSA_STRIP_RESNAMES (unchanged), F2 no +5 Å translate hack.
+#   - P1 minimize_iter default 5000, env UPDD_MMGBSA_MIN_ITER override honored.
+
+
+def split_complex_1traj(complex_pdb, receptor_chain="A", binder_chain="B"):
+    """[v0.6.8 Fix 4] Partition complex atoms by chain (receptor/ligand) and
+    return three tmp PDB paths operating on the SAME input coordinates.
+
+    Unlike the 3-traj `split_complex`, this helper is intended for the 1-traj
+    workflow where receptor / ligand subsystems share the bound geometry of
+    the minimized complex. It reuses `split_complex` (same STRIP rules, same
+    CONECT bucket filtering, same KNOWN_COFACTORS → receptor routing) to avoid
+    duplicating parsing logic. The only structural change is that the CALLER
+    evaluates receptor/ligand energies statically (no separate minimization).
+
+    Args:
+        complex_pdb: source snapshot PDB path.
+        receptor_chain: receptor chain id (default "A").
+        binder_chain: binder chain id (default "B").
+
+    Returns:
+        (complex_lines, receptor_lines, ligand_lines) — PDB lines in memory.
+        Caller writes tmp PDBs via write_temp_pdb (identical to 3-traj path).
+    """
+    return split_complex(complex_pdb, receptor_chain, binder_chain)
+
+
+def calc_energy_static(pdb_path, ff, ncaa_elem, si_radius,
+                       override_positions=None, binder_chain: str = ""):
+    """[v0.6.8 Fix 4] Evaluate a subsystem's potential energy WITHOUT
+    minimization. Mirrors `calc_energy` structurally (same Modeller / FF /
+    GB radius override / platform selection), but skips `minimizeEnergy()`.
+
+    Used for E_rec_static, E_lig_static in the 1-traj workflow.
+
+    Args:
+        pdb_path: subsystem PDB (receptor-only or ligand-only).
+        ff: OpenMM ForceField (same as 3-traj).
+        ncaa_elem: ncAA key element (passed to apply_gb_radius_override).
+        si_radius: legacy Si radius argument.
+        override_positions: optional sequence of OpenMM Vec3 positions to
+            inject after addHydrogens. If None, uses the PDB's loaded
+            positions (legacy behavior — unused in 1-traj, retained for
+            downstream flexibility).
+        binder_chain: binder chain id for cyclic HTC / SS injection.
+            Receptor-only subsystems should pass "" (no binder).
+
+    Returns:
+        Potential energy in kcal/mol, or None on failure.
+    """
+    # Cap filter (identical to calc_energy).
+    load_path = pdb_path
+    _cap_tmp = None
+    try:
+        with open(pdb_path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        has_cap = any(
+            l[17:20].strip() in _CAP_RESNAMES
+            for l in lines if l.startswith(("ATOM", "HETATM")) and len(l) >= 20
+        )
+        if has_cap:
+            filtered = [l for l in lines if not (
+                l.startswith(("ATOM", "HETATM")) and len(l) >= 20
+                and l[17:20].strip() in _CAP_RESNAMES
+            )]
+            _cap_tmp = pdb_path + ".nocap.tmp"
+            with open(_cap_tmp, "w", encoding="utf-8") as f:
+                f.writelines(filtered)
+            load_path = _cap_tmp
+    except Exception as _cap_err:
+        print(f"    [!] Cap 필터링 실패(무시): {_cap_err}")
+
+    try:
+        pdb = PDBFile(load_path)
+    except Exception as e:
+        print(f"  [!] PDB 로드 실패 ({os.path.basename(pdb_path)}): {e}")
+        return None
+    finally:
+        if _cap_tmp and os.path.exists(_cap_tmp):
+            try:
+                os.remove(_cap_tmp)
+            except OSError:
+                pass
+
+    try:
+        modeller = app.Modeller(pdb.topology, pdb.positions)
+        if _COFACTOR_MOL2_PATHS:
+            try:
+                from run_restrained_md import inject_cofactor_bonds  # type: ignore
+                inject_cofactor_bonds(modeller, _COFACTOR_MOL2_PATHS)
+            except ImportError:
+                pass
+        if binder_chain:
+            modeller, _cyclic_info = _apply_cyclic_bonds_mmgbsa(modeller, binder_chain)
+        else:
+            modeller.addHydrogens(ff)
+
+        system = ff.createSystem(
+            modeller.topology,
+            nonbondedMethod  = app.NoCutoff,
+            constraints      = HBonds,
+            soluteDielectric = 1.0,
+            solventDielectric= 78.5,
+        )
+    except Exception as e:
+        print(f"  [!] 시스템 생성 실패: {e}")
+        return None
+
+    system = apply_gb_radius_override(system, modeller.topology, ncaa_elem, si_radius)
+
+    integrator = mm.VerletIntegrator(1.0 * unit.femtoseconds)
+    _pref = os.environ.get("UPDD_MMGBSA_PLATFORM", "CUDA")
+    platform = None
+    for name in (_pref, "CUDA", "OpenCL", "CPU"):
+        try:
+            platform = mm.Platform.getPlatformByName(name)
+            break
+        except Exception:
+            continue
+    if platform is None:
+        platform = mm.Platform.getPlatformByName("CPU")
+    sim = Simulation(modeller.topology, system, integrator, platform)
+
+    # Optional position injection (for 1-traj bound-state positions). Fallback
+    # to modeller.positions when no override is provided.
+    if override_positions is not None:
+        sim.context.setPositions(override_positions)
+    else:
+        sim.context.setPositions(modeller.positions)
+
+    # NO minimization — static energy only.
+    state = sim.context.getState(getEnergy=True)
+    e_kj  = state.getPotentialEnergy().value_in_unit(unit.kilojoules_per_mole)
+    e_kcal = e_kj / 4.184
+    return e_kcal
+
+
+def calc_mmgbsa_1traj(pdb_path, output_dir, ff, ncaa_elem, si_radius,
+                      receptor_chain="A", binder_chain="B"):
+    """[v0.6.8 Fix 4] 1-trajectory MM-GBSA for a single snapshot.
+
+    Algorithm (Genheden & Ryde 2015 §2.1):
+      1. Split complex → complex / receptor / ligand tmp PDBs (split_complex).
+      2. Build complex System (amber14 + GBn2 + HBonds + NoCutoff).
+      3. Minimize complex: UPDD_MMGBSA_MIN_ITER (default 5000) / tol (default 1.0).
+      4. Extract minimized positions from the complex context.
+      5. Build receptor / ligand subsystems (same FF, only their atoms).
+      6. Transfer minimized positions to each subsystem via
+         (chain, resSeq, atomName) keying (identical to
+         mmgbsa_1traj_compare._transfer_positions).
+      7. Evaluate E_rec_static, E_lig_static via calc_energy_static.
+      8. ΔG_1traj = E_complex_min − E_rec_static − E_lig_static.
+
+    Result dict keys:
+        snapshot, pdb_path, ncaa_element, si_radius_A,
+        e_complex_kcal, e_receptor_kcal, e_ligand_kcal, delta_g_kcal,
+        favorable, protocol_variant="1traj", minimize_iter, minimize_tol,
+        platform.
+    """
+    basename = os.path.basename(pdb_path).replace(".pdb", "")
+    tmp_dir  = os.path.join(output_dir, "tmp")
+    os.makedirs(tmp_dir, exist_ok=True)
+
+    print(f"\n  계산 [1-traj]: {basename}")
+
+    # ── 1. Complex / Receptor / Ligand 분리 (reuse split_complex) ──
+    complex_lines, receptor_lines, ligand_lines = split_complex_1traj(
+        pdb_path, receptor_chain, binder_chain,
+    )
+    if not receptor_lines:
+        print(f"  [!] Receptor (chain {receptor_chain}) 없음 — 건너뜀")
+        return None
+    if not ligand_lines:
+        print(f"  [!] Ligand (chain {binder_chain}) 없음 — 건너뜀")
+        return None
+
+    cplx_pdb = os.path.join(tmp_dir, f"{basename}_complex.pdb")
+    recv_pdb = os.path.join(tmp_dir, f"{basename}_receptor.pdb")
+    lig_pdb  = os.path.join(tmp_dir, f"{basename}_ligand.pdb")
+
+    _min_iter = int(os.environ.get("UPDD_MMGBSA_MIN_ITER", "5000"))
+    _min_tol  = float(os.environ.get("UPDD_MMGBSA_MIN_TOL", "1.0"))
+
+    try:
+        write_temp_pdb(complex_lines,  cplx_pdb)
+        write_temp_pdb(receptor_lines, recv_pdb)
+        write_temp_pdb(ligand_lines,   lig_pdb)
+
+        # ── 2. Complex 빌드 + 최소화 ───────────────────────────────
+        # Cap filter for the complex (mirrors calc_energy).
+        load_path = cplx_pdb
+        _cap_tmp = None
+        try:
+            with open(cplx_pdb, "r", encoding="utf-8") as _f:
+                _lines = _f.readlines()
+            has_cap = any(
+                l[17:20].strip() in _CAP_RESNAMES
+                for l in _lines if l.startswith(("ATOM", "HETATM")) and len(l) >= 20
+            )
+            if has_cap:
+                filtered = [l for l in _lines if not (
+                    l.startswith(("ATOM", "HETATM")) and len(l) >= 20
+                    and l[17:20].strip() in _CAP_RESNAMES
+                )]
+                _cap_tmp = cplx_pdb + ".nocap.tmp"
+                with open(_cap_tmp, "w", encoding="utf-8") as _f:
+                    _f.writelines(filtered)
+                load_path = _cap_tmp
+        except Exception as _cap_err:
+            print(f"    [!] Cap 필터링 실패(무시): {_cap_err}")
+
+        try:
+            pdb = PDBFile(load_path)
+        except Exception as e:
+            print(f"  [!] Complex PDB 로드 실패: {e}")
+            return None
+        finally:
+            if _cap_tmp and os.path.exists(_cap_tmp):
+                try:
+                    os.remove(_cap_tmp)
+                except OSError:
+                    pass
+
+        cplx_modeller = app.Modeller(pdb.topology, pdb.positions)
+        if _COFACTOR_MOL2_PATHS:
+            try:
+                from run_restrained_md import inject_cofactor_bonds  # type: ignore
+                inject_cofactor_bonds(cplx_modeller, _COFACTOR_MOL2_PATHS)
+            except ImportError:
+                pass
+        if binder_chain:
+            cplx_modeller, _cyclic_info = _apply_cyclic_bonds_mmgbsa(
+                cplx_modeller, binder_chain,
+            )
+
+        try:
+            cplx_system = ff.createSystem(
+                cplx_modeller.topology,
+                nonbondedMethod  = app.NoCutoff,
+                constraints      = HBonds,
+                soluteDielectric = 1.0,
+                solventDielectric= 78.5,
+            )
+        except Exception as e:
+            print(f"  [!] Complex 시스템 생성 실패: {e}")
+            return None
+        cplx_system = apply_gb_radius_override(
+            cplx_system, cplx_modeller.topology, ncaa_elem, si_radius,
+        )
+
+        _pref = os.environ.get("UPDD_MMGBSA_PLATFORM", "CUDA")
+        platform = None
+        for name in (_pref, "CUDA", "OpenCL", "CPU"):
+            try:
+                platform = mm.Platform.getPlatformByName(name)
+                break
+            except Exception:
+                continue
+        if platform is None:
+            platform = mm.Platform.getPlatformByName("CPU")
+
+        integrator = mm.VerletIntegrator(1.0 * unit.femtoseconds)
+        sim = Simulation(cplx_modeller.topology, cplx_system, integrator, platform)
+        sim.context.setPositions(cplx_modeller.positions)
+
+        print(f"  [1-traj] Complex 최소화 중 ({_min_iter} iter, tol={_min_tol})...")
+        sim.minimizeEnergy(maxIterations=_min_iter, tolerance=_min_tol)
+        min_state = sim.context.getState(getEnergy=True, getPositions=True)
+        e_complex = min_state.getPotentialEnergy().value_in_unit(
+            unit.kilojoules_per_mole) / 4.184
+        cplx_min_positions = min_state.getPositions(asNumpy=False)
+
+        # Build key → complex atom index lookup for position transfer.
+        def _atom_key(atom):
+            res = atom.residue
+            chain_id = res.chain.id if res.chain is not None else " "
+            return (chain_id, res.name, str(res.id), atom.name)
+
+        cplx_index_map = {
+            _atom_key(a): a.index for a in cplx_modeller.topology.atoms()
+        }
+
+        # ── 3. Receptor subsystem static energy at bound geometry ──
+        def _load_subsystem(sub_pdb_path, sub_binder_chain):
+            """Load, addHydrogens (or cyclic-inject), return (modeller, system).
+            Returns (None, None) on failure.
+            """
+            sub_load_path = sub_pdb_path
+            sub_cap_tmp = None
+            try:
+                with open(sub_pdb_path, "r", encoding="utf-8") as _f:
+                    _sub_lines = _f.readlines()
+                has_cap = any(
+                    l[17:20].strip() in _CAP_RESNAMES
+                    for l in _sub_lines if l.startswith(("ATOM", "HETATM")) and len(l) >= 20
+                )
+                if has_cap:
+                    filtered = [l for l in _sub_lines if not (
+                        l.startswith(("ATOM", "HETATM")) and len(l) >= 20
+                        and l[17:20].strip() in _CAP_RESNAMES
+                    )]
+                    sub_cap_tmp = sub_pdb_path + ".nocap.tmp"
+                    with open(sub_cap_tmp, "w", encoding="utf-8") as _f:
+                        _f.writelines(filtered)
+                    sub_load_path = sub_cap_tmp
+            except Exception:
+                pass
+
+            try:
+                sub_pdb = PDBFile(sub_load_path)
+            except Exception as e:
+                print(f"  [!] Subsystem PDB 로드 실패 ({sub_pdb_path}): {e}")
+                return None, None
+            finally:
+                if sub_cap_tmp and os.path.exists(sub_cap_tmp):
+                    try:
+                        os.remove(sub_cap_tmp)
+                    except OSError:
+                        pass
+
+            sub_modeller = app.Modeller(sub_pdb.topology, sub_pdb.positions)
+            if _COFACTOR_MOL2_PATHS:
+                try:
+                    from run_restrained_md import inject_cofactor_bonds  # type: ignore
+                    inject_cofactor_bonds(sub_modeller, _COFACTOR_MOL2_PATHS)
+                except ImportError:
+                    pass
+            if sub_binder_chain:
+                sub_modeller, _ = _apply_cyclic_bonds_mmgbsa(
+                    sub_modeller, sub_binder_chain,
+                )
+            else:
+                sub_modeller.addHydrogens(ff)
+
+            try:
+                sub_system = ff.createSystem(
+                    sub_modeller.topology,
+                    nonbondedMethod  = app.NoCutoff,
+                    constraints      = HBonds,
+                    soluteDielectric = 1.0,
+                    solventDielectric= 78.5,
+                )
+            except Exception as e:
+                print(f"  [!] Subsystem 시스템 생성 실패: {e}")
+                return None, None
+            return sub_modeller, sub_system
+
+        def _transfer_positions(sub_modeller, label):
+            sub_positions = list(sub_modeller.positions)
+            n_matched = 0
+            n_fallback = 0
+            for atom in sub_modeller.topology.atoms():
+                key = _atom_key(atom)
+                if key in cplx_index_map:
+                    sub_positions[atom.index] = cplx_min_positions[cplx_index_map[key]]
+                    n_matched += 1
+                else:
+                    n_fallback += 1
+            if n_fallback > 0:
+                print(f"    [{label}] position transfer: {n_matched} matched, "
+                      f"{n_fallback} fallback (addHydrogens edge)")
+            return sub_positions
+
+        # Receptor
+        recv_modeller, recv_system = _load_subsystem(recv_pdb, sub_binder_chain="")
+        if recv_modeller is None:
+            return None
+        recv_system = apply_gb_radius_override(
+            recv_system, recv_modeller.topology, "none", si_radius,
+        )
+        recv_positions = _transfer_positions(recv_modeller, "receptor")
+        recv_integrator = mm.VerletIntegrator(1.0 * unit.femtoseconds)
+        recv_sim = Simulation(
+            recv_modeller.topology, recv_system, recv_integrator, platform,
+        )
+        recv_sim.context.setPositions(recv_positions)
+        e_receptor = recv_sim.context.getState(getEnergy=True).getPotentialEnergy(
+        ).value_in_unit(unit.kilojoules_per_mole) / 4.184
+
+        # Ligand
+        lig_modeller, lig_system = _load_subsystem(lig_pdb, sub_binder_chain=binder_chain)
+        if lig_modeller is None:
+            return None
+        lig_system = apply_gb_radius_override(
+            lig_system, lig_modeller.topology, ncaa_elem, si_radius,
+        )
+        lig_positions = _transfer_positions(lig_modeller, "ligand")
+        lig_integrator = mm.VerletIntegrator(1.0 * unit.femtoseconds)
+        lig_sim = Simulation(
+            lig_modeller.topology, lig_system, lig_integrator, platform,
+        )
+        lig_sim.context.setPositions(lig_positions)
+        e_ligand = lig_sim.context.getState(getEnergy=True).getPotentialEnergy(
+        ).value_in_unit(unit.kilojoules_per_mole) / 4.184
+
+        # ── 4. ΔG 계산 ──────────────────────────────────────────
+        delta_g = e_complex - e_receptor - e_ligand
+
+        print(f"  [1-traj] E_complex  : {e_complex:>12.4f} kcal/mol (minimized)")
+        print(f"  [1-traj] E_receptor : {e_receptor:>12.4f} kcal/mol (static)")
+        print(f"  [1-traj] E_ligand   : {e_ligand:>12.4f} kcal/mol (static)")
+        print(f"  [1-traj] ΔG_bind    : {delta_g:>+12.4f} kcal/mol  "
+              f"{'✅ 결합 유리' if delta_g < 0 else '⚠️  결합 불리'}")
+
+        result = {
+            "snapshot":         basename,
+            "pdb_path":         pdb_path,
+            "ncaa_element":     ncaa_elem,
+            "si_radius_A":      si_radius,
+            "e_complex_kcal":   e_complex,
+            "e_receptor_kcal":  e_receptor,
+            "e_ligand_kcal":    e_ligand,
+            "delta_g_kcal":     delta_g,
+            "favorable":        delta_g < 0,
+            "protocol_variant": "1traj",
+            "minimize_iter":    _min_iter,
+            "minimize_tol":     _min_tol,
+            "platform":         platform.getName(),
+        }
+
+        out_json = os.path.join(output_dir, f"{basename}_mmgbsa.json")
+        with open(out_json, "w", encoding="utf-8") as f:
+            json.dump(result, f, indent=2)
+
+        return result
+    finally:
+        for tmp in [cplx_pdb, recv_pdb, lig_pdb]:
+            if os.path.exists(tmp):
+                try:
+                    os.remove(tmp)
+                except OSError as _rm_err:
+                    print(f"  [!] 임시 파일 정리 실패(무시): {tmp} ({_rm_err})")
+
+
+# ==========================================
+# [v0.6.8] Protocol dispatcher (reads UPDD_MMGBSA_PROTOCOL)
+# ==========================================
+_VALID_PROTOCOLS = ("3traj", "1traj")
+
+
+def _resolve_protocol() -> str:
+    """Read UPDD_MMGBSA_PROTOCOL env var. Returns "3traj" (default) or "1traj".
+    Raises ValueError on any other value.
+    """
+    val = os.environ.get("UPDD_MMGBSA_PROTOCOL", "3traj").strip().lower()
+    if val not in _VALID_PROTOCOLS:
+        raise ValueError(
+            f"UPDD_MMGBSA_PROTOCOL={val!r} invalid. "
+            f"Expected one of {_VALID_PROTOCOLS}. Unset to use default 3traj."
+        )
+    return val
+
+
+def calc_mmgbsa_dispatch(pdb_path, output_dir, ff, ncaa_elem, si_radius,
+                         receptor_chain="A", binder_chain="B"):
+    """[v0.6.8] Dispatch to 1-traj or 3-traj path based on UPDD_MMGBSA_PROTOCOL.
+
+    - UPDD_MMGBSA_PROTOCOL unset or "3traj": call calc_mmgbsa() (existing).
+    - UPDD_MMGBSA_PROTOCOL="1traj": call calc_mmgbsa_1traj() (new).
+    - Any other value: ValueError.
+    """
+    protocol = _resolve_protocol()
+    if protocol == "1traj":
+        return calc_mmgbsa_1traj(
+            pdb_path, output_dir, ff, ncaa_elem, si_radius,
+            receptor_chain, binder_chain,
+        )
+    return calc_mmgbsa(
+        pdb_path, output_dir, ff, ncaa_elem, si_radius,
+        receptor_chain, binder_chain,
+    )
 
 
 # ==========================================
@@ -708,7 +1203,7 @@ def _mmgbsa_worker(worker_args):
                 register_cofactor_templates(ff, _COFACTOR_MOL2_PATHS)
             except ImportError:
                 pass
-        return calc_mmgbsa(
+        return calc_mmgbsa_dispatch(
             pdb_path, outputdir, ff, ncaa_elem, si_radius, receptor_chain, binder_chain
         )
     except Exception as _werr:
@@ -760,6 +1255,12 @@ def main():
     # NMA_gaff2.xml을 찾지 못해 ForceField에 ncAA 템플릿이 누락되었다.
     # params_manifest.json의 xml_path/hydrogens_path를 사용하여
     # 파라미터화 방식에 관계없이 올바른 XML을 로드한다.
+    # [Option C v2] Cache indirection deprecation — prefer LOCAL params/<resname>_gaff2.xml
+    # over manifest xml_path which may point to /tmp/calib_params/ (volatile).
+    # Alias-aware: ncaa_code (e.g., NML) may differ from xml_resname (e.g., MLE);
+    # the on-disk filename uses xml_resname. Falls back to manifest path with
+    # a warning when local file is missing (legacy compat).
+    import warnings
     params_dir = os.path.join(os.path.dirname(args.md_dir), "params")
     ncaa_xmls = []
     ncaa_hydrogens = []
@@ -767,12 +1268,30 @@ def main():
         try:
             with open(mf, "r", encoding="utf-8") as _mf:
                 manifest = json.load(_mf)
-            xml_path = manifest.get("xml_path", "")
-            if xml_path and os.path.exists(xml_path):
-                ncaa_xmls.append(xml_path)
-            h_path = manifest.get("hydrogens_path", "")
-            if h_path and os.path.exists(h_path):
-                ncaa_hydrogens.append(h_path)
+            ncaa_code = manifest.get("ncaa_code", "")
+            xml_resname = manifest.get("xml_resname", ncaa_code)  # NML→MLE alias
+            if not xml_resname:
+                continue
+            local_xml = os.path.join(params_dir, f"{xml_resname}_gaff2.xml")
+            if os.path.exists(local_xml):
+                ncaa_xmls.append(local_xml)
+            else:
+                xml_path = manifest.get("xml_path", "")
+                if xml_path and os.path.exists(xml_path):
+                    warnings.warn(
+                        f"[Option C legacy fallback] {ncaa_code} (xml_resname={xml_resname}): "
+                        f"local {local_xml} missing; using manifest xml_path={xml_path}.",
+                        stacklevel=2,
+                    )
+                    ncaa_xmls.append(xml_path)
+            # Hydrogens: alias-aware prefer-local-with-fallback
+            local_h = os.path.join(params_dir, f"{xml_resname}_hydrogens.xml")
+            if os.path.exists(local_h):
+                ncaa_hydrogens.append(local_h)
+            else:
+                h_path = manifest.get("hydrogens_path", "")
+                if h_path and os.path.exists(h_path):
+                    ncaa_hydrogens.append(h_path)
         except Exception as _me:
             print(f"  [!] manifest 파싱 실패 ({os.path.basename(mf)}): {_me}")
     if ncaa_xmls:
@@ -888,10 +1407,21 @@ def main():
         ie_result = calc_interaction_entropy(dg_list, temperature=300.0)
         interaction_entropy_per_design[design_key] = ie_result
 
+    # [v0.6.8 Fix 4] Per-snap protocol_variant already set by calc_mmgbsa /
+    # calc_mmgbsa_1traj. Top-level summary field records "1traj" / "3traj" /
+    # "mixed" so consumers can short-circuit legacy compat logic.
+    _protocols_seen = {r.get("protocol_variant", "3traj") for r in all_results}
+    if len(_protocols_seen) == 1:
+        _top_protocol = _protocols_seen.pop()
+    else:
+        _top_protocol = "mixed"
+
     # 전체 요약 JSON
     summary_path = os.path.join(args.outputdir, "mmgbsa_summary.json")
     with open(summary_path, "w", encoding="utf-8") as f:
         json.dump({
+            "schema_version":   "0.6.8",  # [v0.6.8] bumped from 0.6.7 (Fix 4)
+            "protocol_variant": _top_protocol,
             "gb_model":   "GBn2",
             "ncaa_elem":  args.ncaa_elem,
             "si_radius":  args.si_radius,

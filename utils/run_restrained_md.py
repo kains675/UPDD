@@ -462,22 +462,47 @@ def load_ncaa_manifest(manifest_path):
     except Exception as e:
         raise RuntimeError(f"매니페스트 파싱 실패: {e}")
 
-    xml_path = manifest.get("xml_path")
-    if not xml_path or not os.path.exists(xml_path):
-        raise RuntimeError(f"매니페스트 내 XML 경로 누락 또는 파일 없음: {xml_path}")
+    # [Option C v2] xml_resname is the SSOT for the on-disk filename and is
+    # returned to callers unchanged. The xml_path / hydrogens_path lookups,
+    # however, prefer LOCAL params/<xml_resname>_gaff2.xml and
+    # params/<xml_resname>_hydrogens.xml over the manifest values (which may
+    # point to /tmp/calib_params/ — volatile cache). Falls back to manifest
+    # paths with a warning when local files are missing (legacy compat).
+    import warnings as _warnings
 
     xml_res_name = manifest.get("xml_resname")
     if not xml_res_name:
         raise RuntimeError("매니페스트 내 XML 잔기명(xml_resname) 정보 누락")
 
+    ncaa_code_local = manifest.get("ncaa_code", "")
+    params_dir_local = os.path.dirname(os.path.abspath(manifest_path))
+    local_xml = os.path.join(params_dir_local, f"{xml_res_name}_gaff2.xml")
+    manifest_xml_path = manifest.get("xml_path", "")
+    if os.path.exists(local_xml):
+        xml_path = local_xml
+    else:
+        xml_path = manifest_xml_path
+        if xml_path and os.path.exists(xml_path):
+            _warnings.warn(
+                f"[Option C legacy fallback] {ncaa_code_local} (xml_resname={xml_res_name}): "
+                f"local {local_xml} missing; using manifest xml_path={xml_path}.",
+                stacklevel=2,
+            )
+    if not xml_path or not os.path.exists(xml_path):
+        raise RuntimeError(f"매니페스트 내 XML 경로 누락 또는 파일 없음: {xml_path}")
+
     # [v36 CRITICAL FIX-2] Hydrogen Definitions 파일 경로. 부재해도 downstream 은
     # 가능한 모든 경로를 시도하지만, 로딩이 누락되면 OpenMM addHydrogens 가
     # ncAA 잔기에 H 를 추가하지 못해 createSystem 매칭이 실패한다. Principle 4
     # (Fail-Fast): 부재 시 명시 경고를 출력하여 Silent-Fallback 을 방지.
-    hydrogens_path = manifest.get("hydrogens_path", "")
-    if hydrogens_path and not os.path.exists(hydrogens_path):
-        print(f"  [경고] manifest 내 hydrogens_path 가 가리키는 파일이 존재하지 않습니다: {hydrogens_path}")
-        hydrogens_path = ""
+    local_h = os.path.join(params_dir_local, f"{xml_res_name}_hydrogens.xml")
+    if os.path.exists(local_h):
+        hydrogens_path = local_h
+    else:
+        hydrogens_path = manifest.get("hydrogens_path", "")
+        if hydrogens_path and not os.path.exists(hydrogens_path):
+            print(f"  [경고] manifest 내 hydrogens_path 가 가리키는 파일이 존재하지 않습니다: {hydrogens_path}")
+            hydrogens_path = ""
     if not hydrogens_path:
         print(f"  [경고] manifest 에 hydrogens_path 가 없습니다 — 구버전 캐시일 수 있습니다. 재파라미터화를 권장합니다.")
 

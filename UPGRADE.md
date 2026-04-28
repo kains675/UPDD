@@ -206,6 +206,101 @@ _Rev. 2 archive: `archive/CLAUDE_Rev2_20260418.md` 참조 (2026-04-19 기반)._
   - → `UPGRADE_v07_roadmap.md` §γ-S4 (Cp4 Fix 4 n=5 under Khoury RESP + PBSA)
   - **Context**: UPDD MTR Σq = −0.1867 e confirmed (V 4-axis verification), 31/119 MM-GBSA runs affected (K audit 100% ncAA XML coverage). Khoury OMW (ff03 RESP, Σq=0.0, same 2QKI system) ready from `Reference/Khoury 2014/sb400168u_si_002/ffncaa.in` line 778-810.
 
+### v0.7 Phase α + Option C — Architectural Integrity Release (2026-04-28, applied)
+
+**Decision criterion adopted**: Definition 1 (process-oriented; verdict §4.2.1, §4.4) — replaces the informal v0.6.7-era working assumption ("Cp4 ΔΔG within reasonable range of Magotti −1.4 / −3.0 anchor"), which Phase α evidence invalidated. v0.7 is a **process-oriented foundation milestone**; quantitative literature match is deferred to v0.8 (Phase γ Khoury full RESP) and conditionally v0.9 (Phase γ' methodology refinement).
+
+**Pathway E mapping**: This block is the v0.7 release entry for the α arm of `UPGRADE_v07_roadmap.md` (P-flavor). β and γ remain in `UPGRADE_v07_roadmap.md` as the authoritative phased file.
+
+#### Definition 1 entry criteria (verdict §4.5)
+
+A. Architectural (all required):
+- [x] **A1.1** Charge correctness — MTR scope (24 production XMLs `|Σq| < 1e-6`) — v0.7 (commit hash TBD; Σq = −1.11e-16 per XML, 4-method check)
+- [ ] **A1.2** Charge correctness — N-methyl scope (NMA, NML/MLE, NMV, NMK, NMR, NMQ, MEA, SAR; ≥13 additional XMLs) — **v0.7.1 dependency**, blocks on PR-6
+- [x] **A2** Audit infrastructure operational — PATCH-01 backbone-N gate + schema regression C5 + audit_charge_consistency strict mode (109 → 117 regression tests) — v0.7
+- [x] **A3** Cache architecture cleaned — Option C v2 SAFE, 3-site patch (`scripts/run_mmpbsa.py` + `utils/run_mmgbsa.py` + `utils/run_restrained_md.py`), 8/8 dedicated tests + 117/126 regression — v0.7 (commit hash TBD)
+- [x] **A4** Backup + traceability — pre-patch XMLs preserved at `outputs/_archive/pre_amb14_patch_20260427/`; `*.bak_pre_optionC_20260428` for 3 patched files — v0.7
+
+B. Scientific (all required):
+- [x] **B1** Sign-significance demonstrated — 1EBP_MTR13 z_SE = 2.09 (X.C → X.B); WT control bit-identical (Δ = 0.00) intervention isolation
+- [x] **B2** σ_w within Genheden 2015 strict — Cp4 σ_w = 6.40, 1EBP_MTR13 σ_w = 4.91 (both < 10 kcal/mol)
+- [x] **B3** σ_btwn improvement / stability — Cp4 7.12 → 5.50 (−23 %), 1EBP_MTR13 2.82 → 3.00 (+6 %); σ_btwn vs σ_w decomposition reveals artifact-to-genuine ensemble transition (verdict §3.3)
+
+C. Documentation (all required):
+- [x] **C1** Phase α exit verdict (Sections 1–7 finalized) — `v07_user_verdict/v0.7 Section {1..7} finalized.md`
+- [x] **C2** UPDATE.md entry (R-8) — this session
+- [x] **C3** UPGRADE.md entry (R-10) — this entry
+- [x] **C4** PR backlog explicit (PR-6 through PR-18, verdict §5)
+- [-] **C5** Reference Library status — Acquired (Magotti 2009, Lamers 2022, Genheden-Ryde 2015, Khoury 2014, Park 2005); INDEX.md v1.3 update dispatched 2026-04-27. `[NEEDS-PDF]` queue: Capece 2012 (HIGH, PR-13), Maier 2015 (MEDIUM, PR-14), Wrighton 1996 / Johnson 2000 (LOW, MEMORY-ONLY).
+
+#### Strategic positioning (refined this session, verdict §4.1.1-4.1.3, §7.0)
+
+- **Capability Level 1** (current scope, v0.7+): Decision support tool with ncAA expansion as primary differentiator. Capabilities: binder discovery (sign-direction), relative ranking (same-protocol pairwise), iterative cycle workflow.
+- **Capability Level 2** (v0.8+, post-pharma access): Calibrated quantitative tool with per-target calibration via wet lab data (5-10 known binders).
+- **Capability Level 3** (v1.0+, long-term): Universal quantitative across targets without per-target calibration; field-currently-unachievable.
+
+**Iterative cycle architecture** (verdict §4.1.3):
+- **Cycle 0** (de novo discovery): Stages 1-2 (RFdiffusion + ProteinMPNN + AF2) → Stages 3-5 branched evaluation (WT branch + Variant branch through MD/QM-MM/MM-PBSA → ΔΔG ranking).
+- **Cycle 1+** (iterative refinement): User-provided sequences (validated WT + variants) directly enter Stage 4 (Stage 1-2 skip); branched ΔΔG with same-protocol pairwise comparison; wet lab feedback drives next cycle's WT.
+- **All structures computational** (AF2-predicted + MD; not X-ray); same-protocol intervention isolation verified at Phase α (1EBP_WT bit-identical).
+
+#### PR backlog (post-Phase α; verdict §5)
+
+| PR | Title | Priority | Trigger | Effort | Verdict ref |
+|---|---|---|---|---|---|
+| PR-6 | N-methyl class amber14SB overlay | 🔴 HIGH (v0.7.1) | Phase α §2.4 patch coverage gap | ~3–5 d R&D | §5.X, §6.2.2 Stage 2 |
+| PR-7 | PRO-class amber14SB overlay (DPR, HYP) | 🟡 MEDIUM | SciVal V2.4 Condition B (PRO q_N = −0.2548 ≠ −0.4157) | ~2–3 d R&D | §5, scival §V2.4 |
+| PR-8 | Phospho class amber14SB overlay (SEP, TPO, PTR) | 🟡 MEDIUM | Phase α §2.4 scope discovery | ~2–3 d R&D | §5 |
+| PR-9 | ncAA expansion automation | 🟢 LOW | PR-6/7/8 follow-up | ~1–2 d | §5 |
+| PR-10 | `/tmp` cache full deprecation | ✅ READY | Step 5.5 incident | (complete) | Option C v2; merged via this v0.7 release |
+| PR-11 | audit_charge_consistency manifest check | 🟡 MEDIUM | Step 5.5 learning | ~1 d | §5 |
+| PR-12 | WT control automated verification | 🟢 LOW | §3.6 intervention isolation pattern | ~0.5 d | §5 |
+| PR-13 | Capece 2012 PDF acquisition | 🟡 MEDIUM | SciVal `[NEEDS-PDF]` (per-residue tolerance) | manual + retry | §4.4 C5 |
+| PR-14 | Maier 2015 PDF acquisition | 🟢 LOW | SciVal `[NEEDS-PDF]` (ff14SB primary) | manual + retry | §4.4 C5 |
+| PR-15 | seed=85087 stochastic NaN mitigation (3-stage warm-up) | 🟢 LOW | Step 1 + DTR observation | ~1 d | §2.1, §2.2 |
+| PR-16 | `outputs/scripts_draft/patch_default_flip_optionA.py` argparse mutex fix | 🟢 LOW | Step 2 latent bug | ~5 min | §2.3 |
+| PR-17 | Schema regression writer hook | 🟢 LOW | Step 4 deferred | ~0.5 d | §2.5 |
+| **PR-18** | **Khoury full RESP integration** | 🔴 **HIGH (Phase γ / v0.8)** | §3.10, §6.3 | ~10–15 d R&D | §5.X, §6.3 |
+
+Total: 13 PRs (PR-6 → PR-18). HIGH: 2 (PR-6 v0.7.1, PR-18 v0.8). MEDIUM: 4 (PR-7, PR-8, PR-11, PR-13). LOW: 6 (PR-9, PR-12, PR-14, PR-15, PR-16, PR-17). READY (merged via this release): 1 (PR-10).
+
+**Level 1 user-facing PRs** (verdict §5, PR-NEW-A through E for v0.7.x sequence comparison feature):
+- PR-NEW-A: Sequence input parser (HIGH for Level 1)
+- PR-NEW-B: Branched ΔΔG engine (HIGH for Level 1)
+- PR-NEW-C: Iterative cycle manager (HIGH for Level 1)
+- PR-NEW-D: User CLI (HIGH for Level 1)
+- PR-NEW-E: HTML report generator (MEDIUM, industry adoption)
+
+#### Phase β / γ / γ' roadmap (verdict §6)
+
+- [ ] **Phase β — Multi-system sign-significance** (target v0.7.1, ~2–4 weeks; verdict §6.2):
+  - Stage 1 (existing data, ~1 wk): 7TL8_MTR6, 2QKH_MTR25 PBSA re-run with patched MTR XMLs (Step 5 promoted ✅).
+  - Stage 1-Repair (~3-5 d, deferred from Stage 1 due to MD data shortage): MD reseed for 7TL8_MTR6 s19/s42 + 2QKH_MTR25 s7/s19/s42; 7TL8_MTR6_s7 RMSD/RMSF audit for σ_w=38.33 mechanism.
+  - Stage 2 (~1 wk): PR-6 N-methyl overlay implemented + validated (NVT smoke per class).
+  - Stage 3 (~1–2 wk): 1YCR_NML22, 3IOL_NML20 PBSA validation post-PR-6.
+  - Success (Definition 3): ≥3 systems with z_SE > 2.0; σ_btwn vs σ_w decomposition reproduces in ≥2 systems.
+- [ ] **Phase γ — Khoury full RESP integration** (target v0.8, ~2–3 months; verdict §6.3):
+  - PR-18 implementation (Khoury OMW XML, ff03-compatible).
+  - Cp4 quantitative attempt (expected ~+1 to +3 kcal/mol per §3.10; Khoury R²=0.388 ceiling acknowledged).
+  - Multi-system PBSA re-validation under Khoury RESP.
+  - May be a partial-success release per honest framing — not a Definition 2 quantitative-match guarantee.
+- [ ] **Phase γ' — Methodology refinement** (target v0.9, conditional; verdict §6.4):
+  - Triggered iff Phase γ residual gap > 2 kcal/mol on Cp4 (likely per §3.10).
+  - Candidate axes (decreasing field-readiness): explicit solvent + entropy (Hou 2011, ~2× cost, 0.5–1 kcal/mol), polarizable FF (AMOEBA, ~10× cost, 1–2 kcal/mol), QM/MM at binding site (~100× cost, case-by-case), alchemical (TI/FEP).
+
+Total roadmap (verdict §6.7): from v0.7 (now) to v0.9 (conditional) ≈ 9–12 months realistic.
+
+#### Cross-references
+
+- SciVal Phase α verdict — `outputs/analysis/scival_phase_alpha_verdict_20260427.md`
+- SciVal Option C verdict — `outputs/analysis/scival_option_c_verdict_20260427.md`
+- Option C v2 implementation report — `outputs/analysis/option_c_implementation_20260428_v2.md`
+- Option C v1 halt report — `outputs/analysis/option_c_implementation_20260428.md`
+- Phase α verdict bundle — `v07_user_verdict/v0.7 Section {1..7} finalized.md`
+- V verification — `outputs/analysis/sigma_q_verification_20260423.md`
+- K audit — `outputs/audit/amb14sb_patch_audit_20260423.md`
+- Pathway E α/β/γ authoritative file — `UPGRADE_v07_roadmap.md`
+
 ### Pre-entry items — Phase Mapping (Rev. 3.1 added)
 
 Existing Task tracker items mapped to Pathway E phases:
@@ -425,6 +520,18 @@ v0.7_entry_criteria:
 ---
 
 ## Completed ✅ (Rev. 3 누적)
+
+### v0.7 Phase α + Option C v2 (2026-04-28) — Architectural integrity release
+
+- [x] **Phase α execution complete** (2026-04-27 → 2026-04-28) — 24 MTR production XMLs Σq = 0; PATCH-01 + schema regression C5 audit infra; Step 5.5 cache forensic + recovery (Cron #41 catch); Step 6+7 v2 PBSA results (1EBP_MTR13 X.C → X.B, z_SE = 2.09; Cp4 ΔΔG +3.92 → +7.72, X.A re-interpreted as methodology-conditioned). Verdict bundle: `v07_user_verdict/v0.7 Section {1..7} finalized.md`. SciVal Phase α verdict: `outputs/analysis/scival_phase_alpha_verdict_20260427.md`.
+- [x] **Option A default flip** (2026-04-27, `parameterize_ncaa.py` L1469) — `UPDD_MTR_AMBER14_PATCH` default OFF → ON; gate scope unchanged (`parent_residue == "TRP"`).
+- [x] **24 MTR XMLs regenerated** + 4-method Σq verification (24/24 PASS, Σq = −1.11e-16 per XML); pre-patch preserved at `outputs/_archive/pre_amb14_patch_20260427/`.
+- [x] **PATCH-01 backbone-N gate** in `utils/audit_charge_consistency.py`; strict mode raises `Patch01BackboneNError` on pre-patch state; INCONCLUSIVE response on legacy templates lacking backbone N.
+- [x] **Schema regression test (C5 module)** — 7/7 pytest cases incl. Cron #34 `"none"` outlier reproduction.
+- [x] **Option C v2 cache indirection deprecation** (2026-04-28, applied) — `scripts/run_mmpbsa.py` + `utils/run_mmgbsa.py` + `utils/run_restrained_md.py` readers prefer per-output local `params/<xml_resname>_gaff2.xml`; alias-aware (`manifest.get("xml_resname", ncaa_code)`); legacy fallback retained with `warnings.warn`. Pre-merge audit: 37 OK / 0 BREAK. Tests: 8 new (T1–T7 + legacy-compat), full regression 117 pass / 9 skip / 0 fail. Migration verdict: SAFE. SciVal verdict: `outputs/analysis/scival_option_c_verdict_20260427.md`. Implementation report: `outputs/analysis/option_c_implementation_20260428_v2.md`. Prior v1 halt (filename-convention skew, 10 BREAK candidates) acknowledged — pre-merge gate caught the regression before any production source was modified.
+- [x] **Verification protocol empirically validated** (verdict §4.6) — 2 halt-and-recovery events in Phase α: (i) Step 5.5 cache forensic (auto-monitoring layer, Cron #41); (ii) Option C v1 BREAK halt (pre-merge gate layer). Both errors caught before production contamination.
+- [x] **σ_btwn vs σ_w decomposition framework** documented (verdict §3.3) — primary scientific contribution beyond architectural fix; generalisable beyond UPDD to any MM-PBSA pipeline with ncAA charge handling.
+- [x] **Strategic positioning refinement** (2026-04-28 morning collaborative session, verdict §4.1.1-4.1.3, §7.0): ncAA expansion as primary differentiator; Capability Level 1/2/3 progression (decision support → calibrated → universal); iterative cycle workflow (Cycle 0 de novo + Cycle 1+ refinement); branched ΔΔG architecture (same-protocol pairwise WT vs variant); all-computational structures (AF2-predicted + MD).
 
 ### v0.7 Pathway E adoption (2026-04-24 morning) — Rev. 3.1
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """scripts/updd_cli.py — UPDD User CLI (Capability Level 1 demo integration).
 
-Schema: ``updd_cli/0.1`` (PR-NEW-D Day 1 + Day 2, 2026-04-28)
+Schema: ``updd_cli/0.1`` (PR-NEW-D Day 1, 2026-04-28)
 
 Unified subcommand interface that integrates the v0.7 Stage 1-5 user-facing
 layer (per ``v07_user_verdict/v0.7 Section 4 finalized.md`` §4.1.1 — §4.1.3,
@@ -17,30 +17,13 @@ Integrations:
     - :mod:`utils.sequence_parser`  (PR-NEW-A) — input layer
     - :mod:`utils.branched_ddg`     (PR-NEW-B) — ΔΔG aggregation engine
 
-Day-1 scope (initial revision):
+Day-1 scope (this revision):
     - argparse subcommand dispatch + CLIContext propagation
     - Sequence parsing (delegates to PR-NEW-A)
     - Branched ΔΔG fixture-driven `report` (delegates to PR-NEW-B)
     - **Mock pipeline** for `check` / `compare` / `refine` / `discover`
       (deterministic placeholder ΔG estimates; clearly labelled as
-      ``"mock": true``).
-
-Day-2 additions (this revision):
-    - **Mode A — Read-existing**: when ``--wt-results-dir`` /
-      ``--variant-results-dir`` / ``--results-dirs`` / ``--system-name``
-      points to existing ``mmpbsa_results*/mmpbsa_summary.json`` data,
-      ``check`` / ``compare`` / ``refine`` invoke
-      :func:`utils.branched_ddg.compute_branched_ddg` (or
-      :func:`utils.branched_ddg.aggregate_branch` for single-branch ``check``)
-      directly. Output payload carries ``"mode": "real"`` and
-      ``"data_source": <path>``.
-    - **Mode B — Run-then-aggregate**: stretch goal; Day 2 implements the
-      ``--execute-pipeline`` flag as a Day-3 placeholder that warns and
-      falls back to mock. Real subprocess launch of
-      ``scripts/run_mmpbsa.py`` is Day 3.
-    - **Mock pipeline preservation**: explicit ``--mock`` keeps Day-1
-      behaviour; the same mock path is also taken automatically when no
-      result dirs are supplied AND ``--execute-pipeline`` is not set.
+      ``"mock": true``). Real MD/PBSA hookup is Day 2-3.
 
 Note on namespace: ``utils/updd_cli.py`` already exists as a separate legacy
 TUI/menu module driving the existing ``UPDD.py`` orchestrator. **This file
@@ -206,228 +189,7 @@ def _provenance_header(cmd: str, ctx: CLIContext) -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Day 2 — Real Stage 4 hookup helpers (read-existing path)
-# ---------------------------------------------------------------------------
-#
-# The Day-2 design replaces the Day-1 mock pipeline with a thin wrapper around
-# PR-NEW-B's :func:`utils.branched_ddg.compute_branched_ddg` (pairwise) and
-# :func:`utils.branched_ddg.aggregate_branch` (single-branch) for the
-# read-existing case. Mode B (run-then-aggregate via subprocess invocation of
-# ``scripts/run_mmpbsa.py``) is gated behind the ``--execute-pipeline`` flag
-# and is currently a Day-3 stretch placeholder; when set, Day-2 logs a
-# warning and falls back to mock so the CLI still completes deterministically.
-#
-# Resolution policy for ``--system-name <name>``:
-#
-#     1. Glob ``outputs/<name>_calib_*/mmpbsa_results*/mmpbsa_summary.json``
-#     2. If multiple ``mmpbsa_results*`` variants exist per seed dir, prefer
-#        the most-postpatched one (``*_fix*_postpatch`` > ``*_fix*`` > bare).
-#     3. If multiple top-level system dirs match, return the parent glob
-#        pattern (PR-NEW-B's ``aggregate_branch`` accepts globs natively),
-#        and warn so the user knows multiple seeds were aggregated.
-#     4. Zero matches → return ``None`` and the caller decides: error if
-#        ``--mock`` not set; mock fallback otherwise.
-
-import glob as _glob
-from utils.branched_ddg import (  # noqa: E402
-    aggregate_branch as bddg_aggregate_branch,
-    compute_branched_ddg as bddg_compute,
-    BranchedDDGError,
-    InsufficientSamplingError,
-    ChargeAuditError,
-)
-
-
-def _resolve_results_dir(system_name: str, *,
-                         repo_root: Optional[Path] = None
-                         ) -> Optional[str]:
-    """Resolve a ``--system-name`` (e.g. ``1EBP_MTR13``) to a glob pattern
-    matching all per-seed ``mmpbsa_results*/`` dirs.
-
-    Search strategy::
-
-        outputs/<system_name>_calib_*/mmpbsa_results*_postpatch
-        outputs/<system_name>_calib_*/mmpbsa_results_fix*_postpatch
-        outputs/<system_name>_calib_*/mmpbsa_results_fix*
-        outputs/<system_name>_calib_*/mmpbsa_results
-
-    Returns the first variant suffix that yields one or more matching seed
-    summaries, formatted as a glob pattern (e.g.
-    ``outputs/1EBP_MTR13_calib_s*/mmpbsa_results_fix4_postpatch``). PR-NEW-B's
-    ``_find_seed_summaries`` accepts globs directly, so the caller does not
-    need to expand them.
-
-    Returns ``None`` when no matches exist for the given system name. Does
-    not raise — the caller is expected to fall back to mock or error.
-    """
-    if repo_root is None:
-        repo_root = _REPO_ROOT
-    suffix_priority = (
-        "mmpbsa_results_fix*_postpatch",
-        "mmpbsa_results*_postpatch",
-        "mmpbsa_results_fix*",
-        "mmpbsa_results",
-    )
-    for suffix in suffix_priority:
-        pattern = str(repo_root / "outputs" /
-                      f"{system_name}_calib_*" / suffix)
-        # Test resolution: only count when there is at least one matching
-        # mmpbsa_summary.json under the candidates.
-        cands = sorted(_glob.glob(pattern))
-        for c in cands:
-            for nm in ("mmpbsa_summary.json", "mmgbsa_summary.json"):
-                if Path(c, nm).is_file():
-                    return pattern
-    return None
-
-
-def _real_pipeline_aggregate(wt_dir: str, variant_dir: str,
-                             ctx: CLIContext, *,
-                             wt_label: str = "wt",
-                             variant_label: str = "variant",
-                             target_id: str = ""
-                             ) -> Dict[str, Any]:
-    """Wrap :func:`utils.branched_ddg.compute_branched_ddg` for Day-2 use.
-
-    Returns a payload dict shaped to the ``refine`` / ``compare`` consumer:
-
-        {
-            "mode": "real",
-            "data_source": {"wt": <path>, "variant": <path>},
-            "ddG": float, "SE_combined": float,
-            "z_SE": float, "tier": str,
-            "CI95": [lo, hi], "df": int, "t_crit": float,
-            "wt_branch": <BranchAggregate.to_dict()>,
-            "variant_branch": <BranchAggregate.to_dict()>,
-            "branched_ddg": <full BranchedDDGResult.to_dict()>,
-        }
-
-    Raises propagate naturally; the caller is expected to catch them and
-    map to user-friendly exit codes.
-    """
-    expected_solvent = None
-    if ctx.solvent in ("pbsa", "gbsa"):
-        expected_solvent = ctx.solvent
-    result = bddg_compute(
-        wt_dir=wt_dir,
-        variant_dir=variant_dir,
-        wt_label=wt_label,
-        variant_label=variant_label,
-        target_id=target_id or (str(ctx.target) if ctx.target else ""),
-        df_strategy=ctx.df_strategy,
-        expected_solvent=expected_solvent,
-        charge_audit=ctx.strict_charge_audit,
-        strict_charge_audit=ctx.strict_charge_audit,
-    )
-    return {
-        "mode": "real",
-        "data_source": {"wt": wt_dir, "variant": variant_dir},
-        "ddG": result.ddg,
-        "SE_combined": result.SE_combined,
-        "z_SE": result.z_SE,
-        "tier": result.tier,
-        "CI95": [result.CI95[0], result.CI95[1]],
-        "df": result.df,
-        "t_crit": result.t_crit,
-        "solvent_model": result.solvent_model,
-        "sign_convention": result.sign_convention,
-        "wt_branch": result.wt.to_dict(),
-        "variant_branch": result.variant.to_dict(),
-        "branched_ddg": result.to_dict(),
-    }
-
-
-def _real_pipeline_single_branch(branch_dir: str, ctx: CLIContext, *,
-                                 label: str = "candidate"
-                                 ) -> Dict[str, Any]:
-    """Aggregate a single branch (no WT counterfactual) — for ``updd check``.
-
-    Returns:
-
-        {
-            "mode": "real",
-            "data_source": <branch_dir>,
-            "label": str,
-            "dG_estimate": float,        # mean_of_seeds (kcal/mol)
-            "dG_se": float,              # branch SE
-            "n_seed": int,
-            "n_snap_per_seed": int,
-            "degenerate": bool,
-            "solvent_model": str,
-            "sigma_btwn": float | None,
-            "sigma_w_median": float,
-            "branch_aggregate": <BranchAggregate.to_dict()>,
-        }
-    """
-    expected_solvent = None
-    if ctx.solvent in ("pbsa", "gbsa"):
-        expected_solvent = ctx.solvent
-    agg = bddg_aggregate_branch(
-        branch_dir,
-        label=label,
-        expected_solvent=expected_solvent,
-        charge_audit=ctx.strict_charge_audit,
-        strict_charge_audit=ctx.strict_charge_audit,
-    )
-    return {
-        "mode": "real",
-        "data_source": branch_dir,
-        "label": label,
-        "dG_estimate": float(agg.mean_of_seeds),
-        "dG_se": float(agg.SE),
-        "n_seed": agg.n_seed,
-        "n_snap_per_seed": agg.n_snap_per_seed,
-        "degenerate": agg.degenerate,
-        "solvent_model": agg.solvent_model,
-        "sigma_btwn": agg.sigma_btwn,
-        "sigma_w_median": agg.sigma_w_median,
-        "branch_aggregate": agg.to_dict(),
-    }
-
-
-def _validate_results_dir(path: str) -> Tuple[bool, Optional[str]]:
-    """Verify ``path`` (or glob) resolves to at least one usable
-    ``mmpbsa_summary.json`` / ``mmgbsa_summary.json`` file.
-
-    Returns ``(ok, reason)``. ``reason`` is ``None`` on success.
-    """
-    expanded = sorted(_glob.glob(path)) if any(c in path for c in "*?[")\
-        else [path]
-    if not expanded:
-        return False, f"glob {path!r} did not match any directory"
-    found = False
-    for cand in expanded:
-        if not os.path.isdir(cand):
-            continue
-        for nm in ("mmpbsa_summary.json", "mmgbsa_summary.json"):
-            if Path(cand, nm).is_file():
-                found = True
-                break
-        if found:
-            break
-    if not found:
-        return False, (
-            f"no mmpbsa_summary.json / mmgbsa_summary.json under {path!r}"
-        )
-    return True, None
-
-
-def _execute_pipeline_warning(logger: logging.Logger) -> None:
-    """Day 2 placeholder: warn that ``--execute-pipeline`` is a Day 3 hook
-    and the run will fall back to mock.
-
-    Day-3 implementation will fork ``scripts/run_mmpbsa.py`` for each branch
-    via subprocess.
-    """
-    logger.warning(
-        "--execute-pipeline is a Day-3 feature; falling back to mock pipeline. "
-        "For Day-2, supply --wt-results-dir / --variant-results-dir / "
-        "--system-name pointing at existing mmpbsa_results*/ data."
-    )
-
-
-# ---------------------------------------------------------------------------
-# Mock pipeline (Day 1) — deterministic placeholder, kept for fallback
+# Mock pipeline (Day 1 only) — deterministic placeholder
 # ---------------------------------------------------------------------------
 
 def _maybe_mock_pipeline(parsed: SequenceParseResult, ctx: CLIContext,
@@ -556,29 +318,12 @@ def _check_target(ctx: CLIContext, *, required: bool, logger: logging.Logger) ->
 
     When ``required=True`` and the path is missing on disk, log a warning
     and (for non-dry-run) raise :class:`FileNotFoundError`.
-
-    Day-2 update: a target string with no ``/`` and no path-extension is
-    treated as a **target_id** (e.g. ``"1EBP"``) rather than a filesystem
-    path; this is permitted because Mode A read-existing aggregation works
-    purely from precomputed mmpbsa_summary.json results and does not need
-    the target PDB itself. A warning is logged so the user knows.
     """
     if not ctx.target:
         if required:
             raise SystemExit(
                 "[updd_cli] --target is required for this subcommand"
             )
-        return
-    target_str = str(ctx.target)
-    looks_like_id = (
-        "/" not in target_str
-        and "\\" not in target_str
-        and not target_str.lower().endswith((".pdb", ".cif", ".pdb.gz"))
-    )
-    if looks_like_id and not Path(target_str).exists():
-        logger.debug(
-            f"target {target_str!r} treated as target_id (no path-like form)"
-        )
         return
     if not ctx.target.exists():
         if ctx.dry_run:
@@ -597,70 +342,12 @@ def cmd_check(args: argparse.Namespace, ctx: CLIContext) -> int:
     logger = ctx.setup_logging()
     _check_target(ctx, required=True, logger=logger)
     parsed = _safe_parse(args.sequence, label="check", logger=logger)
-
-    # Day-2 dispatch — Mode A read-existing if any results-dir / system-name
-    # supplied and not explicitly --mock.
-    explicit_mock = bool(getattr(args, "mock", False))
-    execute_pipeline = bool(getattr(args, "execute_pipeline", False))
-    results_dir = getattr(args, "results_dir", None)
-    system_name = getattr(args, "system_name", None)
-    if execute_pipeline and not explicit_mock:
-        _execute_pipeline_warning(logger)
-
-    resolved_dir: Optional[str] = None
-    if not explicit_mock:
-        if results_dir:
-            ok, reason = _validate_results_dir(results_dir)
-            if ok:
-                resolved_dir = results_dir
-            else:
-                logger.warning(
-                    f"--results-dir {results_dir!r} unusable ({reason}); "
-                    "falling back to mock"
-                )
-        elif system_name:
-            resolved = _resolve_results_dir(system_name)
-            if resolved is not None:
-                resolved_dir = resolved
-            else:
-                logger.warning(
-                    f"--system-name {system_name!r} did not resolve to any "
-                    "results dir; falling back to mock"
-                )
-
-    pipe: Dict[str, Any]
-    if resolved_dir is not None and not ctx.dry_run:
-        try:
-            pipe = _real_pipeline_single_branch(
-                resolved_dir, ctx, label="candidate")
-            pipe["mock"] = False
-            pipe["status"] = "real"
-        except (BranchedDDGError, ValueError, ChargeAuditError) as exc:
-            logger.error(
-                f"real pipeline failed for {resolved_dir!r}: "
-                f"{type(exc).__name__}: {exc}; "
-                "falling back to mock if --mock not set"
-            )
-            if explicit_mock:
-                pipe = _maybe_mock_pipeline(parsed, ctx, label="candidate")
-                pipe["mode"] = "mock"
-                pipe["data_source"] = "mock"
-            else:
-                # Real pipeline was requested (results dir supplied) but
-                # failed; surface the error to the user as a non-zero exit.
-                raise
-    else:
-        pipe = _maybe_mock_pipeline(parsed, ctx, label="candidate")
-        pipe["mode"] = "mock" if not ctx.dry_run else "dry_run"
-        pipe["data_source"] = "mock"
-
+    pipe = _maybe_mock_pipeline(parsed, ctx, label="candidate")
     verdict, confidence = _classify_binder(pipe.get("dG_estimate"))
 
     payload: Dict[str, Any] = _provenance_header("check", ctx)
     payload["sequence"] = args.sequence
     payload["parsed"] = parsed.to_dict()
-    payload["mode"] = pipe.get("mode", "mock")
-    payload["data_source"] = pipe.get("data_source", "mock")
     payload["pipeline"] = pipe
     payload["dG_estimate"] = pipe.get("dG_estimate")
     payload["dG_se"] = pipe.get("dG_se")
@@ -744,62 +431,15 @@ def cmd_compare(args: argparse.Namespace, ctx: CLIContext) -> int:
             "[updd_cli] compare requires at least 2 sequences (got "
             f"{len(seqs)})"
         )
-
-    # Day-2: optional per-sequence results dirs (Mode A). When the count
-    # matches len(seqs), each sequence aggregates its own branch via
-    # PR-NEW-B; otherwise we fall back to mock.
-    explicit_mock = bool(getattr(args, "mock", False))
-    execute_pipeline = bool(getattr(args, "execute_pipeline", False))
-    results_dirs_csv = getattr(args, "results_dirs", None)
-    if execute_pipeline and not explicit_mock:
-        _execute_pipeline_warning(logger)
-
-    per_seq_dirs: List[Optional[str]] = [None] * len(seqs)
-    if not explicit_mock and results_dirs_csv:
-        rdirs = _split_csv(results_dirs_csv)
-        if len(rdirs) != len(seqs):
-            logger.warning(
-                f"--results-dirs has {len(rdirs)} entries but {len(seqs)} "
-                "sequences supplied; falling back to mock"
-            )
-        else:
-            for i, rd in enumerate(rdirs):
-                ok, reason = _validate_results_dir(rd)
-                if ok:
-                    per_seq_dirs[i] = rd
-                else:
-                    logger.warning(
-                        f"results-dir #{i+1} {rd!r} unusable ({reason}); "
-                        "this sequence will use mock"
-                    )
-
     entries: List[Dict[str, Any]] = []
     for i, s in enumerate(seqs, 1):
         parsed = _safe_parse(s, label=f"compare:{i}", logger=logger)
-        rd = per_seq_dirs[i - 1]
-        if rd is not None and not ctx.dry_run:
-            try:
-                pipe = _real_pipeline_single_branch(
-                    rd, ctx, label=f"seq_{i}")
-                pipe["mock"] = False
-                pipe["status"] = "real"
-            except (BranchedDDGError, ValueError, ChargeAuditError) as exc:
-                logger.error(
-                    f"real pipeline failed for sequence #{i} ({rd!r}): "
-                    f"{type(exc).__name__}: {exc}"
-                )
-                raise
-        else:
-            pipe = _maybe_mock_pipeline(parsed, ctx, label=f"seq_{i}")
-            pipe["mode"] = "mock" if not ctx.dry_run else "dry_run"
-            pipe["data_source"] = "mock"
+        pipe = _maybe_mock_pipeline(parsed, ctx, label=f"seq_{i}")
         entries.append({
             "index": i,
             "sequence": s,
             "parsed": parsed.to_dict(),
             "pipeline": pipe,
-            "mode": pipe.get("mode", "mock"),
-            "data_source": pipe.get("data_source", "mock"),
         })
 
     # Rank by ΔG ascending (more-negative is more favourable). Dry-run
@@ -834,22 +474,10 @@ def cmd_compare(args: argparse.Namespace, ctx: CLIContext) -> int:
                 "tier": tier,
             })
 
-    # Aggregate run-level mode: "real" iff all entries were real; "mixed" if
-    # both real and mock; else "mock".
-    modes = sorted({e.get("mode") for e in ranked})
-    if modes == ["real"]:
-        run_mode = "real"
-    elif "real" in modes and "mock" in modes:
-        run_mode = "mixed"
-    else:
-        run_mode = modes[0] if modes else "mock"
-
     payload: Dict[str, Any] = _provenance_header("compare", ctx)
     payload["sequences"] = seqs
     payload["ranked_entries"] = ranked
     payload["pairwise_vs_top"] = pairwise
-    payload["mode"] = run_mode
-    payload["data_sources"] = [e.get("data_source", "mock") for e in ranked]
 
     md = _render_md_compare(payload)
     json_path, md_path = _write_outputs(payload, md, ctx=ctx, basename="compare")
@@ -936,180 +564,12 @@ def cmd_refine(args: argparse.Namespace, ctx: CLIContext) -> int:
         raise SystemExit("[updd_cli] refine requires at least 1 variant")
 
     wt_parsed = _safe_parse(wt_seq, label="refine:wt", logger=logger)
-
-    # Day-2 dispatch — Mode A (read-existing) takes precedence when any of
-    # the following are supplied:
-    #   --wt-results-dir + --variant-results-dir  (direct paths/globs)
-    #   --wt-system-name + --system-name           (resolution helpers)
-    #   --variant-results-dirs <csv>              (multi-variant case;
-    #                                              must align with --variants)
-    explicit_mock = bool(getattr(args, "mock", False))
-    execute_pipeline = bool(getattr(args, "execute_pipeline", False))
-    if execute_pipeline and not explicit_mock:
-        _execute_pipeline_warning(logger)
-
-    wt_results_dir = getattr(args, "wt_results_dir", None)
-    variant_results_dir = getattr(args, "variant_results_dir", None)
-    variant_results_dirs_csv = getattr(args, "variant_results_dirs", None)
-    wt_system_name = getattr(args, "wt_system_name", None)
-    system_name = getattr(args, "system_name", None)
-    target_id = (
-        str(ctx.target) if ctx.target is not None else ""
-    )
-
-    # Resolve WT branch dir.
-    wt_dir: Optional[str] = None
-    if not explicit_mock:
-        if wt_results_dir:
-            ok, reason = _validate_results_dir(wt_results_dir)
-            if ok:
-                wt_dir = wt_results_dir
-            else:
-                logger.warning(
-                    f"--wt-results-dir {wt_results_dir!r} unusable "
-                    f"({reason}); falling back to mock for WT"
-                )
-        elif wt_system_name:
-            resolved = _resolve_results_dir(wt_system_name)
-            if resolved is not None:
-                wt_dir = resolved
-            else:
-                logger.warning(
-                    f"--wt-system-name {wt_system_name!r} did not resolve to "
-                    "any results dir; falling back to mock for WT"
-                )
-
-    # Resolve per-variant branch dirs.
-    per_variant_dirs: List[Optional[str]] = [None] * len(variants)
-    if not explicit_mock:
-        if variant_results_dirs_csv:
-            vdirs = _split_csv(variant_results_dirs_csv)
-            if len(vdirs) != len(variants):
-                logger.warning(
-                    f"--variant-results-dirs has {len(vdirs)} entries but "
-                    f"{len(variants)} variants supplied; ignoring"
-                )
-            else:
-                for i, vd in enumerate(vdirs):
-                    ok, reason = _validate_results_dir(vd)
-                    if ok:
-                        per_variant_dirs[i] = vd
-                    else:
-                        logger.warning(
-                            f"variant-results-dir #{i+1} {vd!r} unusable "
-                            f"({reason}); this variant will use mock"
-                        )
-        elif variant_results_dir and len(variants) == 1:
-            ok, reason = _validate_results_dir(variant_results_dir)
-            if ok:
-                per_variant_dirs[0] = variant_results_dir
-            else:
-                logger.warning(
-                    f"--variant-results-dir {variant_results_dir!r} unusable "
-                    f"({reason}); falling back to mock for variant"
-                )
-        elif system_name and len(variants) == 1:
-            resolved = _resolve_results_dir(system_name)
-            if resolved is not None:
-                per_variant_dirs[0] = resolved
-            else:
-                logger.warning(
-                    f"--system-name {system_name!r} did not resolve to any "
-                    "results dir; falling back to mock for variant"
-                )
-
-    # WT pipeline (real or mock).
-    wt_pipe: Dict[str, Any]
-    if wt_dir is not None and not ctx.dry_run:
-        try:
-            wt_pipe = _real_pipeline_single_branch(
-                wt_dir, ctx, label="WT")
-            wt_pipe["mock"] = False
-            wt_pipe["status"] = "real"
-        except (BranchedDDGError, ValueError, ChargeAuditError) as exc:
-            logger.error(
-                f"WT real pipeline failed ({wt_dir!r}): "
-                f"{type(exc).__name__}: {exc}"
-            )
-            raise
-    else:
-        wt_pipe = _maybe_mock_pipeline(wt_parsed, ctx, label="WT")
-        wt_pipe["mode"] = "mock" if not ctx.dry_run else "dry_run"
-        wt_pipe["data_source"] = "mock"
+    wt_pipe = _maybe_mock_pipeline(wt_parsed, ctx, label="WT")
 
     variant_entries: List[Dict[str, Any]] = []
     for i, v in enumerate(variants, 1):
         v_parsed = _safe_parse(v, label=f"refine:v{i}", logger=logger)
-        v_dir = per_variant_dirs[i - 1]
-        # Real Mode A pairwise: when BOTH wt and variant dirs are set, run
-        # PR-NEW-B compute_branched_ddg directly (gives full Phase α match).
-        if (wt_dir is not None and v_dir is not None and not ctx.dry_run
-                and not explicit_mock):
-            try:
-                real = _real_pipeline_aggregate(
-                    wt_dir=wt_dir, variant_dir=v_dir, ctx=ctx,
-                    wt_label=wt_system_name or "WT",
-                    variant_label=system_name or f"variant_{i}",
-                    target_id=target_id,
-                )
-            except (BranchedDDGError, ValueError, ChargeAuditError) as exc:
-                logger.error(
-                    f"variant #{i} real pipeline failed: "
-                    f"{type(exc).__name__}: {exc}"
-                )
-                raise
-            v_pipe = {
-                "label": f"variant_{i}",
-                "status": "real",
-                "would_run": False,
-                "n_residues": v_parsed.length,
-                "n_ncaa": len(v_parsed.ncaa_positions),
-                "mock": False,
-                "mode": "real",
-                "data_source": v_dir,
-                "dG_estimate": real["variant_branch"]["mean_of_seeds"],
-                "dG_se": real["variant_branch"]["SE"],
-                "n_seed": real["variant_branch"]["n_seed"],
-                "branch_aggregate": real["variant_branch"],
-            }
-            variant_entries.append({
-                "index": i,
-                "sequence": v,
-                "parsed": v_parsed.to_dict(),
-                "pipeline": v_pipe,
-                "ddG": real["ddG"],
-                "SE_combined": real["SE_combined"],
-                "z_SE": real["z_SE"],
-                "tier": real["tier"],
-                "CI95": real["CI95"],
-                "df": real["df"],
-                "t_crit": real["t_crit"],
-                "mode": "real",
-                "data_source": {"wt": wt_dir, "variant": v_dir},
-                "branched_ddg": real["branched_ddg"],
-            })
-            continue
-
-        # Real-WT + mock-variant or vice versa: compute as best-effort
-        # (read what data we have, mock the missing one).
-        if v_dir is not None and not ctx.dry_run and not explicit_mock:
-            try:
-                v_real = _real_pipeline_single_branch(
-                    v_dir, ctx, label=f"variant_{i}")
-                v_pipe = v_real
-                v_pipe["mock"] = False
-                v_pipe["status"] = "real"
-            except (BranchedDDGError, ValueError, ChargeAuditError) as exc:
-                logger.error(
-                    f"variant #{i} real pipeline failed: "
-                    f"{type(exc).__name__}: {exc}"
-                )
-                raise
-        else:
-            v_pipe = _maybe_mock_pipeline(v_parsed, ctx, label=f"variant_{i}")
-            v_pipe["mode"] = "mock" if not ctx.dry_run else "dry_run"
-            v_pipe["data_source"] = "mock"
-
+        v_pipe = _maybe_mock_pipeline(v_parsed, ctx, label=f"variant_{i}")
         ddG, se, z, tier, ci_lo, ci_hi = _ddg_from_two_branches(
             wt_pipe, v_pipe
         )
@@ -1123,15 +583,6 @@ def cmd_refine(args: argparse.Namespace, ctx: CLIContext) -> int:
             "z_SE": z,
             "tier": tier,
             "CI95": [ci_lo, ci_hi] if ddG is not None else None,
-            "mode": "real" if v_pipe.get("mode") == "real" and
-                    wt_pipe.get("mode") == "real" else
-                    ("mixed" if "real" in
-                     {v_pipe.get("mode"), wt_pipe.get("mode")}
-                     else "mock"),
-            "data_source": {
-                "wt": wt_pipe.get("data_source", "mock"),
-                "variant": v_pipe.get("data_source", "mock"),
-            },
         })
 
     # Tier-then-ΔΔG ranking — mirrors PR-NEW-B X.A → X.B → X.C → X.D order.
@@ -1147,25 +598,13 @@ def cmd_refine(args: argparse.Namespace, ctx: CLIContext) -> int:
     for n, e in enumerate(ranked, 1):
         e["rank"] = n
 
-    # Aggregate run-level mode.
-    var_modes = {e.get("mode") for e in ranked}
-    if var_modes == {"real"}:
-        run_mode = "real"
-    elif "real" in var_modes:
-        run_mode = "mixed"
-    else:
-        run_mode = "mock"
-
     payload: Dict[str, Any] = _provenance_header("refine", ctx)
     payload["wt"] = {
         "sequence": wt_seq,
         "parsed": wt_parsed.to_dict(),
         "pipeline": wt_pipe,
-        "mode": wt_pipe.get("mode", "mock"),
-        "data_source": wt_pipe.get("data_source", "mock"),
     }
     payload["variants"] = ranked
-    payload["mode"] = run_mode
     payload["compute_branched_ddg_compatible"] = True
     payload["sign_convention"] = "ddG = mean(variant) − mean(WT)"
 
@@ -1535,18 +974,6 @@ def _add_common_options(p: argparse.ArgumentParser, *, target_required: bool
                    help="Output format (default: both).")
 
 
-def _add_real_pipeline_flags(p: argparse.ArgumentParser) -> None:
-    """Day-2 Mode A / Mode B common flags shared by check/compare/refine."""
-    p.add_argument("--mock", action="store_true",
-                   help="Force the Day-1 mock pipeline; ignore any "
-                        "results-dir / system-name flags.")
-    p.add_argument("--execute-pipeline", action="store_true",
-                   help="(Day-3 stretch) Launch real MD/PBSA pipeline via "
-                        "scripts/run_mmpbsa.py for missing branches. "
-                        "Day-2 placeholder: emits a warning and falls back "
-                        "to mock for now.")
-
-
 def _add_check(sub: Any) -> None:
     p = sub.add_parser("check",
                        help="Single sequence binder verification.",
@@ -1554,15 +981,6 @@ def _add_check(sub: Any) -> None:
     _add_common_options(p, target_required=True)
     p.add_argument("--sequence", required=True,
                    help="Sequence (canonical 1-letter or PR-NEW-A formats).")
-    p.add_argument("--results-dir", default=None,
-                   help="(Day-2 Mode A) Path or glob to existing "
-                        "mmpbsa_results*/ directory. When supplied, "
-                        "compute ΔG via PR-NEW-B aggregate_branch.")
-    p.add_argument("--system-name", default=None,
-                   help="(Day-2 Mode A) System name (e.g. 1EBP_MTR13). "
-                        "Auto-resolves to outputs/<name>_calib_*/"
-                        "mmpbsa_results*_postpatch.")
-    _add_real_pipeline_flags(p)
 
 
 def _add_compare(sub: Any) -> None:
@@ -1572,11 +990,6 @@ def _add_compare(sub: Any) -> None:
     _add_common_options(p, target_required=True)
     p.add_argument("--sequences", required=True,
                    help="Comma-separated sequences.")
-    p.add_argument("--results-dirs", default=None,
-                   help="(Day-2 Mode A) Comma-separated list of "
-                        "mmpbsa_results*/ paths or globs, one per "
-                        "sequence (same order as --sequences).")
-    _add_real_pipeline_flags(p)
 
 
 def _add_refine(sub: Any) -> None:
@@ -1589,24 +1002,6 @@ def _add_refine(sub: Any) -> None:
     p.add_argument("--wt", required=True, help="WT (reference) sequence.")
     p.add_argument("--variants", required=True,
                    help="Comma-separated variant sequences.")
-    # Day-2 Mode A: WT branch resolution.
-    p.add_argument("--wt-results-dir", default=None,
-                   help="(Day-2 Mode A) Path or glob to WT mmpbsa_results*/ "
-                        "directory; takes precedence over --wt-system-name.")
-    p.add_argument("--wt-system-name", default=None,
-                   help="(Day-2 Mode A) WT system name (e.g. 1EBP_WT). "
-                        "Resolves to outputs/<name>_calib_*/mmpbsa_results*_postpatch.")
-    # Day-2 Mode A: variant branch resolution.
-    p.add_argument("--variant-results-dir", default=None,
-                   help="(Day-2 Mode A, single-variant case) Path or glob to "
-                        "variant mmpbsa_results*/ directory.")
-    p.add_argument("--variant-results-dirs", default=None,
-                   help="(Day-2 Mode A, multi-variant case) Comma-separated "
-                        "variant results dirs, one per --variants entry.")
-    p.add_argument("--system-name", default=None,
-                   help="(Day-2 Mode A, single-variant convenience) Variant "
-                        "system name (e.g. 1EBP_MTR13).")
-    _add_real_pipeline_flags(p)
 
 
 def _add_discover(sub: Any) -> None:

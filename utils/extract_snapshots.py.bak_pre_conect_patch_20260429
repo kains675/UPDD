@@ -24,15 +24,6 @@ Revision history (recent):
         outputs/analysis/phase_beta_stage1_repair_20260428.md §3.3 (smoking
         gun — 7TL8_MTR6_s7 median 112.64 Å) + §3.4 (HETATM/ATOM tag mismatch
         mechanism) + §4.2 (patch design). Verification: scripts/verify_pbc_integrity.py.
-    v55 (2026-04-29): _inject_ncaa_conect — atom-index based mapping replaces
-        serial-number based mapping to bypass PDB 5-digit serial column
-        wraparound at >99,999 atoms. Pre-v55, wrapped water serials collided
-        with ncAA atom serials in `by_serial` lookup, causing the residue
-        resname check to return "HOH" and skipping CONECT emission for MTR /
-        other ncAA → OpenMM ForceField "No template found" failure. CONECT
-        records still emit original serial strings from the source PDB
-        (downstream consumer compat preserved). Reference Phase β finding
-        outputs/analysis/phase_beta_mmpbsa_rerun_20260429.md §5.2.
 """
 
 import os
@@ -552,27 +543,6 @@ def save_snapshots(traj, selected_frames, output_dir, basename):
     return saved
 
 
-def _format_pdb_serial_v55(idx_1based: int) -> str:
-    """[v55] Format a 1-based atom index as a 5-character PDB serial field.
-
-    Decimal for 1..99999; hex-extended (PDB v4 informal extension; OpenMM
-    PDB parser supports it via ``int(s, 16) - 0xA0000 + 100000``) for
-    100000..493215. Above that range raises ValueError (out of 5-col field
-    capacity).
-    """
-    if idx_1based < 1:
-        raise ValueError(f"atom index must be ≥ 1, got {idx_1based}")
-    if idx_1based <= 99999:
-        return f"{idx_1based:5d}"
-    # Hex-extended: 100000 maps to "A0000" (= 0xA0000 = 655360 → 655360 - 0xA0000 + 100000 = 100000)
-    hex_val = (idx_1based - 100000) + 0xA0000
-    if hex_val > 0xFFFFF:
-        raise ValueError(
-            f"atom index {idx_1based} exceeds hex-extended PDB serial capacity (max 493215)"
-        )
-    return f"{hex_val:05X}"
-
-
 def _inject_ncaa_conect(pdb_path):
     """Scan the PDB for ncAA residues (non-standard names present in registry)
     and emit CONECT records for their internal bonds + flanking peptide bonds.
@@ -581,43 +551,6 @@ def _inject_ncaa_conect(pdb_path):
     and downstream MM-GBSA + ForceField template matching cannot infer bonds
     at the ncAA boundary (the surrounding standard residues fail "bonds
     different" if the external peptide bond is missing).
-
-    [v55 FIX 2026-04-29 — CONECT wraparound]
-        Two-part fix for PDB 5-digit serial column wraparound at >99,999 atoms:
-
-        Part A (residue map disambiguation): the legacy code keyed
-        ``by_serial[serial] → (chain, resnum, resname)`` which collided when
-        wrapped water atoms (post-99999 → 0,1,2,...) overwrote ncAA atom
-        entries. The v55 code uses ``(chain, resnum) → resname`` directly
-        (no serial intermediate) and stores file-position ``atom_index`` as
-        the unique disambiguator inside ``residues[(chain, resnum)]``. This
-        bypasses serial collisions entirely.
-
-        Part B (PDB-wide unique serials): OpenMM's PDBFile reader builds
-        ``atomByNumber[serial] = atom`` to resolve CONECT references; with
-        wrapped serials the reader collapses many atoms to the same key
-        (last-write-wins) so CONECT records pointing at MTR atoms instead
-        resolved to wrapped water atoms. v55 therefore RE-SERIALIZES all
-        ATOM/HETATM lines with unique hex-extended serials (1..99999 stay
-        decimal, 100000+ become "A0000"-style hex per the PDB v4 extended
-        convention OpenMM supports natively in ``_parse_atom_index``).
-        Existing CONECT records are remapped to the new serials; new
-        CONECT records emitted here use the new serials directly. TER
-        records' serial fields are also remapped to keep field consistency.
-
-        Pre-v55 failure mechanism (Phase β #84): at >99,999 atoms, mdtraj
-        save_pdb wraps the serial counter back to 0. Old ``by_serial`` dict
-        overwrote MTR atom entries with HOH atoms; iteration then looked up
-        the residue resname via ``by_serial[any_serial][2]`` → "HOH", so the
-        ncAA registry lookup ``pdb_to_def.get("HOH")`` returned None and the
-        residue was skipped → 0 CONECT records → OpenMM ForceField raised
-        "No template found for residue ... (MTR). The set of atoms matches
-        MTR, but the residue has no bonds between its atoms."
-
-        Affected systems (Phase β #84): 2QKI_Cp4 × 8 (~123k atoms),
-        7TL8_MTR6_s19 / s42 (~144k atoms each).
-
-        Reference: outputs/analysis/phase_beta_mmpbsa_rerun_20260429.md §5.2.
     """
     try:
         import sys as _sys
@@ -688,101 +621,53 @@ def _inject_ncaa_conect(pdb_path):
         # Else drop the spurious atom (do not append)
     lines = atoms_to_keep
 
-    # [v55 Part A] Atom-index based residue map. The atom_index is the running
-    # counter of ATOM/HETATM records in `lines` (post-strip). It is unique by
-    # construction and immune to PDB-serial 5-digit wraparound — a wrapped
-    # water atom shares its serial with an MTR atom but never its file
-    # position, so atom_map collisions are eliminated.
-    #
-    # We also detect whether ANY atom would need re-serialization (i.e. total
-    # atom count > 99999 OR any duplicate serials present in the source). If
-    # so, we re-serialize the entire file (Part B) using hex-extended PDB
-    # serials (decimal 1..99999, then "A0000".."FFFFF") so OpenMM's PDBFile
-    # `atomByNumber[serial]` map is collision-free and CONECT records can be
-    # uniquely resolved to atoms.
+    # Map (chain, resnum) → {atom_name: serial}
     residues = {}
-    resname_by_key = {}
-    atom_index_to_lineno = {}      # atom_index → index in `lines`
-    old_serial_to_indices = {}     # raw 5-char serial string → list of atom_indices
-    atom_index = 0
-    for lineno, line in enumerate(lines):
+    # Map serial → (chain, resnum, resname)
+    by_serial = {}
+    for line in lines:
         if not line.startswith(("ATOM", "HETATM")) or len(line) < 54:
             continue
         try:
+            serial = int(line[6:11])
             resnum = int(line[22:26].strip())
         except (ValueError, IndexError):
             continue
         name = line[12:16].strip()
         chain = line[21]
         resname = line[17:20].strip()
-        serial_str = line[6:11].strip()
+        residues.setdefault((chain, resnum), {})[name] = serial
+        by_serial[serial] = (chain, resnum, resname)
 
-        residues.setdefault((chain, resnum), {})[name] = atom_index
-        resname_by_key.setdefault((chain, resnum), resname)
-        atom_index_to_lineno[atom_index] = lineno
-        old_serial_to_indices.setdefault(serial_str, []).append(atom_index)
-        atom_index += 1
-
-    n_atoms = atom_index
-    needs_reserialize = (n_atoms > 99999) or any(
-        len(v) > 1 for v in old_serial_to_indices.values()
-    )
-
-    # [v55 Part B] Build atom_index → new_serial_string mapping.
-    # If no re-serialization needed, use the raw source serial.
-    new_serial = {}
-    if needs_reserialize:
-        for ai in range(n_atoms):
-            new_serial[ai] = _format_pdb_serial_v55(ai + 1)  # 1-based
-    else:
-        for ai in range(n_atoms):
-            ln = atom_index_to_lineno[ai]
-            new_serial[ai] = lines[ln][6:11].strip()
-
-    # Build old serial → atom_index mapping (used to remap pre-existing CONECT).
-    # When duplicates exist (wraparound), prefer the FIRST occurrence (which
-    # was the canonical decimal-numbered atom; later collisions are wrap
-    # artefacts whose original "intent" can't be inferred — but pre-existing
-    # CONECT records were authored by mdtraj before wrap occurred for the
-    # canonical atoms, so first-occurrence is the safe choice).
-    old_serial_first_index = {s: idxs[0] for s, idxs in old_serial_to_indices.items()}
-
-    # Collect already-emitted CONECT pairs (keyed by atom_index, so the dedupe
-    # is collision-free even when raw serials clashed). Bonds that referenced
-    # a wrap-collided serial may resolve to the wrong atom here — but those
-    # were broken in the source anyway, so no regression.
-    existing_pairs = set()
+    # Collect existing CONECT pairs
+    existing = set()
     for line in lines:
         if line.startswith("CONECT"):
             parts = line[6:].split()
-            if not parts:
+            try:
+                s = [int(p) for p in parts]
+            except ValueError:
                 continue
-            base_idx = old_serial_first_index.get(parts[0])
-            if base_idx is None:
-                continue
-            for other in parts[1:]:
-                other_idx = old_serial_first_index.get(other)
-                if other_idx is None:
-                    continue
-                existing_pairs.add(frozenset((base_idx, other_idx)))
+            for j in range(1, len(s)):
+                existing.add(frozenset((s[0], s[j])))
 
-    new_conect_pairs = []  # list of (idx1, idx2) — emitted in collection order
+    new_conect = []
 
-    def _add(idx1, idx2):
-        if idx1 is None or idx2 is None or idx1 == idx2:
+    def _add(s1, s2):
+        if s1 is None or s2 is None:
             return
-        key = frozenset((idx1, idx2))
-        if key in existing_pairs:
+        key = frozenset((s1, s2))
+        if key in existing or s1 == s2:
             return
-        existing_pairs.add(key)
-        new_conect_pairs.append((idx1, idx2))
+        existing.add(key)
+        new_conect.append(f"CONECT{s1:5d}{s2:5d}\n")
 
-    # For each residue, look up resname directly via (chain, resnum) key
-    # (no by_serial intermediate → no wraparound collision). Emit the same
-    # set of bonds the pre-v55 code emitted.
-    for key, atom_map in residues.items():
-        chain, resnum = key
-        resname = resname_by_key.get(key, "")
+    # For each residue, if its resname is an ncAA in our registry with
+    # parent_residue, emit internal + extension + peptide CONECT.
+    for (chain, resnum), atom_map in residues.items():
+        # Identify resname from serial
+        any_serial = next(iter(atom_map.values()))
+        resname = by_serial[any_serial][2]
         d = pdb_to_def.get(resname)
         if d is None or not getattr(d, "parent_residue", None):
             continue
@@ -816,84 +701,22 @@ def _inject_ncaa_conect(pdb_path):
         _add(prev_map.get("C"), atom_map.get("N"))
         _add(atom_map.get("C"), next_map.get("N"))
 
-    # If nothing to emit AND no re-serialization needed, exit early
-    # (preserves byte-identical output for small systems with nothing to add).
-    if not new_conect_pairs and not needs_reserialize:
+    if not new_conect:
         return
 
-    # Build the rewritten file lines.
-    #   - ATOM/HETATM/TER: rewrite cols 7-11 with new_serial[atom_index] (or
-    #     for TER, with the next-atom serial that mdtraj wrote)
-    #   - CONECT (existing): rewrite each serial token via
-    #     old_serial_first_index → new_serial map
-    #   - new CONECT records: append before END using new_serial map
-    line_idx_to_new_serial = {atom_index_to_lineno[ai]: new_serial[ai]
-                              for ai in range(n_atoms)}
-    rewritten = []
-    next_ter_serial = ""  # populated as we encounter ATOM/HETATM lines
-    for lno, line in enumerate(lines):
-        if lno in line_idx_to_new_serial:
-            ns = line_idx_to_new_serial[lno]
-            rewritten.append(line[:6] + f"{ns:>5}" + line[11:])
-            next_ter_serial = ns  # most-recent atom serial
-        elif line.startswith("TER"):
-            # Renumber TER serial to next_ter_serial + 1 (in the same encoding).
-            # Per PDB convention TER's serial is one beyond the last ATOM.
-            try:
-                # Attempt to parse next_ter_serial as decimal, then hex if needed.
-                if next_ter_serial.isdigit():
-                    ter_serial_int = int(next_ter_serial) + 1
-                else:
-                    ter_serial_int = int(next_ter_serial, 16) - 0xA0000 + 100000 + 1
-                ter_serial = _format_pdb_serial_v55(ter_serial_int)
-            except (ValueError, AttributeError):
-                ter_serial = next_ter_serial  # fallback: reuse last serial
-            # Preserve TER columns 12+ (resname, chain, resseq, ...).
-            rewritten.append(line[:6] + f"{ter_serial:>5}" + line[11:])
-        elif line.startswith("CONECT"):
-            # Remap each 5-char field (cols 6:11, 11:16, 16:21, 21:26, 26:31).
-            # Only keep fields that resolve to a known atom under the
-            # first-occurrence map; drop unresolvable tokens (rare wrap
-            # artefact). If base atom unresolvable, drop the whole record.
-            parts = []
-            for pos in (6, 11, 16, 21, 26):
-                tok = line[pos:pos + 5].strip() if pos + 5 <= len(line) else ""
-                if not tok:
-                    continue
-                ai = old_serial_first_index.get(tok)
-                if ai is None:
-                    continue
-                parts.append(new_serial[ai])
-            if len(parts) >= 2:
-                # Reformat: CONECT + 5-char fields.
-                buf = "CONECT" + "".join(f"{p:>5}" for p in parts) + "\n"
-                rewritten.append(buf)
-            # else: drop the unresolvable CONECT line
-        else:
-            rewritten.append(line)
-
-    # Build new CONECT records using new_serial map.
-    new_conect_lines = []
-    for idx1, idx2 in new_conect_pairs:
-        s1 = new_serial[idx1]
-        s2 = new_serial[idx2]
-        new_conect_lines.append(f"CONECT{s1:>5}{s2:>5}\n")
-
-    # Insert new_conect_lines before END
-    if new_conect_lines:
-        inserted = False
-        final = []
-        for line in rewritten:
-            if line.startswith("END") and not inserted:
-                final.extend(new_conect_lines)
-                inserted = True
-            final.append(line)
-        if not inserted:
-            final.extend(new_conect_lines)
-        rewritten = final
+    # Insert before END
+    inserted = False
+    new_lines = []
+    for line in lines:
+        if line.startswith("END") and not inserted:
+            new_lines.extend(new_conect)
+            inserted = True
+        new_lines.append(line)
+    if not inserted:
+        new_lines.extend(new_conect)
 
     with open(pdb_path, "w", encoding="utf-8") as f:
-        f.writelines(rewritten)
+        f.writelines(new_lines)
 
 
 # ==========================================

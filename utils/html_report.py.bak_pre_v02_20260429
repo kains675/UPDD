@@ -1,33 +1,16 @@
 #!/usr/bin/env python
 """utils/html_report.py — UPDD HTML Report Generator (industry-adoption polish).
 
-Schema: ``html_report/0.2`` (PR-NEW-E Day 2, 2026-04-29)
-    v0.1 → v0.2 additions:
-        - Cycle progression renderer fully implemented (timeline SVG with
-          K_d-vs-cycle, plateau badge, per-cycle table, synthesis priority).
-          Schema-aware: accepts both ``cycle_manager/0.1`` and
-          ``cycle_manager/0.2`` inputs.
-        - Detachment-metric banner integration (PR-NEW-B v0.2 hook): when a
-          result carries a ``detachment_metric`` block with
-          ``warning != "none"``, a coloured banner is added below the verdict
-          tier badge.
-        - Print-friendly CSS expanded: explicit ``@media print`` rules with
-          page-break management, navigation/footer hidden in print, full
-          black-on-white fallback.
-        - Responsive design: ``@media (max-width: 768px)`` mobile-friendly
-          tables and grids.
-        - Backward compat: v0.1 inputs (no detachment_metric, no cycle
-          history) still render correctly under the v0.2 reader.
+Schema: ``html_report/0.1`` (PR-NEW-E Day 1, 2026-04-28)
 
 Generates standalone HTML reports from PR-NEW-B :class:`BranchedDDGResult`
-inputs and PR-NEW-C :class:`CycleHistory` inputs:
+inputs (and, in a Day-2 stub, PR-NEW-C :class:`CycleHistory` inputs):
 
     * Single comparison       — WT vs single variant
     * Multi-ranking            — N variants ranked by ΔΔG (with pairwise matrix)
-    * Cycle progression       — Cycle 0 → N timeline, K_d trajectory,
-                                plateau indicator, synthesis priority
+    * Cycle progression (stub) — Cycle 0 → N timeline, K_d trajectory
 
-Design constraints (Day 1, retained in Day 2):
+Design constraints (Day 1):
     * **Stdlib only.** No Jinja2, no matplotlib. Charts are inline ``<svg>``.
     * **Single-file output.** ``embed_assets=True`` (default and only Day-1 mode)
       writes one HTML document with embedded CSS + inline SVG. The
@@ -77,12 +60,8 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 # Constants / Schema
 # ---------------------------------------------------------------------------
 
-SCHEMA_VERSION = "html_report/0.2"
+SCHEMA_VERSION = "html_report/0.1"
 TOOL_NAME = "utils.html_report"
-
-# Recognised input schema prefixes (cycle progression accepts v0.1 + v0.2).
-SUPPORTED_CYCLE_SCHEMA_PREFIXES = ("cycle_manager/0.1", "cycle_manager/0.2")
-SUPPORTED_BRANCHED_SCHEMA_PREFIXES = ("branched_ddg/0.1", "branched_ddg/0.2")
 
 # Recognized tier set (mirror utils.branched_ddg.tier_classify).
 _TIERS = ("X.A", "X.B", "X.C", "X.D")
@@ -167,13 +146,10 @@ def _now_iso() -> str:
 # ---------------------------------------------------------------------------
 
 def _validate_branched_ddg_input(d: Dict[str, Any]) -> None:
-    """Validate that ``d`` matches schema ``branched_ddg/0.1`` or
-    ``branched_ddg/0.2`` (PR-NEW-B).
+    """Validate that ``d`` matches schema ``branched_ddg/0.1`` (PR-NEW-B).
 
     Raises :class:`InputValidationError` on missing required fields.
-    Does NOT enforce strict schema; tolerates extra keys. v0.2 adds an
-    optional ``detachment_metric`` block — its absence is permitted (v0.1
-    inputs render under the v0.2 reader).
+    Does NOT enforce strict schema; tolerates extra keys.
     """
     if not isinstance(d, dict):
         raise InputValidationError(
@@ -206,13 +182,7 @@ def _validate_branched_ddg_input(d: Dict[str, Any]) -> None:
 
 
 def _validate_cycle_history_input(d: Dict[str, Any]) -> None:
-    """Validate that ``d`` matches schema ``cycle_manager/0.1`` or
-    ``cycle_manager/0.2`` (PR-NEW-C).
-
-    Both schemas share the same outer structure (project_id / cycles list);
-    v0.2 differs only in optional inner aggregation fields. The HTML reader
-    tolerates either.
-    """
+    """Validate that ``d`` matches schema ``cycle_manager/0.1`` (PR-NEW-C)."""
     if not isinstance(d, dict):
         raise InputValidationError(
             f"expected dict for cycle_history input, got {type(d).__name__}"
@@ -306,23 +276,6 @@ def _inline_css(theme: str = "light") -> str:
   --tier-D-bd: #aaaaaa;
   --bar-variant: #4f7fbf;
   --bar-wt: #b07d10;
-  --warn-high-bg: #fde0e0;
-  --warn-high-fg: #761919;
-  --warn-high-bd: #c14b4b;
-  --warn-mod-bg: #fff5cc;
-  --warn-mod-fg: #6b5310;
-  --warn-mod-bd: #c2a83b;
-  --plateau-converged-bg: #d6f5d6;
-  --plateau-converged-fg: #155724;
-  --plateau-converged-bd: #2d7a32;
-  --plateau-alt-bg: #fde0e0;
-  --plateau-alt-fg: #761919;
-  --plateau-alt-bd: #c14b4b;
-  --plateau-cont-bg: #e3edf7;
-  --plateau-cont-fg: #1a3a66;
-  --plateau-cont-bd: #4f7fbf;
-  --line-kd: #4f7fbf;
-  --line-kd-marker: #2d57a1;
 }}
 * {{ box-sizing: border-box; }}
 html, body {{
@@ -458,150 +411,13 @@ footer.report-footer {{
   font-size: 11.5px;
   text-align: center;
 }}
-.detachment-banner {{
-  border-radius: 6px;
-  border-style: solid;
-  border-width: 1px;
-  padding: 10px 14px;
-  margin: 10px 0 0 0;
-  font-size: 13px;
-}}
-.detachment-banner.high {{
-  background: var(--warn-high-bg);
-  color: var(--warn-high-fg);
-  border-color: var(--warn-high-bd);
-}}
-.detachment-banner.moderate {{
-  background: var(--warn-mod-bg);
-  color: var(--warn-mod-fg);
-  border-color: var(--warn-mod-bd);
-}}
-.detachment-banner .label {{
-  font-weight: 700;
-  margin-right: 6px;
-  letter-spacing: 0.02em;
-}}
-.detachment-banner .details {{
-  font-family: ui-monospace, monospace;
-  font-size: 12px;
-  margin-top: 4px;
-  display: block;
-  color: inherit;
-  opacity: 0.85;
-}}
-.plateau-badge {{
-  display: inline-block;
-  padding: 6px 14px;
-  border-radius: 14px;
-  font-weight: 700;
-  font-size: 13.5px;
-  border-style: solid;
-  border-width: 1px;
-  letter-spacing: 0.03em;
-}}
-.plateau-badge.converged {{
-  background: var(--plateau-converged-bg);
-  color: var(--plateau-converged-fg);
-  border-color: var(--plateau-converged-bd);
-}}
-.plateau-badge.try-alternative {{
-  background: var(--plateau-alt-bg);
-  color: var(--plateau-alt-fg);
-  border-color: var(--plateau-alt-bd);
-}}
-.plateau-badge.continue {{
-  background: var(--plateau-cont-bg);
-  color: var(--plateau-cont-fg);
-  border-color: var(--plateau-cont-bd);
-}}
-.kd-timeline-chart {{
-  display: block;
-  margin: 6px auto 4px auto;
-  max-width: 100%;
-}}
-.muted-note {{
-  font-size: 12px;
-  color: var(--muted);
-  margin: 8px 0 0 0;
-}}
-nav.report-nav {{
-  margin-bottom: 12px;
-  font-size: 12.5px;
-}}
-nav.report-nav a {{
-  color: var(--muted);
-  text-decoration: none;
-  margin-right: 12px;
-}}
-@media (max-width: 768px) {{
-  .report {{ padding: 14px 14px; }}
-  header.report-header h1 {{ font-size: 18px; }}
-  section h2 {{ font-size: 15px; }}
-  table {{ font-size: 12px; display: block; overflow-x: auto; }}
-  .kv-grid {{
-    grid-template-columns: 1fr;
-    gap: 2px 0;
-  }}
-  .kv-grid .k {{
-    border-bottom: 1px dashed var(--border);
-    padding-bottom: 1px;
-  }}
-  .kv-grid .v {{ padding-bottom: 6px; }}
-  .summary-table td:nth-child(2) {{ white-space: normal; }}
-}}
 @media print {{
-  html, body {{
-    background: #ffffff !important;
-    color: #000000 !important;
+  body {{ background: white; color: black; }}
+  section, header.report-header {{
+    border-color: #888;
+    background: white !important;
   }}
-  .report {{
-    max-width: none;
-    padding: 8px 12px;
-  }}
-  header.report-header,
-  section,
-  table, th, td {{
-    border-color: #555 !important;
-    background: #ffffff !important;
-    color: #000000 !important;
-  }}
-  header.report-header {{
-    page-break-after: avoid;
-  }}
-  section {{
-    page-break-inside: avoid;
-    page-break-before: auto;
-    break-inside: avoid-page;
-  }}
-  section.verdict,
-  section.cycle-timeline,
-  section.ranking,
-  section.priority,
-  section.pairwise-matrix {{
-    page-break-before: always;
-  }}
-  section.summary,
-  section.sigma,
-  section.branches {{
-    page-break-before: avoid;
-  }}
-  nav.report-nav,
-  footer.report-footer {{
-    display: none !important;
-  }}
-  .tier-badge,
-  .plateau-badge,
-  .detachment-banner {{
-    border: 1px solid #555 !important;
-    color: #000 !important;
-    background: #ffffff !important;
-    print-color-adjust: exact;
-    -webkit-print-color-adjust: exact;
-  }}
-  a {{
-    color: #000 !important;
-    text-decoration: underline;
-  }}
+  .report {{ max-width: none; padding: 12px 16px; }}
 }}
 </style>"""
 
@@ -864,78 +680,6 @@ def _render_verdict_line(result: Dict[str, Any]) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Internal helpers — detachment metric (PR-NEW-B v0.2 hook)
-# ---------------------------------------------------------------------------
-
-def _detachment_warning_label(warning: Optional[str]) -> Tuple[str, str]:
-    """Map a detachment warning string to (css-class, human-text) pair.
-
-    ``warning == "high_detachment"`` → red banner ("HIGH DETACHMENT — review"),
-    ``warning == "moderate_detachment"`` → yellow banner ("MODERATE DETACHMENT
-    — caution"), anything else → empty (caller skips rendering).
-    """
-    if warning == "high_detachment":
-        return ("high", "HIGH DETACHMENT — review variant before synthesis")
-    if warning == "moderate_detachment":
-        return ("moderate", "MODERATE DETACHMENT — interpret ΔΔG with caution")
-    return ("", "")
-
-
-def _render_detachment_banner(metric: Optional[Dict[str, Any]]) -> str:
-    """Render an advisory detachment-metric banner.
-
-    Returns ``""`` when the metric is missing, malformed, or
-    ``warning == "none"`` (the common "no banner" path).
-
-    The banner reports per-frame fraction (and per-seed values when
-    available) so the user can confirm which seeds drove the warning.
-    """
-    if not isinstance(metric, dict):
-        return ""
-    warn = metric.get("warning")
-    css_cls, label = _detachment_warning_label(str(warn) if warn else None)
-    if not css_cls:
-        return ""
-    aggregate = metric.get("aggregate_fraction")
-    threshold = metric.get("threshold_angstrom")
-    n_frames = metric.get("n_frames")
-    n_detached = metric.get("n_detached")
-    n_skipped = metric.get("n_skipped")
-    ncaa_resname = metric.get("ncaa_resname")
-    ncaa_resseq = metric.get("ncaa_resseq")
-    per_seed = metric.get("per_seed_fraction") or []
-    per_seed_str = ""
-    if isinstance(per_seed, (list, tuple)) and per_seed:
-        per_seed_str = ", ".join(f"{float(f):.2f}" for f in per_seed
-                                 if isinstance(f, (int, float)))
-    detail_bits: List[str] = []
-    if isinstance(aggregate, (int, float)):
-        detail_bits.append(f"aggregate fraction: {aggregate:.2f}")
-    if isinstance(threshold, (int, float)):
-        detail_bits.append(f"threshold: {threshold:.2f} Å")
-    if isinstance(n_frames, int):
-        detail_bits.append(f"n_frames: {n_frames}")
-    if isinstance(n_detached, int):
-        detail_bits.append(f"n_detached: {n_detached}")
-    if isinstance(n_skipped, int) and n_skipped:
-        detail_bits.append(f"n_skipped: {n_skipped}")
-    if ncaa_resname:
-        rsq = (f" {ncaa_resseq}"
-               if isinstance(ncaa_resseq, int) else "")
-        detail_bits.append(f"ncAA: {_html_escape(ncaa_resname)}{rsq}")
-    if per_seed_str:
-        detail_bits.append(f"per-seed fraction: [{per_seed_str}]")
-    detail = " · ".join(detail_bits) if detail_bits else "(no details)"
-    return (
-        f'<div class="detachment-banner {css_cls}" role="alert" '
-        f'aria-label="detachment-warning">'
-        f'<span class="label">{_html_escape(label)}</span>'
-        f'<span class="details">{_html_escape(detail)}</span>'
-        f'</div>'
-    )
-
-
-# ---------------------------------------------------------------------------
 # Internal helpers — multi-comparison
 # ---------------------------------------------------------------------------
 
@@ -1049,61 +793,6 @@ def _render_synthesis_priority(ranked: List[Tuple[int, Dict[str, Any]]]) -> str:
             f'<em>({_html_escape(verdict)})</em></li>'
         )
     return "<ol>" + "".join(items) + "</ol>"
-
-
-def _render_multi_detachment_summary(
-        ranked: List[Tuple[int, Dict[str, Any]]]) -> str:
-    """If any ranked result carries a non-``none`` detachment warning,
-    render a per-variant summary section. Returns ``""`` when no warning is
-    present anywhere in the cohort (so multi-ranking renders unchanged for
-    v0.1 / non-detachment inputs).
-    """
-    warned: List[Tuple[int, Dict[str, Any], Dict[str, Any]]] = []
-    for rank, r in ranked:
-        m = r.get("detachment_metric")
-        if isinstance(m, dict) and m.get("warning") not in (None, "none", ""):
-            warned.append((rank, r, m))
-    if not warned:
-        return ""
-    rows: List[str] = []
-    for rank, r, m in warned:
-        var_label = _safe_get(r, "branches", "variant", "label", default="—")
-        warn = m.get("warning")
-        css_cls, label = _detachment_warning_label(str(warn) if warn else None)
-        agg = m.get("aggregate_fraction")
-        agg_str = (f"{float(agg):.2f}" if isinstance(agg, (int, float))
-                   else "—")
-        per_seed = m.get("per_seed_fraction") or []
-        per_seed_str = ", ".join(
-            f"{float(f):.2f}" for f in per_seed
-            if isinstance(f, (int, float))
-        ) if isinstance(per_seed, (list, tuple)) else "—"
-        rows.append(
-            "<tr>"
-            f"<td>#{rank}</td>"
-            f"<td><code>{_html_escape(var_label)}</code></td>"
-            f'<td><span class="detachment-banner {css_cls}" '
-            f'style="display:inline-block;margin:0;padding:2px 8px;'
-            f'font-size:12px;">'
-            f'{_html_escape(label or warn)}</span></td>'
-            f"<td>{agg_str}</td>"
-            f"<td>{_html_escape(per_seed_str or '—')}</td>"
-            "</tr>"
-        )
-    head = (
-        "<thead><tr><th>Rank</th><th>Variant</th><th>Warning</th>"
-        "<th>Aggregate fraction</th><th>Per-seed fractions</th></tr></thead>"
-    )
-    body = "<tbody>\n" + "\n".join(rows) + "\n</tbody>"
-    return (
-        '<section class="detachment-summary">\n'
-        '  <h2>Detachment Advisory (PR-NEW-B v0.2)</h2>\n'
-        '  <p class="muted-note">The advisory metric flags frame-level binder '
-        'detachment events. ΔΔG values are unchanged; high-warning variants '
-        'should be reviewed before synthesis.</p>\n'
-        f'  <table>{head}\n{body}\n</table>\n'
-        '</section>'
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -1236,15 +925,13 @@ def render_single_comparison(result: Union[Dict[str, Any], Any], *,
         '</section>'
     )
 
-    # Verdict (with detachment banner appended below the tier-label note).
-    detach_banner = _render_detachment_banner(rd.get("detachment_metric"))
+    # Verdict.
     body_parts.append(
         f'<section class="verdict {tier_cls}">\n'
         '  <h2>Verdict</h2>\n'
         f'  <p>{_render_verdict_line(rd)}</p>\n'
         f'  <p style="font-size:12.5px;color:var(--muted);margin-top:6px;">'
         f'{_html_escape(_TIER_LABELS.get(tier, ""))}</p>\n'
-        f'  {detach_banner}\n'
         '</section>'
     )
 
@@ -1326,42 +1013,17 @@ def render_multi_ranking(results: List[Union[Dict[str, Any], Any]], *,
         f'  {_render_pairwise_matrix(ranked)}\n'
         '</section>'
     )
-    detach_summary = _render_multi_detachment_summary(ranked)
-    if detach_summary:
-        body.append(detach_summary)
     title = f"UPDD ΔΔG Multi-Ranking — {target_str}"
     return _document_skeleton(title, theme, "\n".join(body))
 
 
 def render_cycle_progression(history: Union[Dict[str, Any], Any], *,
                              theme: str = "light") -> str:
-    """Render a cycle-progression report (PR-NEW-E Day 2 — full implementation).
+    """Render a cycle-progression report (Day-2 stub).
 
-    Sections:
-        * Header (project_id, target, cycle count, creation date)
-        * Per-cycle table (cycle_n, n_variants, ΔΔG range, wet-lab K_d,
-          best validated sequence)
-        * Inline SVG timeline of K_d vs cycle_n (log y-axis when range > 1
-          decade)
-        * Plateau badge (CONVERGED / PLATEAU — Recommend Alternative /
-          Continue) — driven by ``trajectory.recommendation`` if present
-        * Synthesis priority list (top 5 of latest cycle's predicted ΔΔG)
-
-    Schema-aware: accepts ``cycle_manager/0.1`` and ``cycle_manager/0.2``
-    inputs. v0.2 inputs receive richer plateau information from the
-    persisted ``trajectory`` block; v0.1 inputs fall back to a basic
-    timeline (no recommendation badge unless explicitly present).
-
-    Args:
-        history: A ``cycle_manager/*`` dict (or object with ``to_dict()``).
-        theme: ``"light"`` (default) or ``"dark"``.
-
-    Returns:
-        Full HTML document string.
-
-    Raises:
-        InputValidationError: on schema mismatch.
-        RenderError: on internal render failure.
+    Day-1 implementation: emits a placeholder document with the project ID,
+    cycle count, and a TODO note. Full timeline + K_d trajectory chart is
+    deferred to Day 2.
     """
     if hasattr(history, "to_dict") and callable(history.to_dict):
         history = history.to_dict()
@@ -1369,480 +1031,48 @@ def render_cycle_progression(history: Union[Dict[str, Any], Any], *,
     h: Dict[str, Any] = history  # type: ignore[assignment]
 
     pid = h.get("project_id") or "(project unset)"
-    target_pdb = h.get("target_pdb", "—")
-    created_at = h.get("created_at", "—")
-    schema_str = h.get("schema", "—")
-    cycles = list(h.get("cycles") or [])
-    cycles_sorted = sorted(
-        cycles,
-        key=lambda c: int(c.get("cycle_n", 0)) if isinstance(c, dict) else 0,
-    )
-    n_cycles = len(cycles_sorted)
-    last_cycle = cycles_sorted[-1] if cycles_sorted else {}
+    n_cycles = len(h.get("cycles") or [])
+    last_cycle = (h.get("cycles") or [{}])[-1] if n_cycles else {}
     last_n = last_cycle.get("cycle_n", "—") if last_cycle else "—"
-    trajectory = h.get("trajectory") or {}
 
     body: List[str] = []
     body.append(
         '<header class="report-header">\n'
         f'  <h1>UPDD Cycle Progression — {_html_escape(pid)}</h1>\n'
         '  <div class="meta">\n'
-        f'    Schema: <code>{_html_escape(schema_str)}</code> · '
-        f'Target: <code>{_html_escape(target_pdb)}</code> · '
+        f'    Schema: <code>{_html_escape(h.get("schema", "—"))}</code> · '
         f'Cycles: {n_cycles} · Last cycle: <code>{_html_escape(last_n)}</code> '
-        f'· Created: <code>{_html_escape(created_at)}</code> '
         f'· Generated: <code>{_html_escape(_now_iso())}</code>\n'
         '  </div>\n'
         '</header>'
     )
-
-    # Project overview KV grid (light context for the per-cycle sections).
-    md = h.get("metadata") or {}
-    md_str = (", ".join(f"{k}={md[k]}" for k in sorted(md))
-              if isinstance(md, dict) and md else "—")
     body.append(
-        '<section class="cycle-overview">\n'
+        '<section>\n'
         '  <h2>Project Overview</h2>\n'
         '  <div class="kv-grid">\n'
         f'    <div class="k">project_id</div><div class="v">'
         f'{_html_escape(pid)}</div>\n'
         f'    <div class="k">target</div><div class="v">'
-        f'{_html_escape(target_pdb)}</div>\n'
+        f'{_html_escape(h.get("target_pdb", "—"))}</div>\n'
         f'    <div class="k">created_at</div><div class="v">'
-        f'{_html_escape(created_at)}</div>\n'
+        f'{_html_escape(h.get("created_at", "—"))}</div>\n'
         f'    <div class="k">n_cycles</div><div class="v">{n_cycles}</div>\n'
-        f'    <div class="k">metadata</div><div class="v">'
-        f'{_html_escape(md_str)}</div>\n'
         '  </div>\n'
         '</section>'
     )
-
-    # Per-cycle table.
     body.append(
-        '<section class="cycle-table">\n'
-        '  <h2>Per-Cycle Summary</h2>\n'
-        f'  {_render_cycle_table(cycles_sorted, trajectory)}\n'
+        '<section>\n'
+        '  <h2>Day-2 placeholder</h2>\n'
+        '  <p>Full cycle timeline (Cycle 0 → N) with K<sub>d</sub> trajectory'
+        ' and plateau indicator is scheduled for PR-NEW-E Day 2-3.</p>\n'
+        '  <p style="font-size:12.5px;color:var(--muted);">'
+        'Inspect the underlying <code>cycle_history.json</code> for per-cycle '
+        'records and <code>utils.cycle_manager.compute_trajectory()</code> '
+        'for trajectory metadata.</p>\n'
         '</section>'
     )
-
-    # Timeline chart (K_d vs cycle_n).
-    body.append(
-        '<section class="cycle-timeline">\n'
-        '  <h2>K<sub>d</sub> Timeline</h2>\n'
-        f'  {_render_kd_timeline_svg(cycles_sorted, trajectory)}\n'
-        '  <p class="muted-note">'
-        'Aggregated wet-lab K<sub>d</sub> at each cycle (best-validated '
-        'sequence). Y-axis is log-scaled when the K<sub>d</sub> range '
-        'spans more than a decade.</p>\n'
-        '</section>'
-    )
-
-    # Plateau / recommendation badge.
-    body.append(
-        '<section class="cycle-recommendation">\n'
-        '  <h2>Status</h2>\n'
-        f'  {_render_plateau_badge(trajectory)}\n'
-        '</section>'
-    )
-
-    # Synthesis priority — top 5 from latest cycle's predicted_ddg.
-    body.append(
-        '<section class="cycle-priority">\n'
-        '  <h2>Synthesis Priority — Latest Cycle</h2>\n'
-        f'  {_render_cycle_synthesis_priority(last_cycle, top_n=5)}\n'
-        '</section>'
-    )
-
     title = f"UPDD Cycle Progression — {pid}"
     return _document_skeleton(title, theme, "\n".join(body))
-
-
-# ---------------------------------------------------------------------------
-# Internal helpers — cycle progression
-# ---------------------------------------------------------------------------
-
-def _render_cycle_table(cycles: List[Dict[str, Any]],
-                        trajectory: Dict[str, Any]) -> str:
-    """Per-cycle compact table.
-
-    Columns: cycle_n, n_variants, predicted ΔΔG range, wet-lab K_d
-    (best-validated), best validated sequence. The trajectory block (when
-    present) supplies aggregated K_d per cycle; otherwise we fall back to
-    parsing the cycle's wet-lab results directly.
-    """
-    if not cycles:
-        return '<p class="muted-note">No cycles registered.</p>'
-    per_traj = trajectory.get("per_cycle") or [] if isinstance(trajectory, dict) else []
-    by_cycle: Dict[Any, Dict[str, Any]] = {}
-    for p in per_traj:
-        if isinstance(p, dict):
-            by_cycle[p.get("cycle_n")] = p
-    head = (
-        "<thead><tr><th>Cycle</th><th>n variants</th>"
-        "<th>Predicted ΔΔG range (kcal/mol)</th>"
-        "<th>Wet-lab K<sub>d</sub></th>"
-        "<th>Best validated sequence</th></tr></thead>"
-    )
-    rows: List[str] = []
-    for c in cycles:
-        n = c.get("cycle_n", "—")
-        variants = c.get("variants") or []
-        n_variants = len(variants)
-        # Predicted ΔΔG range.
-        pdds = c.get("predicted_ddg") or []
-        ddgs: List[float] = []
-        for p in pdds:
-            if isinstance(p, dict):
-                v = p.get("ddg")
-                try:
-                    if v is not None:
-                        ddgs.append(float(v))
-                except (TypeError, ValueError):
-                    continue
-        if ddgs:
-            pdd_range = f"{min(ddgs):+.2f} … {max(ddgs):+.2f}"
-        else:
-            pdd_range = "—"
-        # Wet-lab K_d (prefer trajectory aggregate; fall back to cycle's own).
-        traj_p = by_cycle.get(n)
-        kd: Optional[float] = None
-        if isinstance(traj_p, dict):
-            try:
-                if traj_p.get("kd_molar") is not None:
-                    kd = float(traj_p["kd_molar"])
-            except (TypeError, ValueError):
-                kd = None
-        if kd is None:
-            wlrs = c.get("wet_lab_results") or []
-            for w in wlrs:
-                if isinstance(w, dict):
-                    try:
-                        kd = float(w.get("kd_molar"))
-                        break
-                    except (TypeError, ValueError):
-                        continue
-        kd_str = _fmt_kd_human(kd)
-        best_seq = c.get("best_validated_sequence") or "—"
-        rows.append(
-            "<tr>"
-            f"<td>{_html_escape(n)}</td>"
-            f"<td>{n_variants}</td>"
-            f"<td>{_html_escape(pdd_range)}</td>"
-            f"<td>{_html_escape(kd_str)}</td>"
-            f"<td><code>{_html_escape(best_seq)}</code></td>"
-            "</tr>"
-        )
-    body = "<tbody>\n" + "\n".join(rows) + "\n</tbody>"
-    return f"<table>{head}\n{body}\n</table>"
-
-
-def _fmt_kd_human(kd_molar: Optional[float]) -> str:
-    """Pretty-print a K_d in molar in the most appropriate sub-unit
-    (mirrors :func:`utils.cycle_manager._fmt_kd` so reports look identical).
-    """
-    if kd_molar is None:
-        return "—"
-    if not isinstance(kd_molar, (int, float)):
-        return "—"
-    if not math.isfinite(float(kd_molar)) or float(kd_molar) <= 0:
-        return "—"
-    units = [("M", 1.0), ("mM", 1e-3), ("uM", 1e-6),
-             ("nM", 1e-9), ("pM", 1e-12), ("fM", 1e-15)]
-    for label, mult in units:
-        val = float(kd_molar) / mult
-        if 1.0 <= val < 1000.0:
-            return f"{val:.3g} {label}"
-    return f"{float(kd_molar):.3e} M"
-
-
-def _render_kd_timeline_svg(cycles: List[Dict[str, Any]],
-                            trajectory: Dict[str, Any], *,
-                            width: int = 580, height: int = 260) -> str:
-    """Inline SVG line chart of K_d (molar) vs cycle_n.
-
-    Y-axis: linear when the K_d range spans <= 1 decade; otherwise log10.
-    Missing data points (cycles without wet-lab K_d) are skipped (gap in
-    the polyline, with a circle marker only at present points).
-    """
-    # Gather (cycle_n, kd) pairs from trajectory.per_cycle, falling back to
-    # parsing each cycle's wet-lab readout.
-    points: List[Tuple[int, float]] = []
-    per_traj = trajectory.get("per_cycle") or [] if isinstance(trajectory, dict) else []
-    by_cycle: Dict[Any, float] = {}
-    for p in per_traj:
-        if isinstance(p, dict):
-            try:
-                if p.get("kd_molar") is not None:
-                    by_cycle[p.get("cycle_n")] = float(p["kd_molar"])
-            except (TypeError, ValueError):
-                continue
-    for c in cycles:
-        n = c.get("cycle_n")
-        try:
-            n_int = int(n) if n is not None else None
-        except (TypeError, ValueError):
-            n_int = None
-        if n_int is None:
-            continue
-        kd: Optional[float] = by_cycle.get(n)
-        if kd is None:
-            for w in (c.get("wet_lab_results") or []):
-                if isinstance(w, dict):
-                    try:
-                        kd = float(w.get("kd_molar"))
-                        break
-                    except (TypeError, ValueError):
-                        continue
-        if kd is not None and kd > 0 and math.isfinite(kd):
-            points.append((n_int, kd))
-
-    if not points:
-        return ('<p class="muted-note">No wet-lab K<sub>d</sub> data — '
-                'timeline unavailable.</p>')
-
-    points.sort(key=lambda p: p[0])
-    xs = [p[0] for p in points]
-    ys = [p[1] for p in points]
-    x_min = min(xs)
-    x_max = max(xs)
-    if x_min == x_max:
-        x_max = x_min + 1  # avoid divide-by-zero
-    y_min = min(ys)
-    y_max = max(ys)
-    # Decide log vs linear.
-    use_log = y_max / max(y_min, 1e-30) > 10.0
-    if use_log:
-        log_lo = math.log10(y_min)
-        log_hi = math.log10(y_max)
-        if log_lo == log_hi:
-            log_hi += 1.0
-        # Round outward by 0.05 dec.
-        log_lo -= 0.05
-        log_hi += 0.05
-    else:
-        # 10% padding.
-        rng = (y_max - y_min) or (y_max if y_max != 0 else 1.0)
-        y_lo = y_min - 0.1 * rng
-        y_hi = y_max + 0.1 * rng
-
-    margin_l = 70
-    margin_r = 16
-    margin_t = 22
-    margin_b = 50
-    chart_w = width - margin_l - margin_r
-    chart_h = height - margin_t - margin_b
-
-    def _x_pos(x: int) -> float:
-        return margin_l + (x - x_min) / (x_max - x_min) * chart_w
-
-    def _y_pos(y: float) -> float:
-        if use_log:
-            ly = math.log10(y)
-            frac = (ly - log_lo) / (log_hi - log_lo)
-        else:
-            frac = (y - y_lo) / (y_hi - y_lo) if (y_hi - y_lo) else 0.5
-        return margin_t + chart_h - frac * chart_h
-
-    parts: List[str] = []
-    parts.append(
-        f'<svg class="kd-timeline-chart" viewBox="0 0 {width} {height}" '
-        f'xmlns="http://www.w3.org/2000/svg" role="img" '
-        f'aria-label="K_d timeline">'
-    )
-    # Axes.
-    parts.append(
-        f'<line x1="{margin_l}" y1="{margin_t}" '
-        f'x2="{margin_l}" y2="{margin_t + chart_h}" '
-        f'stroke="var(--axis)" stroke-width="1"/>'
-    )
-    parts.append(
-        f'<line x1="{margin_l}" y1="{margin_t + chart_h}" '
-        f'x2="{margin_l + chart_w}" y2="{margin_t + chart_h}" '
-        f'stroke="var(--axis)" stroke-width="1"/>'
-    )
-    # Y-axis label.
-    parts.append(
-        f'<text x="14" y="{margin_t + chart_h / 2}" fill="var(--axis)" '
-        f'font-size="11" '
-        f'transform="rotate(-90 14 {margin_t + chart_h / 2})" '
-        f'text-anchor="middle">'
-        f'K_d ({"log scale" if use_log else "linear"})</text>'
-    )
-    # X-axis label.
-    parts.append(
-        f'<text x="{margin_l + chart_w / 2:.1f}" '
-        f'y="{margin_t + chart_h + 32}" fill="var(--axis)" font-size="11" '
-        f'text-anchor="middle">Cycle</text>'
-    )
-    # Y-ticks (3 levels for both linear and log).
-    if use_log:
-        ticks = [log_lo, (log_lo + log_hi) / 2.0, log_hi]
-        for ly in ticks:
-            yp = margin_t + chart_h - (ly - log_lo) / (log_hi - log_lo) * chart_h
-            val = 10.0 ** ly
-            parts.append(
-                f'<line x1="{margin_l - 4}" y1="{yp}" x2="{margin_l}" y2="{yp}" '
-                f'stroke="var(--axis)" stroke-width="1"/>'
-            )
-            parts.append(
-                f'<text x="{margin_l - 8}" y="{yp + 3}" fill="var(--axis)" '
-                f'font-size="10" text-anchor="end">'
-                f'{_html_escape(_fmt_kd_human(val))}</text>'
-            )
-    else:
-        ticks = [y_lo, (y_lo + y_hi) / 2.0, y_hi]
-        for yv in ticks:
-            yp = _y_pos(yv)
-            parts.append(
-                f'<line x1="{margin_l - 4}" y1="{yp}" x2="{margin_l}" y2="{yp}" '
-                f'stroke="var(--axis)" stroke-width="1"/>'
-            )
-            parts.append(
-                f'<text x="{margin_l - 8}" y="{yp + 3}" fill="var(--axis)" '
-                f'font-size="10" text-anchor="end">'
-                f'{_html_escape(_fmt_kd_human(yv))}</text>'
-            )
-    # X-ticks.
-    n_xticks = min(8, x_max - x_min + 1)
-    if n_xticks <= 0:
-        n_xticks = 1
-    step = max(1, (x_max - x_min) // max(1, n_xticks - 1))
-    x_tick_vals = list(range(x_min, x_max + 1, step))
-    if x_tick_vals[-1] != x_max:
-        x_tick_vals.append(x_max)
-    for xv in x_tick_vals:
-        xp = _x_pos(xv)
-        parts.append(
-            f'<line x1="{xp}" y1="{margin_t + chart_h}" '
-            f'x2="{xp}" y2="{margin_t + chart_h + 4}" '
-            f'stroke="var(--axis)" stroke-width="1"/>'
-        )
-        parts.append(
-            f'<text x="{xp:.1f}" y="{margin_t + chart_h + 16}" '
-            f'fill="var(--axis)" font-size="10" '
-            f'text-anchor="middle">{xv}</text>'
-        )
-    # Polyline.
-    if len(points) >= 2:
-        coords = " ".join(
-            f"{_x_pos(x):.1f},{_y_pos(y):.1f}" for x, y in points
-        )
-        parts.append(
-            f'<polyline points="{coords}" fill="none" '
-            f'stroke="var(--line-kd)" stroke-width="2"/>'
-        )
-    # Markers.
-    for x, y in points:
-        cx = _x_pos(x)
-        cy = _y_pos(y)
-        parts.append(
-            f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="4" '
-            f'fill="var(--line-kd-marker)" stroke="white" '
-            f'stroke-width="1"/>'
-        )
-        parts.append(
-            f'<text x="{cx:.1f}" y="{cy - 8:.1f}" fill="var(--axis)" '
-            f'font-size="10" text-anchor="middle">'
-            f'{_html_escape(_fmt_kd_human(y))}</text>'
-        )
-    # Title.
-    parts.append(
-        f'<text x="{width / 2:.1f}" y="14" fill="var(--axis)" '
-        f'font-size="11" text-anchor="middle">'
-        f'K_d trajectory across cycles</text>'
-    )
-    parts.append('</svg>')
-    return "".join(parts)
-
-
-def _render_plateau_badge(trajectory: Dict[str, Any]) -> str:
-    """Render the plateau / recommendation badge.
-
-    Reads ``trajectory.recommendation`` (one of ``"continue"``,
-    ``"converged"``, ``"try_alternative"``); falls back to a neutral
-    "no trajectory data" notice when absent.
-    """
-    if not isinstance(trajectory, dict) or not trajectory:
-        return ('<p class="muted-note">No trajectory data — run '
-                '<code>cycle_manager.compute_trajectory()</code> to '
-                'populate this section.</p>')
-    rec = str(trajectory.get("recommendation") or "").strip()
-    plateau = bool(trajectory.get("plateau_detected"))
-    final_ddg = trajectory.get("final_ddg_kcal")
-    final_str = (f"{float(final_ddg):+.2f} kcal/mol"
-                 if isinstance(final_ddg, (int, float)) else "—")
-    if rec == "converged":
-        cls = "converged"
-        label = "CONVERGED"
-        msg = ("Trajectory has plateaued at a tight-binder ΔG (≤ -12 kcal/mol). "
-               "Consider locking in the best-validated sequence.")
-    elif rec == "try_alternative":
-        cls = "try-alternative"
-        label = "PLATEAU DETECTED — Recommend Alternative"
-        msg = ("Wet-lab K_d has plateaued above target affinity. "
-               "Consider revisiting the ncAA strategy or scaffold.")
-    elif rec == "continue":
-        cls = "continue"
-        label = "Continue"
-        msg = ("Trajectory is still improving — proceed with the next "
-               "design cycle.")
-    else:
-        cls = "continue"
-        label = _html_escape(rec.upper() or "UNKNOWN")
-        msg = ("Recommendation not recognised; inspect "
-               "<code>trajectory.json</code> directly.")
-    return (
-        f'<div class="plateau-badge {cls}">{_html_escape(label)}</div>\n'
-        f'<p class="muted-note">{msg}</p>\n'
-        f'<p class="muted-note">'
-        f'plateau_detected = <code>{plateau}</code> · '
-        f'final ΔG = <code>{_html_escape(final_str)}</code></p>'
-    )
-
-
-def _render_cycle_synthesis_priority(cycle: Dict[str, Any], *,
-                                     top_n: int = 5) -> str:
-    """Render the top-N predicted ΔΔG variants for a cycle (latest by default).
-
-    Sort: most-negative ΔΔG first, ties broken by ``z_se`` magnitude.
-    """
-    if not cycle:
-        return '<p class="muted-note">No latest cycle.</p>'
-    pdds = cycle.get("predicted_ddg") or []
-    if not pdds:
-        return ('<p class="muted-note">No predicted ΔΔG records on the '
-                'latest cycle.</p>')
-
-    def _key(p: Dict[str, Any]) -> Tuple[float, float]:
-        try:
-            ddg = float(p.get("ddg")) if p.get("ddg") is not None else math.inf
-        except (TypeError, ValueError):
-            ddg = math.inf
-        try:
-            z = abs(float(p.get("z_se"))) if p.get("z_se") is not None else 0.0
-        except (TypeError, ValueError):
-            z = 0.0
-        return (ddg, -z)
-
-    pdds_sorted = sorted([p for p in pdds if isinstance(p, dict)], key=_key)
-    items: List[str] = []
-    for i, p in enumerate(pdds_sorted[:top_n], start=1):
-        seq = p.get("sequence") or "—"
-        ddg = p.get("ddg")
-        se = p.get("se")
-        tier = p.get("tier") or ""
-        ci95 = p.get("ci95")
-        ci_str = (_format_ci(ci95) if ci95 is not None else "—")
-        ddg_s = _format_float(ddg, sig=3)
-        se_s = (_format_float(se, sig=3, signed=False)
-                if se is not None else "—")
-        items.append(
-            f'<li><strong>#{i}</strong> '
-            f'<code>{_html_escape(seq)}</code> '
-            f'{_tier_badge(tier)} — ΔΔG = {ddg_s} kcal/mol · '
-            f'SE = {se_s} · CI95 = {ci_str}</li>'
-        )
-    return "<ol>" + "".join(items) + "</ol>"
 
 
 # ---------------------------------------------------------------------------
@@ -1885,13 +1115,13 @@ def write_report(html_text: str, output_path: str) -> str:
 def _build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         prog="python -m utils.html_report",
-        description=("UPDD HTML Report Generator (PR-NEW-E Day 2; "
+        description=("UPDD HTML Report Generator (PR-NEW-E Day 1; "
                      f"schema {SCHEMA_VERSION})."),
     )
     ap.add_argument("--result", required=True,
-                    help="Path to a branched_ddg/0.x JSON file (single mode), "
+                    help="Path to a branched_ddg/0.1 JSON file (single mode), "
                          "or a JSON file containing a list of such records "
-                         "(multi mode), or a cycle_manager/0.x JSON file "
+                         "(multi mode), or a cycle_manager/0.1 JSON file "
                          "(cycle mode).")
     ap.add_argument("--output", required=True,
                     help="Output HTML file path (will be created or "

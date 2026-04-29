@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """utils/branched_ddg.py — UPDD Branched ΔΔG Engine.
 
-Schema: ``branched_ddg/0.2`` (PR-NEW-B Option A; v0.2 Light D Hybrid, 2026-04-29)
+Schema: ``branched_ddg/0.1`` (PR-NEW-B Option A, 2026-04-28)
 
 Aggregates per-seed ``mmpbsa_summary.json`` files (or ``mmgbsa_summary.json``)
 into a same-protocol pairwise WT vs Variant ΔΔG result with full statistical
@@ -13,39 +13,6 @@ Capabilities:
     3. Tier classification (X.A / X.B / X.C / X.D)
     4. WT control bit-identical verification (PR-12)
     5. Hybrid charge audit (default advisory; ``--strict-charge-audit`` = gate)
-    6. **v0.2 NEW**: Optional advisory detachment metric (Light D Hybrid)
-       — frame-level binder-attachment fraction; ``compute_detachment_metric()``;
-       opt-in via ``compute_detachment=True``. ΔΔG behavior UNCHANGED.
-
-Version history:
-    v0.1 (2026-04-28) — Initial schema ``branched_ddg/0.1`` per PR-NEW-B
-        capability analysis. ΔΔG decomposition + tier rules + charge audit.
-    v0.2 (2026-04-29) — Light D Hybrid: advisory detachment_metric field
-        added. ΔΔG behavior UNCHANGED from v0.1. Full D framework (frame
-        filter + detachment-aware aggregation) DEFERRED to v0.8 milestone
-        per user memory marker "추후 반드시 풀어야 할 문제" (2026-04-29).
-        Reference: outputs/analysis/phase_beta_re_extraction_20260429.md;
-        outputs/analysis/pr_new_b_v02_light_d_implementation_20260429.md
-
-Detachment metric API (v0.2):
-
-    compute_detachment_metric(snapshots_dir, *, threshold_angstrom=5.0,
-                              binder_chain="B") -> dict
-
-        Returns advisory dict {per_seed_fraction (when called per-seed
-        aggregation context), aggregate_fraction, threshold_angstrom,
-        n_frames, n_detached, snapshots, warning}. Identifies the ncAA
-        residue (non-standard) within the binder chain, computes the
-        prev_C ↔ ncAA_N peptide-bond distance for each snapshot PDB,
-        and reports the fraction of frames where this distance exceeds
-        the supplied threshold (default 5 Å). Used as advisory only —
-        ΔΔG aggregation is NOT filtered.
-
-    Warning thresholds (aggregate_fraction = max over branches when
-    integrated into compute_branched_ddg):
-        > 0.5  → "high_detachment"
-        > 0.2  → "moderate_detachment"
-        ≤ 0.2  → "none"
 
 CLI::
 
@@ -97,37 +64,8 @@ from typing import Any, Dict, List, Optional, Tuple
 # Constants / Schema
 # ---------------------------------------------------------------------------
 
-SCHEMA_VERSION = "branched_ddg/0.2"
-SCHEMA_VERSIONS_ACCEPTED = ("branched_ddg/0.1", "branched_ddg/0.2")
+SCHEMA_VERSION = "branched_ddg/0.1"
 TOOL_NAME = "utils.branched_ddg"
-
-# Standard amino-acid residue codes (3-letter) — anything outside this set
-# inside the binder chain is treated as an ncAA candidate for the
-# detachment metric. HOH/WAT/ions excluded explicitly.
-_STANDARD_AA_3LETTER = frozenset({
-    "ALA", "ARG", "ASN", "ASP", "CYS", "GLN", "GLU", "GLY", "HIS", "ILE",
-    "LEU", "LYS", "MET", "PHE", "PRO", "SER", "THR", "TRP", "TYR", "VAL",
-    # HIS tautomers occasionally written as ``HID``/``HIE``/``HIP``.
-    "HID", "HIE", "HIP",
-    # Cysteine with alternate protonation
-    "CYX", "CYM",
-    # Lysine alternative
-    "LYN",
-    # Glutamate / aspartate alternates
-    "GLH", "ASH",
-})
-
-# Residues that are clearly not amino acids and must be skipped during
-# ncAA scan (waters, ions, common cofactors).
-_NON_RESIDUE_CODES = frozenset({
-    "HOH", "WAT", "TIP", "TP3", "TP4", "TP5",
-    "NA", "K", "MG", "CA", "ZN", "FE", "CL", "BR", "I",
-    "SO4", "PO4", "PEG", "EDO", "GOL", "DMS",
-})
-
-# Detachment warning thresholds (advisory only).
-_DETACH_WARN_HIGH = 0.5
-_DETACH_WARN_MOD = 0.2
 
 # Two-tail Student's t critical at α=0.05 (95% CI). Hard-coded LUT for
 # small df. Beyond df=10 we fall back to z=1.96 (large-sample limit).
@@ -260,8 +198,6 @@ class BranchedDDGResult:
     charge_audit_strict: bool
     wt_bit_identical: Optional[bool]
     wt_bit_identical_detail: Optional[Dict[str, Any]]
-    # v0.2 — Light D Hybrid advisory metric (None when compute_detachment=False)
-    detachment_metric: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -290,8 +226,6 @@ class BranchedDDGResult:
             "charge_audit_strict": self.charge_audit_strict,
             "wt_bit_identical": self.wt_bit_identical,
             "wt_bit_identical_detail": self.wt_bit_identical_detail,
-            # v0.2 — advisory only; ``null`` when compute_detachment=False.
-            "detachment_metric": self.detachment_metric,
         }
 
 
@@ -621,361 +555,6 @@ def _branch_seed_dirs(branch_dir: str) -> List[str]:
 
 
 # ---------------------------------------------------------------------------
-# v0.2 — Detachment metric (Light D Hybrid, advisory only)
-# ---------------------------------------------------------------------------
-
-def _parse_pdb_atoms_for_chain(pdb_path: str, chain: str) -> List[Dict[str, Any]]:
-    """Lightweight PDB parser — returns list of atom records for the given
-    chain. Each record carries: ``atom_name``, ``resname``, ``resseq``
-    (int), ``chain``, ``x``, ``y``, ``z``.
-
-    Strict by-column slicing per PDB v3.3:
-        cols 13-16 atom name, 18-20 resname, 22 chain, 23-26 resseq,
-        31-38 x, 39-46 y, 47-54 z (1-based, inclusive).
-
-    Skips waters and common ions, but still returns ncAA HETATM records
-    (so non-standard binder residues are visible to the ncAA scan).
-    """
-    atoms: List[Dict[str, Any]] = []
-    try:
-        with open(pdb_path, "r", encoding="utf-8") as f:
-            for line in f:
-                if not (line.startswith("ATOM") or line.startswith("HETATM")):
-                    continue
-                if len(line) < 54:
-                    continue
-                ch = line[21:22].strip()
-                if ch != chain:
-                    continue
-                resname = line[17:20].strip().upper()
-                if resname in _NON_RESIDUE_CODES:
-                    continue
-                atom_name = line[12:16].strip()
-                try:
-                    resseq = int(line[22:26].strip())
-                    x = float(line[30:38].strip())
-                    y = float(line[38:46].strip())
-                    z = float(line[46:54].strip())
-                except ValueError:
-                    continue
-                atoms.append({
-                    "atom_name": atom_name,
-                    "resname": resname,
-                    "resseq": resseq,
-                    "chain": ch,
-                    "x": x,
-                    "y": y,
-                    "z": z,
-                })
-    except (OSError, UnicodeDecodeError):
-        return []
-    return atoms
-
-
-def _identify_ncaa_residue(atoms: List[Dict[str, Any]]) -> Optional[Tuple[str, int]]:
-    """Return (resname, resseq) of the first non-standard residue in the
-    chain, or None if every residue is canonical (peptide-bond intact case
-    with no ncAA — the detachment metric is undefined).
-
-    Iteration order = ascending resseq; first non-standard wins. When
-    multiple ncAAs are present, downstream callers may prefer to scan
-    each, but for v0.2 the advisory metric uses the first.
-    """
-    seen: Dict[int, str] = {}
-    for a in atoms:
-        seen.setdefault(a["resseq"], a["resname"])
-    for resseq in sorted(seen):
-        rn = seen[resseq]
-        if rn not in _STANDARD_AA_3LETTER:
-            return rn, resseq
-    return None
-
-
-def _atom_coord(atoms: List[Dict[str, Any]], resseq: int,
-                atom_name: str) -> Optional[Tuple[float, float, float]]:
-    """Look up the (x, y, z) of an atom by (resseq, atom_name). Returns
-    None if not found.
-    """
-    for a in atoms:
-        if a["resseq"] == resseq and a["atom_name"] == atom_name:
-            return (a["x"], a["y"], a["z"])
-    return None
-
-
-def _euclid(p: Tuple[float, float, float],
-            q: Tuple[float, float, float]) -> float:
-    """Euclidean distance between two 3D points."""
-    return math.sqrt(
-        (p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2 + (p[2] - q[2]) ** 2
-    )
-
-
-def _detachment_warning(fraction: float) -> str:
-    """Map an aggregate detachment fraction to a warning level.
-
-    Thresholds (advisory):
-        > 0.5 → "high_detachment"
-        > 0.2 → "moderate_detachment"
-        ≤ 0.2 → "none"
-    """
-    if fraction > _DETACH_WARN_HIGH:
-        return "high_detachment"
-    if fraction > _DETACH_WARN_MOD:
-        return "moderate_detachment"
-    return "none"
-
-
-def _list_snapshot_pdbs(snapshots_dir: str) -> List[str]:
-    """Sorted list of ``*.pdb`` paths under a snapshots dir.
-
-    Excludes any obvious non-snapshot artifacts (e.g. ``parm.pdb``,
-    ``ref.pdb``); keeps anything matching ``*_snap*.pdb`` or, if no such
-    pattern exists, every ``*.pdb`` under the dir.
-    """
-    if not os.path.isdir(snapshots_dir):
-        return []
-    all_pdbs = sorted(
-        os.path.join(snapshots_dir, f)
-        for f in os.listdir(snapshots_dir)
-        if f.lower().endswith(".pdb")
-    )
-    snap_pdbs = [p for p in all_pdbs if "_snap" in os.path.basename(p).lower()]
-    return snap_pdbs if snap_pdbs else all_pdbs
-
-
-def compute_detachment_metric(
-    snapshots_dir: str,
-    *,
-    threshold_angstrom: float = 5.0,
-    binder_chain: str = "B",
-) -> Dict[str, Any]:
-    """Compute frame-level binder-attachment metric for a snapshot directory.
-
-    For each snapshot PDB under ``snapshots_dir``:
-
-      1. Parse ATOM/HETATM records for ``binder_chain``.
-      2. Identify the ncAA residue (first non-standard 3-letter resname).
-      3. Locate the previous residue's main-chain C atom.
-      4. Compute the prev_C ↔ ncAA_N distance.
-      5. Mark the frame ``detached`` iff distance > ``threshold_angstrom``.
-
-    This is an **advisory** metric — it does NOT filter the ΔΔG
-    calculation. It is intended to flag biophysical detachment events
-    (e.g. binder unfolding, ncAA peptide-bond cleavage proxy) so that
-    the user can decide whether to repeat the run, increase sampling,
-    or accept the variant ΔG with a known caveat.
-
-    Args:
-        snapshots_dir: Directory containing snapshot PDBs (typically
-            ``snapshots_n25_postl387_patch/``).
-        threshold_angstrom: Detachment threshold (default 5.0 Å —
-            roughly 3.5× a normal peptide-bond N-C distance of 1.33 Å).
-        binder_chain: Chain ID of the binder (default ``"B"``).
-
-    Returns:
-        Advisory dict::
-
-            {
-                "snapshots_dir": str,
-                "binder_chain": str,
-                "threshold_angstrom": float,
-                "n_frames": int,             # frames with usable distance
-                "n_skipped": int,            # frames missing ncAA / prev_C / N
-                "n_detached": int,
-                "aggregate_fraction": float, # n_detached / max(n_frames,1)
-                "warning": str,              # high|moderate|none
-                "ncaa_resname": Optional[str],   # first ncAA seen
-                "ncaa_resseq": Optional[int],
-                "per_frame": [
-                    {"snapshot": basename, "distance_angstrom": float|None,
-                     "detached": bool|None, "skipped_reason": Optional[str]},
-                    ...
-                ]
-            }
-
-        When ``snapshots_dir`` is missing or contains no usable PDBs,
-        returns a dict with ``n_frames=0`` and warning ``"none"``.
-    """
-    pdb_paths = _list_snapshot_pdbs(snapshots_dir)
-    out: Dict[str, Any] = {
-        "snapshots_dir": snapshots_dir,
-        "binder_chain": binder_chain,
-        "threshold_angstrom": float(threshold_angstrom),
-        "n_frames": 0,
-        "n_skipped": 0,
-        "n_detached": 0,
-        "aggregate_fraction": 0.0,
-        "warning": "none",
-        "ncaa_resname": None,
-        "ncaa_resseq": None,
-        "per_frame": [],
-    }
-    if not pdb_paths:
-        return out
-
-    n_detached = 0
-    n_frames = 0
-    n_skipped = 0
-    first_ncaa_resname: Optional[str] = None
-    first_ncaa_resseq: Optional[int] = None
-    for pdb in pdb_paths:
-        atoms = _parse_pdb_atoms_for_chain(pdb, binder_chain)
-        snap_basename = os.path.basename(pdb)
-        if not atoms:
-            n_skipped += 1
-            out["per_frame"].append({
-                "snapshot": snap_basename,
-                "distance_angstrom": None,
-                "detached": None,
-                "skipped_reason": "no_chain_atoms",
-            })
-            continue
-        ncaa_id = _identify_ncaa_residue(atoms)
-        if ncaa_id is None:
-            n_skipped += 1
-            out["per_frame"].append({
-                "snapshot": snap_basename,
-                "distance_angstrom": None,
-                "detached": None,
-                "skipped_reason": "no_ncaa_in_chain",
-            })
-            continue
-        ncaa_resname, ncaa_resseq = ncaa_id
-        if first_ncaa_resname is None:
-            first_ncaa_resname = ncaa_resname
-            first_ncaa_resseq = ncaa_resseq
-        prev_resseq = ncaa_resseq - 1
-        prev_c = _atom_coord(atoms, prev_resseq, "C")
-        ncaa_n = _atom_coord(atoms, ncaa_resseq, "N")
-        if prev_c is None or ncaa_n is None:
-            n_skipped += 1
-            out["per_frame"].append({
-                "snapshot": snap_basename,
-                "distance_angstrom": None,
-                "detached": None,
-                "skipped_reason": (
-                    "no_prev_C" if prev_c is None else "no_ncaa_N"
-                ),
-            })
-            continue
-        d = _euclid(prev_c, ncaa_n)
-        is_det = d > threshold_angstrom
-        n_frames += 1
-        if is_det:
-            n_detached += 1
-        out["per_frame"].append({
-            "snapshot": snap_basename,
-            "distance_angstrom": d,
-            "detached": is_det,
-            "skipped_reason": None,
-        })
-
-    aggregate_fraction = n_detached / n_frames if n_frames > 0 else 0.0
-    out["n_frames"] = n_frames
-    out["n_skipped"] = n_skipped
-    out["n_detached"] = n_detached
-    out["aggregate_fraction"] = aggregate_fraction
-    out["warning"] = _detachment_warning(aggregate_fraction)
-    out["ncaa_resname"] = first_ncaa_resname
-    out["ncaa_resseq"] = first_ncaa_resseq
-    return out
-
-
-def _detachment_for_branch(
-    snapshots_dir: Optional[str],
-    *,
-    threshold_angstrom: float,
-    binder_chain: str,
-) -> Optional[Dict[str, Any]]:
-    """Wrap :func:`compute_detachment_metric` with a graceful-None fallback.
-
-    If ``snapshots_dir`` is None or not a directory, return None so the
-    final report distinguishes "not computed" from "computed with zero
-    detachment".
-
-    Snapshot directories may live in two layouts:
-      1. Direct path passed in (single snapshot dir for one seed).
-      2. None (caller did not supply snapshots dir for this branch).
-
-    Cross-seed aggregation: for branches with multiple seeds, the caller
-    may pass either the parent dir (which is then expanded into per-seed
-    snapshot dirs) or ``None``. v0.2 implementation: if the supplied
-    path contains glob wildcards or matches multiple seed dirs, sum
-    counts across them.
-    """
-    if not snapshots_dir:
-        return None
-    expanded = sorted(glob.glob(snapshots_dir))
-    if not expanded:
-        if not os.path.isdir(snapshots_dir):
-            return None
-        expanded = [snapshots_dir]
-
-    # If a single dir resolves and contains PDBs directly, treat it as
-    # one snapshot dir. Otherwise, walk one level looking for child
-    # dirs that look like ``snapshots*`` containers.
-    snap_dirs: List[str] = []
-    for cand in expanded:
-        if not os.path.isdir(cand):
-            continue
-        # Direct PDB hit?
-        if _list_snapshot_pdbs(cand):
-            snap_dirs.append(cand)
-            continue
-        # One-level walk: find subdirs whose name contains "snapshot".
-        for sub in sorted(os.listdir(cand)):
-            subp = os.path.join(cand, sub)
-            if os.path.isdir(subp) and "snapshot" in sub.lower():
-                if _list_snapshot_pdbs(subp):
-                    snap_dirs.append(subp)
-
-    if not snap_dirs:
-        return None
-
-    per_seed: List[Dict[str, Any]] = []
-    total_frames = 0
-    total_detached = 0
-    total_skipped = 0
-    first_ncaa_resname: Optional[str] = None
-    first_ncaa_resseq: Optional[int] = None
-    for sd in snap_dirs:
-        m = compute_detachment_metric(
-            sd,
-            threshold_angstrom=threshold_angstrom,
-            binder_chain=binder_chain,
-        )
-        per_seed.append({
-            "snapshots_dir": sd,
-            "n_frames": m["n_frames"],
-            "n_detached": m["n_detached"],
-            "fraction": m["aggregate_fraction"],
-        })
-        total_frames += m["n_frames"]
-        total_detached += m["n_detached"]
-        total_skipped += m["n_skipped"]
-        if first_ncaa_resname is None and m["ncaa_resname"] is not None:
-            first_ncaa_resname = m["ncaa_resname"]
-            first_ncaa_resseq = m["ncaa_resseq"]
-
-    aggregate_fraction = (
-        total_detached / total_frames if total_frames > 0 else 0.0
-    )
-    return {
-        "per_seed_fraction": [s["fraction"] for s in per_seed],
-        "per_seed_detail": per_seed,
-        "aggregate_fraction": aggregate_fraction,
-        "threshold_angstrom": float(threshold_angstrom),
-        "binder_chain": binder_chain,
-        "n_frames": total_frames,
-        "n_detached": total_detached,
-        "n_skipped": total_skipped,
-        "warning": _detachment_warning(aggregate_fraction),
-        "ncaa_resname": first_ncaa_resname,
-        "ncaa_resseq": first_ncaa_resseq,
-    }
-
-
-# ---------------------------------------------------------------------------
 # Public functions
 # ---------------------------------------------------------------------------
 
@@ -1117,13 +696,7 @@ def compute_branched_ddg(wt_dir: str, variant_dir: str, *,
                          expected_solvent: Optional[str] = None,
                          charge_audit: bool = False,
                          strict_charge_audit: bool = False,
-                         wt_pre_dir: Optional[str] = None,
-                         compute_detachment: bool = False,
-                         detachment_threshold: float = 5.0,
-                         binder_chain: str = "B",
-                         wt_snapshots_dir: Optional[str] = None,
-                         variant_snapshots_dir: Optional[str] = None
-                         ) -> BranchedDDGResult:
+                         wt_pre_dir: Optional[str] = None) -> BranchedDDGResult:
     """Compute branched ΔΔG = ⟨⟨ΔG_variant⟩⟩ − ⟨⟨ΔG_wt⟩⟩ end-to-end.
 
     Args:
@@ -1141,23 +714,9 @@ def compute_branched_ddg(wt_dir: str, variant_dir: str, *,
         wt_pre_dir: If provided, run the PR-12 WT bit-identical check by
             comparing every WT seed's summary JSON md5 against the same-named
             file under ``wt_pre_dir`` (mirroring the per-seed structure).
-        compute_detachment: v0.2 — opt-in advisory detachment metric. When
-            True, populate ``detachment_metric`` on the result by scanning
-            ``wt_snapshots_dir`` and ``variant_snapshots_dir``. ΔΔG
-            calculation is **unchanged** — this is purely advisory.
-            Default False (back-compat with v0.1 callers).
-        detachment_threshold: prev_C ↔ ncAA_N distance (Å) above which a
-            frame is marked detached. Default 5.0.
-        binder_chain: Chain ID of the binder for detachment scan
-            (default ``"B"``).
-        wt_snapshots_dir: Directory (or glob) containing WT snapshot
-            PDBs. Used only when ``compute_detachment=True``.
-        variant_snapshots_dir: Directory (or glob) containing variant
-            snapshot PDBs. Used only when ``compute_detachment=True``.
 
     Returns:
-        BranchedDDGResult. v0.2: ``detachment_metric`` is None unless
-        ``compute_detachment=True``.
+        BranchedDDGResult.
 
     Raises:
         ValueError: on solvent mismatch between WT and variant.
@@ -1234,45 +793,6 @@ def compute_branched_ddg(wt_dir: str, variant_dir: str, *,
         wt_bit_id = bit_res["all_match"]
         wt_bit_id_detail = bit_res
 
-    # v0.2 — Light D Hybrid detachment metric (advisory; default off).
-    # When ``compute_detachment=False`` (default), the metric stays
-    # ``None`` and the JSON output reads ``"detachment_metric": null``.
-    # ΔΔG aggregation is NOT affected by this metric in v0.2 (the
-    # full-D frame-filter framework is deferred to v0.8 milestone).
-    detachment_metric: Optional[Dict[str, Any]] = None
-    if compute_detachment:
-        wt_branch = _detachment_for_branch(
-            wt_snapshots_dir,
-            threshold_angstrom=detachment_threshold,
-            binder_chain=binder_chain,
-        )
-        var_branch = _detachment_for_branch(
-            variant_snapshots_dir,
-            threshold_angstrom=detachment_threshold,
-            binder_chain=binder_chain,
-        )
-        # Roll-up warning = max severity across branches.
-        fractions = []
-        if wt_branch is not None:
-            fractions.append(wt_branch["aggregate_fraction"])
-        if var_branch is not None:
-            fractions.append(var_branch["aggregate_fraction"])
-        roll_fraction = max(fractions) if fractions else 0.0
-        detachment_metric = {
-            "schema_subversion": "light_d_hybrid_v1",
-            "threshold_angstrom": float(detachment_threshold),
-            "binder_chain": binder_chain,
-            "wt_branch": wt_branch,
-            "variant_branch": var_branch,
-            "warning": _detachment_warning(roll_fraction),
-            "rollup_fraction": roll_fraction,
-            "advisory_note": (
-                "Light D Hybrid (v0.2): advisory only. ΔΔG aggregation "
-                "unchanged from v0.1. Full D framework (frame filter + "
-                "detachment-aware ΔΔG) deferred to v0.8 milestone."
-            ),
-        }
-
     return BranchedDDGResult(
         schema=SCHEMA_VERSION,
         tool=TOOL_NAME,
@@ -1295,7 +815,6 @@ def compute_branched_ddg(wt_dir: str, variant_dir: str, *,
         charge_audit_strict=strict_charge_audit,
         wt_bit_identical=wt_bit_id,
         wt_bit_identical_detail=wt_bit_id_detail,
-        detachment_metric=detachment_metric,
     )
 
 
@@ -1445,39 +964,6 @@ def _render_md(r: BranchedDDGResult) -> str:
             lines.append(f"| {sl} | {rec.mean_dg:+.3f} | "
                          f"{rec.sigma_w:.3f} | {rec.n_snap} |")
         lines.append("")
-
-    # v0.2 — Light D Hybrid advisory section. Only emitted when
-    # detachment_metric was computed (compute_detachment=True).
-    if r.detachment_metric is not None:
-        dm = r.detachment_metric
-        lines.append("## Detachment Metric (Advisory)")
-        lines.append("")
-        lines.append(
-            "_Light D Hybrid (schema "
-            f"`{dm.get('schema_subversion','light_d_hybrid_v1')}`)._ "
-            "Frame-level binder-attachment fraction "
-            f"(prev_C ↔ ncAA_N > {dm['threshold_angstrom']:.2f} Å). "
-            "**ΔΔG calculation is NOT filtered by this metric.** "
-            "Full D framework (frame filter + detachment-aware ΔΔG) "
-            "**DEFERRED to v0.8 milestone**."
-        )
-        lines.append("")
-        lines.append("| Branch | n_frames | n_detached | aggregate_fraction | warning |")
-        lines.append("|---|---|---|---|---|")
-        for tag, key in (("Variant", "variant_branch"), ("WT", "wt_branch")):
-            br = dm.get(key)
-            if br is None:
-                lines.append(f"| {tag} | — | — | — | not computed |")
-            else:
-                lines.append(
-                    f"| {tag} | {br['n_frames']} | {br['n_detached']} | "
-                    f"{br['aggregate_fraction']:.3f} | {br['warning']} |"
-                )
-        lines.append("")
-        lines.append(f"- **Rollup warning**: `{dm['warning']}` "
-                     f"(rollup_fraction = {dm['rollup_fraction']:.3f})")
-        lines.append(f"- **Advisory note**: {dm['advisory_note']}")
-        lines.append("")
     return "\n".join(lines) + "\n"
 
 
@@ -1517,26 +1003,6 @@ def _build_parser() -> argparse.ArgumentParser:
                          "(non-zero exit).")
     ap.add_argument("--check-wt-bit-identical", default=None,
                     help="PR-12 helper: WT pre-patch dir to md5-compare against.")
-    # v0.2 — Light D Hybrid advisory detachment metric (opt-in).
-    ap.add_argument("--compute-detachment", action="store_true",
-                    help="v0.2: Populate advisory detachment_metric on the "
-                         "result (Light D Hybrid). ΔΔG behavior UNCHANGED. "
-                         "Full D (frame filter / detachment-aware ΔΔG) is "
-                         "DEFERRED to v0.8 milestone.")
-    ap.add_argument("--detachment-threshold", type=float, default=5.0,
-                    help="Detachment threshold in Å (prev_C ↔ ncAA_N "
-                         "distance). Default 5.0.")
-    ap.add_argument("--binder-chain", default="B",
-                    help="Chain ID of the binder for detachment metric. "
-                         "Default 'B'.")
-    ap.add_argument("--wt-snapshots-dir", default=None,
-                    help="Snapshot dir (or glob) for WT branch detachment "
-                         "scan. Required when --compute-detachment is set "
-                         "and WT detachment is desired.")
-    ap.add_argument("--variant-snapshots-dir", default=None,
-                    help="Snapshot dir (or glob) for variant branch "
-                         "detachment scan. Required when --compute-detachment "
-                         "is set and variant detachment is desired.")
     return ap
 
 
@@ -1558,11 +1024,6 @@ def main(argv: Optional[List[str]] = None) -> int:
             charge_audit=args.charge_audit,
             strict_charge_audit=args.strict_charge_audit,
             wt_pre_dir=args.check_wt_bit_identical,
-            compute_detachment=args.compute_detachment,
-            detachment_threshold=args.detachment_threshold,
-            binder_chain=args.binder_chain,
-            wt_snapshots_dir=args.wt_snapshots_dir,
-            variant_snapshots_dir=args.variant_snapshots_dir,
         )
     except ChargeAuditError as exc:
         print(f"[branched_ddg] ChargeAuditError: {exc}", file=sys.stderr)
@@ -1582,15 +1043,6 @@ def main(argv: Optional[List[str]] = None) -> int:
           + (f" (strict)" if result.charge_audit_strict else ""))
     if result.wt_bit_identical is not None:
         print(f"[branched_ddg] wt_bit_identical={result.wt_bit_identical}")
-    if result.detachment_metric is not None:
-        dm = result.detachment_metric
-        wb = dm.get("wt_branch") or {}
-        vb = dm.get("variant_branch") or {}
-        wb_frac = f"{wb['aggregate_fraction']:.3f}" if wb else "—"
-        vb_frac = f"{vb['aggregate_fraction']:.3f}" if vb else "—"
-        print(f"[branched_ddg] detachment_metric (advisory): "
-              f"variant={vb_frac}  WT={wb_frac}  "
-              f"warning={dm['warning']}  threshold={dm['threshold_angstrom']:.2f}Å")
     print(f"[branched_ddg] wrote: {json_path}")
     print(f"[branched_ddg] wrote: {md_path}")
     return 0

@@ -1,19 +1,7 @@
 #!/usr/bin/env python
 """utils/cycle_manager.py — UPDD Iterative Cycle Manager.
 
-Schema: ``cycle_manager/0.2`` (PR-NEW-C Day 2, 2026-04-29)
-    v0.1 → v0.2 (Day 2):
-        - Multi-assay K_d input refinement: stronger ``_aggregate_assays``
-          with explicit inverse-variance interpretation of ``confidence``,
-          plus ``_assay_normalize`` for per-assay sanity normalisation.
-        - Plateau detection refinement: ``compute_trajectory`` accepts an
-          optional ``target_kd_molar`` to issue ``"try_alternative"`` when
-          plateaued above target rather than relying on hardcoded
-          -9 / -12 kcal/mol heuristics.
-        - Cycle history visualization: new ``export_visualization_data``
-          returns a structured dict consumable by PR-NEW-E HTML report.
-        - Backward-compat reader: v0.1 inputs still load; output is bumped
-          to v0.2 on next save.
+Schema: ``cycle_manager/0.1`` (PR-NEW-C Day 1, 2026-04-28)
 
 Capability Level 1 project tracking + cycle history layer for the
 iterative peptide drug discovery workflow described in
@@ -88,13 +76,8 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 # Constants / Schema
 # ---------------------------------------------------------------------------
 
-SCHEMA_VERSION = "cycle_manager/0.2"
-SUPPORTED_SCHEMA_VERSIONS = ("cycle_manager/0.1", "cycle_manager/0.2")
+SCHEMA_VERSION = "cycle_manager/0.1"
 TOOL_NAME = "utils.cycle_manager"
-
-# Recognised wet-lab assay labels (case-insensitive). Free-form labels are
-# still accepted; this set drives ``_assay_normalize`` sanity checks.
-KNOWN_ASSAYS = ("ITC", "SPR", "FP", "BLI", "ELISA", "MST", "DSF")
 
 # Gas constant in kcal mol⁻¹ K⁻¹ (CODATA 2018: R = 8.314462618 J mol⁻¹ K⁻¹).
 R_KCAL_PER_MOL_K = 1.987204258640832e-3
@@ -337,15 +320,6 @@ class CycleHistory:
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "CycleHistory":
-        raw_schema = str(d.get("schema", SCHEMA_VERSION))
-        # v0.2 reader accepts v0.1 inputs verbatim (backward compat); the
-        # next ``_save_history`` call will rewrite ``schema`` as v0.2.
-        if raw_schema not in SUPPORTED_SCHEMA_VERSIONS:
-            # Permissive: still load, but log via a notes side-channel.
-            md_extra = dict(d.get("metadata") or {})
-            md_extra.setdefault("schema_legacy_input", raw_schema)
-            d = dict(d)
-            d["metadata"] = md_extra
         return cls(
             schema=str(d.get("schema", SCHEMA_VERSION)),
             project_id=str(d["project_id"]),
@@ -418,13 +392,6 @@ def _load_history(project_id: str, *,
             f"failed to decode {path}: {exc}"
         ) from exc
     history = CycleHistory.from_dict(data)
-    # v0.2: silently upgrade legacy v0.1 schema in-memory so subsequent
-    # saves carry the new schema string. The on-disk file is upgraded the
-    # next time _save_history runs (which all mutating public APIs do).
-    if history.schema not in SUPPORTED_SCHEMA_VERSIONS:
-        history.schema = SCHEMA_VERSION
-    elif history.schema == "cycle_manager/0.1":
-        history.schema = SCHEMA_VERSION
     # Re-anchor to the caller's output_root so subsequent saves write where
     # the caller expects (fixtures often pass tmp_path here even if the JSON
     # was written with a different on-disk root).
@@ -503,60 +470,17 @@ def _kd_to_ddg(kd_molar: float, *, T: float = DEFAULT_TEMPERATURE_K) -> float:
     return R_KCAL_PER_MOL_K * T * math.log(kd_molar)
 
 
-def _assay_normalize(raw_kd: float, assay: str,
-                     T_K: float = DEFAULT_TEMPERATURE_K) -> float:
-    """Apply per-assay sanity normalisation to a K_d value (v0.2).
-
-    For most assays (ITC/SPR/FP/BLI/ELISA/MST/DSF) the K_d is already
-    reported in molar; no correction is required and the input is
-    returned as-is. This stub exists so future per-assay corrections
-    (e.g. SPR mass-transport bias, FP fluorophore quenching) can be
-    centralised at one call site.
-
-    Args:
-        raw_kd: K_d in molar (already converted by ``_parse_kd``).
-        assay:  Assay label (case-insensitive). Unknown labels are
-                accepted and the value is passed through.
-        T_K:    Temperature (kept for future temperature-aware
-                corrections; unused in the current pass-through impl).
-
-    Returns:
-        K_d in molar (M), positive and finite.
-
-    Raises:
-        KdParseError: on non-positive / non-finite input.
-    """
-    if raw_kd <= 0 or not math.isfinite(raw_kd):
-        raise KdParseError(
-            f"_assay_normalize: K_d must be > 0 and finite; got {raw_kd!r}"
-        )
-    if T_K <= 0 or not math.isfinite(T_K):
-        raise CycleManagerError(
-            f"_assay_normalize: temperature must be > 0 K; got {T_K!r}"
-        )
-    # No assay-specific multiplicative correction at v0.2 (placeholder).
-    # Future: ITC concentration-window correction, SPR mass-transport
-    # correction, FP fluorophore quenching correction would slot in here.
-    return float(raw_kd)
-
-
 def _aggregate_assays(results: List[WetLabResult]) -> WetLabResult:
-    """Aggregate multiple wet-lab readouts for the same sequence (v0.2).
+    """Aggregate multiple wet-lab readouts for the same sequence.
 
     Algorithm:
         - If every record has ``confidence is None`` (or all-zero) →
           arithmetic mean of K_d values (and the corresponding ΔG).
         - If any record has positive confidence → confidence-weighted mean.
-          Confidence is interpreted as an inverse-variance weight (i.e.
-          higher confidence ⇒ tighter SE ⇒ greater pull on the mean).
         - If the total confidence weight is zero (all confidences provided
           but all zero) → :class:`KdParseError` (caller misconfiguration).
 
-    Each input K_d is passed through ``_assay_normalize`` before
-    aggregation so per-assay corrections (currently a pass-through stub)
-    have a single chokepoint.
-
-    The aggregate's ``assay`` field becomes a ``+``-joined sorted unique
+    The aggregate's ``assay`` field becomes a comma-joined sorted unique
     list (e.g. ``"ITC+SPR"``).
 
     Returns a fresh :class:`WetLabResult` with ``confidence`` carrying the
@@ -583,9 +507,6 @@ def _aggregate_assays(results: List[WetLabResult]) -> WetLabResult:
             "remove confidence values to fall back to simple mean, or supply "
             "at least one positive weight"
         )
-    # v0.2: per-assay normalisation pass before aggregation.
-    norm_kds = [_assay_normalize(r.kd_molar, r.assay, T_K=r.temperature_k)
-                for r in results]
     if has_positive:
         # Confidence-weighted mean. Records with confidence=None are excluded
         # from the weighted average (only positively-weighted records count).
@@ -597,13 +518,13 @@ def _aggregate_assays(results: List[WetLabResult]) -> WetLabResult:
                 "(all positive weights summed to zero or non-finite)"
             )
         kd = sum(
-            kd_n * (c if (c is not None and c > 0
-                          and math.isfinite(c)) else 0.0)
-            for kd_n, c in zip(norm_kds, confs)
+            r.kd_molar * (c if (c is not None and c > 0
+                                and math.isfinite(c)) else 0.0)
+            for r, c in zip(results, confs)
         ) / total_w
     else:
         # Simple unweighted mean.
-        kd = sum(norm_kds) / len(norm_kds)
+        kd = sum(r.kd_molar for r in results) / len(results)
         total_w = float(len(results))
     if kd <= 0 or not math.isfinite(kd):
         raise KdParseError(
@@ -886,9 +807,7 @@ def set_next_wt(project_id: str, source_cycle: int, *,
 def compute_trajectory(project_id: str, *,
                        output_root: str = "outputs/projects",
                        lookback: int = 3,
-                       threshold_kcal: float = 0.5,
-                       target_kd_molar: Optional[float] = None
-                       ) -> Dict[str, Any]:
+                       threshold_kcal: float = 0.5) -> Dict[str, Any]:
     """Compute the project's wet-lab K_d trajectory and detect plateau.
 
     For each cycle that has at least one wet-lab record, take the
@@ -958,25 +877,8 @@ def compute_trajectory(project_id: str, *,
                              _per_cycle_cache=per_cycle)
     final_ddg = next((p["ddg"] for p in reversed(per_cycle)
                       if p["ddg"] is not None), None)
-    final_kd = next((p["kd_molar"] for p in reversed(per_cycle)
-                     if p["kd_molar"] is not None), None)
-    # v0.2: if a target K_d is supplied, plateau-while-above-target →
-    # try_alternative; plateau-at-or-below-target → converged.
-    # Otherwise fall back to legacy -9 / -12 kcal/mol heuristics.
-    target_ddg: Optional[float] = None
-    if target_kd_molar is not None:
-        if target_kd_molar <= 0 or not math.isfinite(target_kd_molar):
-            raise CycleManagerError(
-                f"target_kd_molar must be > 0 and finite; got {target_kd_molar!r}"
-            )
-        target_ddg = _kd_to_ddg(target_kd_molar)
     if not plateau:
         recommendation = "continue"
-    elif target_kd_molar is not None and final_kd is not None:
-        if final_kd <= target_kd_molar:
-            recommendation = "converged"
-        else:
-            recommendation = "try_alternative"
     elif final_ddg is not None and final_ddg <= -12.0:
         recommendation = "converged"
     elif final_ddg is not None and final_ddg > -9.0:
@@ -993,9 +895,6 @@ def compute_trajectory(project_id: str, *,
         "threshold_kcal": threshold_kcal,
         "recommendation": recommendation,
         "final_ddg_kcal": final_ddg,
-        "final_kd_molar": final_kd,
-        "target_kd_molar": target_kd_molar,
-        "target_ddg_kcal": target_ddg,
         "computed_at": _now_iso(),
     }
     history.trajectory = trajectory
@@ -1051,163 +950,6 @@ def detect_plateau(history: CycleHistory, *,
               for i in range(len(valid) - 1)]
     last = deltas[-lookback:]
     return all(abs(d) < threshold_kcal for d in last)
-
-
-# ---------------------------------------------------------------------------
-# Public API — visualisation data export (PR-NEW-E HTML consumer, v0.2)
-# ---------------------------------------------------------------------------
-
-def export_visualization_data(history: CycleHistory, *,
-                              lookback: int = 3,
-                              threshold_kcal: float = 0.5,
-                              target_kd_molar: Optional[float] = None
-                              ) -> Dict[str, Any]:
-    """Return a structured dict for HTML cycle-progression rendering (v0.2).
-
-    Intended consumer: PR-NEW-E ``utils/html_report.py`` cycle-progression
-    panel. The schema below is stable for the v0.2 cycle:
-
-    Top-level keys::
-
-        {
-          "schema":           "cycle_manager_viz/0.2",
-          "project_id":       "<id>",
-          "target_pdb":       "<path>",
-          "n_cycles":         <int>,
-          "per_cycle": [
-            {"cycle_n": int,
-             "wt_sequence": str|None,
-             "best_validated_sequence": str|None,
-             "kd_molar": float|None,
-             "kd_label": str ("80 nM" pretty-print),
-             "ddg_kcal": float|None,
-             "n_variants": int,
-             "n_wet_lab_results": int,
-             "synthesized": bool,
-            },
-            ...
-          ],
-          "trajectory_points": [
-            {"cycle_n": int, "ddg_kcal": float, "kd_molar": float}, ...
-          ],
-          "delta_kd_kcal":      [float, ...],
-          "ratio_per_cycle":    [float, ...],
-          "plateau_detected":   bool,
-          "recommendation":     str ("continue"|"converged"|"try_alternative"),
-          "final_ddg_kcal":     float|None,
-          "final_kd_molar":     float|None,
-          "target_kd_molar":    float|None,
-          "target_ddg_kcal":    float|None,
-          "lookback":           int,
-          "threshold_kcal":     float,
-          "computed_at":        ISO8601 string,
-        }
-
-    Notes:
-        - Pure read-only: does not mutate ``history``.
-        - Per-cycle K_d/ΔG uses ``_pick_best_validated`` fallback when
-          ``best_validated_sequence`` is unset (consistent with
-          :func:`compute_trajectory`).
-    """
-    sorted_cycles = sorted(history.cycles, key=lambda c: c.cycle_n)
-    per_cycle: List[Dict[str, Any]] = []
-    trajectory_points: List[Dict[str, Any]] = []
-    for c in sorted_cycles:
-        seq = c.best_validated_sequence
-        recs = c.wet_lab_results
-        kd: Optional[float] = None
-        T = DEFAULT_TEMPERATURE_K
-        if recs:
-            if seq is None:
-                seq = _pick_best_validated(c)
-            seq_recs = ([r for r in recs if r.sequence == seq]
-                        if seq else recs)
-            if len(seq_recs) == 1:
-                kd = seq_recs[0].kd_molar
-                T = seq_recs[0].temperature_k
-            elif len(seq_recs) > 1:
-                try:
-                    agg = _aggregate_assays(seq_recs)
-                    kd = agg.kd_molar
-                    T = agg.temperature_k
-                except KdParseError:
-                    kd = sum(r.kd_molar for r in seq_recs) / len(seq_recs)
-                    T = (sum(r.temperature_k for r in seq_recs)
-                         / len(seq_recs))
-        ddg = _kd_to_ddg(kd, T=T) if kd is not None else None
-        per_cycle.append({
-            "cycle_n": c.cycle_n,
-            "wt_sequence": c.wt_sequence,
-            "best_validated_sequence": seq,
-            "kd_molar": kd,
-            "kd_label": _fmt_kd(kd),
-            "ddg_kcal": ddg,
-            "n_variants": len(c.variants),
-            "n_wet_lab_results": len(c.wet_lab_results),
-            "synthesized": bool(c.synthesized),
-        })
-        if kd is not None and ddg is not None:
-            trajectory_points.append({
-                "cycle_n": c.cycle_n,
-                "ddg_kcal": ddg,
-                "kd_molar": kd,
-            })
-
-    delta_kd_kcal: List[float] = []
-    ratio_per_cycle: List[float] = []
-    prev: Optional[Dict[str, Any]] = None
-    for cur in per_cycle:
-        if (prev is not None and prev["ddg_kcal"] is not None
-                and cur["ddg_kcal"] is not None):
-            delta_kd_kcal.append(cur["ddg_kcal"] - prev["ddg_kcal"])
-            ratio_per_cycle.append(cur["kd_molar"] / prev["kd_molar"])
-        prev = cur
-
-    plateau = detect_plateau(history, lookback=lookback,
-                             threshold_kcal=threshold_kcal)
-
-    final_ddg = next((p["ddg_kcal"] for p in reversed(per_cycle)
-                      if p["ddg_kcal"] is not None), None)
-    final_kd = next((p["kd_molar"] for p in reversed(per_cycle)
-                     if p["kd_molar"] is not None), None)
-    target_ddg: Optional[float] = None
-    if target_kd_molar is not None:
-        if target_kd_molar <= 0 or not math.isfinite(target_kd_molar):
-            raise CycleManagerError(
-                f"target_kd_molar must be > 0 and finite; got {target_kd_molar!r}"
-            )
-        target_ddg = _kd_to_ddg(target_kd_molar)
-    if not plateau:
-        recommendation = "continue"
-    elif target_kd_molar is not None and final_kd is not None:
-        recommendation = ("converged" if final_kd <= target_kd_molar
-                          else "try_alternative")
-    elif final_ddg is not None and final_ddg <= -12.0:
-        recommendation = "converged"
-    elif final_ddg is not None and final_ddg > -9.0:
-        recommendation = "try_alternative"
-    else:
-        recommendation = "converged"
-
-    return {
-        "schema": "cycle_manager_viz/0.2",
-        "project_id": history.project_id,
-        "target_pdb": history.target_pdb,
-        "n_cycles": len(sorted_cycles),
-        "per_cycle": per_cycle,
-        "trajectory_points": trajectory_points,
-        "delta_kd_kcal": delta_kd_kcal,
-        "ratio_per_cycle": ratio_per_cycle,
-        "plateau_detected": plateau,
-        "recommendation": recommendation,
-        "final_ddg_kcal": final_ddg,
-        "final_kd_molar": final_kd,
-        "target_kd_molar": target_kd_molar,
-        "target_ddg_kcal": target_ddg,
-        "lookback": lookback,
-        "threshold_kcal": threshold_kcal,
-        "computed_at": _now_iso(),
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -1434,9 +1176,6 @@ def _build_parser() -> argparse.ArgumentParser:
     p_traj.add_argument("--project-id", required=True)
     p_traj.add_argument("--lookback", type=int, default=3)
     p_traj.add_argument("--threshold-kcal", type=float, default=0.5)
-    p_traj.add_argument("--target-kd", default=None,
-                        help="Optional target K_d (e.g. '10nM'). When set, "
-                             "plateau-while-above-target → try_alternative.")
     _add_output_root(p_traj)
 
     p_rep = sub.add_parser("report", help="Generate markdown report.")
@@ -1517,15 +1256,11 @@ def main(argv: Optional[List[str]] = None) -> int:
             print(f"[cycle_manager] set-wt OK — chosen={chosen!r}")
             return 0
         if args.cmd == "trajectory":
-            target_kd_molar: Optional[float] = None
-            if getattr(args, "target_kd", None):
-                target_kd_molar = _parse_kd(args.target_kd)
             traj = compute_trajectory(
                 project_id=args.project_id,
                 output_root=args.output_root,
                 lookback=args.lookback,
                 threshold_kcal=args.threshold_kcal,
-                target_kd_molar=target_kd_molar,
             )
             print(f"[cycle_manager] trajectory OK — "
                   f"plateau={traj['plateau_detected']} "

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """scripts/updd_cli.py — UPDD User CLI (Capability Level 1 demo integration).
 
-Schema: ``updd_cli/0.1`` (PR-NEW-D Day 1 + Day 2 + Day 3, 2026-04-29)
+Schema: ``updd_cli/0.1`` (PR-NEW-D Day 1 + Day 2, 2026-04-28)
 
 Unified subcommand interface that integrates the v0.7 Stage 1-5 user-facing
 layer (per ``v07_user_verdict/v0.7 Section 4 finalized.md`` §4.1.1 — §4.1.3,
@@ -91,37 +91,6 @@ from utils.sequence_parser import (  # noqa: E402
 )
 from utils import branched_ddg as bddg  # noqa: E402
 
-# PR-NEW-C Day 2: cycle manager integration ('updd cycle' subcommand).
-from utils.cycle_manager import (  # noqa: E402
-    SCHEMA_VERSION as CYCLE_SCHEMA_VERSION,
-    CycleManagerError,
-    ProjectNotFoundError as CMProjectNotFoundError,
-    InvalidCycleError as CMInvalidCycleError,
-    KdParseError as CMKdParseError,
-    init_project as cm_init_project,
-    add_cycle as cm_add_cycle,
-    add_result as cm_add_result,
-    set_next_wt as cm_set_next_wt,
-    compute_trajectory as cm_compute_trajectory,
-    generate_report as cm_generate_report,
-    export_visualization_data as cm_export_visualization_data,
-    _parse_kd as _cm_parse_kd,
-    _load_history as _cm_load_history,
-)
-
-# PR-NEW-D Day 3 — Stage 1-2 wrappers (RFdiffusion + ProteinMPNN + AF2).
-# Imported lazily so a non-existent wrapper module does not break Day-1/2
-# behaviour; tests that don't touch --de-novo skip the import path entirely.
-from utils.rfdiffusion_wrapper import (  # noqa: E402
-    RFdiffusionWrapper, RFdiffusionResult, RFdiffusionError,
-)
-from utils.proteinmpnn_wrapper import (  # noqa: E402
-    ProteinMPNNWrapper, ProteinMPNNResult, ProteinMPNNError,
-)
-from utils.af2_wrapper import (  # noqa: E402
-    AF2Wrapper, AF2Result, AF2Error,
-)
-
 
 # ---------------------------------------------------------------------------
 # Schema / constants
@@ -144,15 +113,6 @@ _MOCK_SE = 1.5               # synthetic SE (placeholder)
 # Verdict thresholds for `updd check` (Day-1 mock):
 _CHECK_DG_BINDER_THRESHOLD = -8.0     # ΔG < -8 ⇒ "yes"
 _CHECK_DG_NONBINDER_THRESHOLD = -5.0  # ΔG > -5 ⇒ "no"
-
-# Day-3 — Stage 2 (AF2) quality filter thresholds. Sequences whose AF2
-# prediction falls below either threshold are flagged ``filtered_out`` and
-# excluded from downstream Stage 3+ MD/MM-PBSA work. Conservative defaults
-# matching common RFdiffusion-ProteinMPNN-AF2 pipeline practice.
-_AF2_PLDDT_FLOOR = 70.0       # mean pLDDT must be >= 70
-_AF2_PTM_FLOOR = 0.50         # pTM (proxy for iPTM) must be >= 0.50
-# Day-3 — default contigs spec when the user doesn't pass --contigs.
-_DEFAULT_CONTIGS = "[A1-100/0 30-60]"
 
 
 # ---------------------------------------------------------------------------
@@ -1317,287 +1277,9 @@ def _print_summary_refine(payload: Dict[str, Any], json_path: Optional[Path],
 # `updd discover` — Cycle 0 file-based input (Day-1 scope)
 # ---------------------------------------------------------------------------
 
-# ---------------------------------------------------------------------------
-# Day 3 — Stage 1-2 (de novo) pipeline orchestrator
-# ---------------------------------------------------------------------------
-#
-# When ``updd discover --de-novo`` is set, the orchestrator chains:
-#
-#     Stage 1   RFdiffusionWrapper.run_diffusion()  → list[backbone_pdb]
-#     Stage 1.5 ProteinMPNNWrapper.run_mpnn()       → list[seq, score]
-#     Stage 2   AF2Wrapper.run_af2() per sequence   → {plddt, ptm, pae}
-#                                                      → quality filter
-#
-# Sequences passing the Stage-2 quality filter (pLDDT >= 70, pTM >= 0.5) are
-# fed to the existing Day-1 ``_maybe_mock_pipeline`` (Stage 3+) for ΔG
-# scoring. When real Stage 4 wiring becomes available the per-candidate
-# ``--results-dir`` path can be appended; for Day-3 the mock pipeline is
-# the canonical ranking source for de-novo flow.
-#
-# Each stage returns a dict that gets merged into a per-design entry; the
-# orchestrator never raises on individual design failures — it records
-# them under ``status: "stage_X_error"`` and continues the rest of the
-# cohort. This matches the Day-1 ``parse_error`` philosophy.
-
-def _run_de_novo_pipeline(args: argparse.Namespace, ctx: CLIContext, *,
-                          logger: logging.Logger
-                          ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
-    """Execute Stages 1, 1.5, 2 for a target. Returns ``(candidates, meta)``.
-
-    ``candidates`` is a list of per-design dicts with fields::
-
-        {
-            "index": int, "rank": <set later>,
-            "backbone_pdb": str, "stage1_mock": bool,
-            "sequences": [
-                {
-                    "seq": str, "mpnn_score": float,
-                    "stage1p5_mock": bool,
-                    "af2": {"plddt": float, "ptm": float, "pdb": str,
-                            "mock": bool, "filtered_out": bool,
-                            "filter_reason": str | None},
-                    "parsed": <SequenceParseResult dict> | None,
-                    "pipeline": <Day-1 mock or Day-2 real result>,
-                    "status": "ranked" | "filtered_out" | "stage_X_error",
-                }, ...
-            ],
-            "n_sequences": int,
-            "n_passed_filter": int,
-        }
-
-    ``meta`` carries Stage availability info, schema, and provenance::
-
-        {
-            "rfdiffusion": {"available": bool, "version": str | None,
-                             "mock_used": bool},
-            "proteinmpnn": {...},
-            "af2":         {...},
-            "contigs": str, "num_designs": int,
-            "num_sequences_per_backbone": int,
-            "af2_recycles": int,
-            "hotspot_residues": list[str] | None,
-            "filter_thresholds": {"plddt": float, "ptm": float},
-        }
-    """
-    target_pdb = str(ctx.target) if ctx.target else ""
-    contigs = getattr(args, "contigs", None) or _DEFAULT_CONTIGS
-    num_designs = int(getattr(args, "num_designs", 1) or 1)
-    num_seq = int(getattr(args, "num_sequences_per_backbone", 4) or 4)
-    recycles = int(getattr(args, "af2_recycles", 3) or 3)
-    hotspot = getattr(args, "hotspot_residues", None)
-    if isinstance(hotspot, str) and hotspot:
-        hotspot_list = [h.strip() for h in hotspot.split(",") if h.strip()]
-    else:
-        hotspot_list = None
-
-    rf = RFdiffusionWrapper(allow_mock=True)
-    mp = ProteinMPNNWrapper(allow_mock=True)
-    af = AF2Wrapper(allow_mock=True)
-
-    rf_avail = rf.check_availability()
-    mp_avail = mp.check_availability()
-    af_avail = af.check_availability()
-
-    meta: Dict[str, Any] = {
-        "rfdiffusion": {**rf_avail, "mock_used": not rf_avail["available"]},
-        "proteinmpnn": {**mp_avail, "mock_used": not mp_avail["available"]},
-        "af2":         {**af_avail, "mock_used": not af_avail["available"]},
-        "contigs": contigs,
-        "num_designs": num_designs,
-        "num_sequences_per_backbone": num_seq,
-        "af2_recycles": recycles,
-        "hotspot_residues": hotspot_list,
-        "filter_thresholds": {
-            "plddt": _AF2_PLDDT_FLOOR, "ptm": _AF2_PTM_FLOOR,
-        },
-        "stage12_schema": "stage12_pipeline/0.1",
-    }
-    logger.info(
-        f"de-novo Stage 1-2: rf_available={rf_avail['available']} "
-        f"mpnn_available={mp_avail['available']} af2_available={af_avail['available']}"
-    )
-
-    candidates: List[Dict[str, Any]] = []
-
-    if ctx.dry_run:
-        # Dry-run: emit a single placeholder design entry and skip subprocess
-        # invocation entirely.  This mirrors the Day-1 dry_run convention.
-        candidates.append({
-            "index": 1,
-            "backbone_pdb": None,
-            "stage1_mock": meta["rfdiffusion"]["mock_used"],
-            "sequences": [],
-            "n_sequences": 0,
-            "n_passed_filter": 0,
-            "status": "dry_run",
-        })
-        return candidates, meta
-
-    # Stage 1 — RFdiffusion (single call, returns N backbones).
-    try:
-        rf_res: RFdiffusionResult = rf.run_diffusion(
-            target_pdb=target_pdb, contigs=contigs,
-            num_designs=num_designs,
-            hotspot_residues=hotspot_list,
-        )
-    except (RFdiffusionError, ValueError) as exc:
-        # Stage 1 failure aborts the cohort: emit a single error candidate.
-        return [{
-            "index": 1, "status": "stage_1_error",
-            "error": f"{type(exc).__name__}: {exc}",
-            "sequences": [], "n_sequences": 0, "n_passed_filter": 0,
-        }], meta
-
-    # Iterate per backbone.
-    for i, backbone in enumerate(rf_res.backbones, 1):
-        cand: Dict[str, Any] = {
-            "index": i,
-            "backbone_pdb": backbone,
-            "stage1_mock": rf_res.mock,
-            "sequences": [],
-            "n_sequences": 0,
-            "n_passed_filter": 0,
-        }
-        # Stage 1.5 — ProteinMPNN.
-        try:
-            mp_res: ProteinMPNNResult = mp.run_mpnn(
-                backbone_pdb=backbone, num_sequences=num_seq,
-            )
-        except (ProteinMPNNError, ValueError) as exc:
-            cand["status"] = "stage_1p5_error"
-            cand["error"] = f"{type(exc).__name__}: {exc}"
-            candidates.append(cand)
-            continue
-
-        # Stage 2 — AF2 per sequence.
-        for j, srec in enumerate(mp_res.sequences, 1):
-            seq_text = srec.get("seq", "")
-            mpnn_score = srec.get("score")
-            entry: Dict[str, Any] = {
-                "seq": seq_text,
-                "mpnn_score": mpnn_score,
-                "stage1p5_mock": mp_res.mock,
-            }
-            try:
-                af_res: AF2Result = af.run_af2(
-                    sequence=seq_text, recycles=recycles,
-                )
-            except (AF2Error, ValueError) as exc:
-                entry["status"] = "stage_2_error"
-                entry["error"] = f"{type(exc).__name__}: {exc}"
-                cand["sequences"].append(entry)
-                continue
-
-            plddt = float(af_res.plddt or 0.0)
-            ptm = float(af_res.ptm or 0.0)
-            filter_reason: Optional[str] = None
-            filtered_out = False
-            if plddt < _AF2_PLDDT_FLOOR:
-                filter_reason = (
-                    f"plddt={plddt:.1f}<{_AF2_PLDDT_FLOOR:.1f}"
-                )
-                filtered_out = True
-            elif ptm < _AF2_PTM_FLOOR:
-                filter_reason = f"ptm={ptm:.2f}<{_AF2_PTM_FLOOR:.2f}"
-                filtered_out = True
-
-            entry["af2"] = {
-                "plddt": plddt, "ptm": ptm,
-                "pdb": af_res.pdb_path, "mock": af_res.mock,
-                "recycles": af_res.recycles,
-                "filtered_out": filtered_out,
-                "filter_reason": filter_reason,
-            }
-
-            if filtered_out:
-                entry["status"] = "filtered_out"
-                cand["sequences"].append(entry)
-                continue
-
-            # Stage 3+ ΔG estimate via existing PR-NEW-D Day-1/2 mechanism.
-            try:
-                parsed = _safe_parse(seq_text,
-                                     label=f"de_novo:{i}.{j}",
-                                     logger=logger)
-                entry["parsed"] = parsed.to_dict()
-                entry["pipeline"] = _maybe_mock_pipeline(
-                    parsed, ctx, label=f"design_{i}.seq_{j}",
-                )
-                entry["status"] = "ranked"
-                cand["n_passed_filter"] += 1
-            except (NcAAValidationError, SequenceFormatError) as exc:
-                entry["status"] = "parse_error"
-                entry["error"] = f"{type(exc).__name__}: {exc}"
-            cand["sequences"].append(entry)
-
-        cand["n_sequences"] = len(cand["sequences"])
-        cand["status"] = ("ranked" if cand["n_passed_filter"] > 0
-                          else "no_passing_sequence")
-        candidates.append(cand)
-
-    return candidates, meta
-
-
 def cmd_discover(args: argparse.Namespace, ctx: CLIContext) -> int:
     logger = ctx.setup_logging()
     _check_target(ctx, required=True, logger=logger)
-
-    # Day-3 — De-novo pipeline branch (Stages 1, 1.5, 2 → mock Stage 3+).
-    if getattr(args, "de_novo", False):
-        de_novo_candidates, de_novo_meta = _run_de_novo_pipeline(
-            args, ctx, logger=logger,
-        )
-        # Flatten: build a top-level ranked candidate list.
-        flat: List[Dict[str, Any]] = []
-        for cand in de_novo_candidates:
-            for s in cand.get("sequences", []):
-                if s.get("status") != "ranked":
-                    continue
-                flat.append({
-                    "design_index": cand["index"],
-                    "sequence": s["seq"],
-                    "mpnn_score": s.get("mpnn_score"),
-                    "af2": s.get("af2"),
-                    "parsed": s.get("parsed"),
-                    "pipeline": s.get("pipeline"),
-                    "status": s["status"],
-                })
-
-        def _rank_key(e: Dict[str, Any]) -> Tuple[int, float]:
-            dG = e.get("pipeline", {}).get("dG_estimate")
-            if isinstance(dG, (int, float)):
-                return (0, dG)
-            return (1, 0.0)
-
-        flat.sort(key=_rank_key)
-        for new_idx, c in enumerate(flat, 1):
-            c["rank"] = new_idx
-
-        payload: Dict[str, Any] = _provenance_header("discover", ctx)
-        payload["mode"] = "de_novo"
-        payload["source"] = "stage12_pipeline"
-        payload["stage12"] = de_novo_meta
-        payload["designs"] = de_novo_candidates
-        payload["candidates"] = flat
-        payload["n_designs"] = len(de_novo_candidates)
-        payload["n_ranked_candidates"] = len(flat)
-        payload["ncaa_budget"] = getattr(args, "ncaa_budget", None)
-        payload["note"] = (
-            "Day-3 de-novo pipeline. Stages 1-2 run via subprocess wrappers "
-            "(RFdiffusion + ProteinMPNN + AF2); Stage 3+ ΔG is Day-1 mock."
-        )
-        md = _render_md_discover_de_novo(payload)
-        json_path, md_path = _write_outputs(
-            payload, md, ctx=ctx, basename="discover",
-        )
-        _print_summary_discover_de_novo(payload, json_path, md_path, ctx=ctx)
-        return 0
-
-    # Day-1 file-based path (preserved verbatim).
-    if not getattr(args, "sequence_file", None):
-        raise SystemExit(
-            "[updd_cli] --sequence-file is required when --de-novo is not set"
-        )
     src = Path(args.sequence_file)
     if not src.exists():
         raise FileNotFoundError(f"sequence file not found: {src}")
@@ -1705,81 +1387,6 @@ def _print_summary_discover(payload: Dict[str, Any], json_path: Optional[Path],
         print(f"[updd_cli]   wrote: {md_path}")
 
 
-def _render_md_discover_de_novo(payload: Dict[str, Any]) -> str:
-    """Markdown summary for Day-3 ``updd discover --de-novo`` runs."""
-    p = payload
-    meta = p.get("stage12", {})
-    lines: List[str] = []
-    lines.append("# UPDD `discover --de-novo` Report (Cycle 0, Day-3 Stage 1-2)")
-    lines.append("")
-    lines.append(f"- Schema: `{p['schema']}` ({p['tool']})")
-    lines.append(f"- Stage 1-2 schema: `{meta.get('stage12_schema', '—')}`")
-    lines.append(f"- Generated: {p['generated_at']}")
-    lines.append(f"- Target: `{p['options']['target']}`")
-    lines.append(f"- Contigs: `{meta.get('contigs', '—')}`")
-    lines.append(f"- Designs requested: {meta.get('num_designs', '—')}, "
-                 f"sequences per backbone: {meta.get('num_sequences_per_backbone', '—')}")
-    lines.append(f"- AF2 recycles: {meta.get('af2_recycles', '—')}")
-    if meta.get("hotspot_residues"):
-        lines.append(f"- Hotspots: {', '.join(meta['hotspot_residues'])}")
-    th = meta.get("filter_thresholds", {})
-    lines.append(f"- AF2 filter thresholds: pLDDT ≥ {th.get('plddt', '—')}, "
-                 f"pTM ≥ {th.get('ptm', '—')}")
-    lines.append("")
-    lines.append("## Stage availability")
-    lines.append("")
-    lines.append("| Stage | Available | Mock used |")
-    lines.append("|---|---|---|")
-    for nm in ("rfdiffusion", "proteinmpnn", "af2"):
-        m = meta.get(nm, {})
-        lines.append(f"| `{nm}` | {m.get('available', '—')} | "
-                     f"{m.get('mock_used', '—')} |")
-    lines.append("")
-    lines.append(f"## Top-ranked sequences (n={p.get('n_ranked_candidates', 0)})")
-    lines.append("")
-    lines.append("| Rank | Design | Sequence | pLDDT | pTM | ΔG_mock | MPNN |")
-    lines.append("|---|---|---|---|---|---|---|")
-    for c in p.get("candidates", []):
-        af = c.get("af2") or {}
-        pl = af.get("plddt")
-        pt = af.get("ptm")
-        dG = (c.get("pipeline") or {}).get("dG_estimate")
-        mp = c.get("mpnn_score")
-        pl_s = f"{pl:.1f}" if isinstance(pl, (int, float)) else "—"
-        pt_s = f"{pt:.2f}" if isinstance(pt, (int, float)) else "—"
-        dG_s = f"{dG:+.2f}" if isinstance(dG, (int, float)) else "—"
-        mp_s = f"{mp:.3f}" if isinstance(mp, (int, float)) else "—"
-        lines.append(
-            f"| {c['rank']} | {c['design_index']} | `{c['sequence']}` | "
-            f"{pl_s} | {pt_s} | {dG_s} | {mp_s} |"
-        )
-    lines.append("")
-    lines.append(f"> {p.get('note', '')}")
-    return "\n".join(lines) + "\n"
-
-
-def _print_summary_discover_de_novo(payload: Dict[str, Any],
-                                    json_path: Optional[Path],
-                                    md_path: Optional[Path], *,
-                                    ctx: CLIContext) -> None:
-    if ctx.quiet:
-        return
-    meta = payload.get("stage12", {})
-    print(
-        f"[updd_cli] discover --de-novo  schema={payload['schema']}  "
-        f"designs={payload.get('n_designs', 0)}  "
-        f"ranked={payload.get('n_ranked_candidates', 0)}  "
-        f"mock_chain="
-        f"rf={meta.get('rfdiffusion', {}).get('mock_used')}|"
-        f"mp={meta.get('proteinmpnn', {}).get('mock_used')}|"
-        f"af={meta.get('af2', {}).get('mock_used')}"
-    )
-    if json_path:
-        print(f"[updd_cli]   wrote: {json_path}")
-    if md_path:
-        print(f"[updd_cli]   wrote: {md_path}")
-
-
 # ---------------------------------------------------------------------------
 # `updd report` — render existing branched_ddg result
 # ---------------------------------------------------------------------------
@@ -1793,9 +1400,10 @@ def cmd_report(args: argparse.Namespace, ctx: CLIContext) -> int:
         result_json = json.load(f)
 
     fmt = getattr(args, "format", None) or ctx.fmt
-    # PR-NEW-E Day 2: html is wired to utils.html_report. Markdown stays
-    # the default; html is now a real renderer (single / multi / cycle
-    # mode auto-detected from the input shape and schema).
+    # Normalise; `report` allows html as a future hook.
+    if fmt == "html":
+        logger.warning("HTML output is reserved for PR-NEW-E; falling back to markdown")
+        fmt = "markdown"
 
     md = _render_md_report(result_json)
     payload: Dict[str, Any] = _provenance_header("report", ctx)
@@ -1805,7 +1413,6 @@ def cmd_report(args: argparse.Namespace, ctx: CLIContext) -> int:
 
     json_path: Optional[Path] = None
     md_path: Optional[Path] = None
-    html_path: Optional[Path] = None
     if fmt in ("json", "both"):
         ctx.output_dir.mkdir(parents=True, exist_ok=True)
         json_path = ctx.output_dir / "report.json"
@@ -1816,39 +1423,11 @@ def cmd_report(args: argparse.Namespace, ctx: CLIContext) -> int:
         md_path = ctx.output_dir / "report.md"
         with open(md_path, "w", encoding="utf-8") as f:
             f.write(md)
-    if fmt == "html":
-        # PR-NEW-E Day 2 — wire html_report.render_*. Mode is auto-detected:
-        #   * dict with branched_ddg/* schema    → render_single_comparison
-        #   * dict with cycle_manager/* schema   → render_cycle_progression
-        #   * list (or dict with 'results' list) → render_multi_ranking
-        try:
-            from utils import html_report as _html_report
-        except ImportError as exc:
-            logger.error("utils.html_report unavailable: %s", exc)
-            raise
-        ctx.output_dir.mkdir(parents=True, exist_ok=True)
-        html_path = ctx.output_dir / "report.html"
-        theme = getattr(args, "theme", None) or "light"
-        try:
-            html_text = _render_html_auto(result_json, theme=theme,
-                                          html_module=_html_report)
-        except _html_report.InputValidationError as exc:
-            logger.error("html_report InputValidationError: %s", exc)
-            raise
-        except _html_report.RenderError as exc:
-            logger.error("html_report RenderError: %s", exc)
-            raise
-        _html_report.write_report(html_text, str(html_path))
 
     if not ctx.quiet:
-        schema = result_json.get("schema", "unknown") if isinstance(
-            result_json, dict) else "list"
-        if isinstance(result_json, dict):
-            ddg = result_json.get("pairwise", {}).get("ddG")
-            tier = result_json.get("pairwise", {}).get("tier")
-        else:
-            ddg = None
-            tier = None
+        schema = result_json.get("schema", "unknown")
+        ddg = result_json.get("pairwise", {}).get("ddG")
+        tier = result_json.get("pairwise", {}).get("tier")
         ddg_str = f"{ddg:+.3f}" if isinstance(ddg, (int, float)) else "—"
         print(f"[updd_cli] report  schema={SCHEMA_VERSION}  "
               f"input_schema={schema}  ΔΔG={ddg_str}  tier={tier}")
@@ -1856,39 +1435,7 @@ def cmd_report(args: argparse.Namespace, ctx: CLIContext) -> int:
             print(f"[updd_cli]   wrote: {json_path}")
         if md_path:
             print(f"[updd_cli]   wrote: {md_path}")
-        if html_path:
-            print(f"[updd_cli]   wrote: {html_path}")
     return 0
-
-
-def _render_html_auto(payload: Any, *, theme: str,
-                      html_module: Any) -> str:
-    """Auto-detect the right ``utils.html_report`` renderer for ``payload``.
-
-    Mapping:
-        - ``list`` → ``render_multi_ranking``
-        - ``dict`` with ``schema`` starting ``cycle_manager/`` →
-          ``render_cycle_progression``
-        - ``dict`` with ``results`` list (envelope) →
-          ``render_multi_ranking`` on the envelope
-        - ``dict`` with ``schema`` starting ``branched_ddg/`` (or no
-          schema) → ``render_single_comparison``
-    """
-    if isinstance(payload, list):
-        return html_module.render_multi_ranking(payload, theme=theme)
-    if isinstance(payload, dict):
-        schema = str(payload.get("schema") or
-                     payload.get("schema_version") or "")
-        if schema.startswith("cycle_manager/"):
-            return html_module.render_cycle_progression(payload, theme=theme)
-        if isinstance(payload.get("results"), list):
-            return html_module.render_multi_ranking(
-                payload["results"], theme=theme,
-            )
-        return html_module.render_single_comparison(payload, theme=theme)
-    raise TypeError(
-        f"unrecognised report payload type: {type(payload).__name__}"
-    )
 
 
 def _render_md_report(rj: Dict[str, Any]) -> str:
@@ -1954,341 +1501,6 @@ def _render_md_report(rj: Dict[str, Any]) -> str:
                      f"charge_audit: {b.get('charge_audit', '—')}")
         lines.append("")
     return "\n".join(lines) + "\n"
-
-
-# ---------------------------------------------------------------------------
-# `updd cycle` — PR-NEW-C Day 2 iterative cycle manager handler
-# ---------------------------------------------------------------------------
-
-def cmd_cycle(args: argparse.Namespace, ctx: CLIContext) -> int:
-    """Dispatch ``updd cycle <action>`` to the PR-NEW-C cycle manager.
-
-    Sub-actions:
-        init          Create a new project.
-        add           Register a new cycle (alias for add-cycle).
-        add-cycle     Register a new cycle.
-        add-result    Record a wet-lab K_d for a sequence.
-        set-wt        Pick best-validated sequence as next-cycle WT.
-        status        Print trajectory summary (computed on demand).
-        trajectory    Alias for status.
-        report        Render markdown / JSON cycle report.
-        viz           Emit ``cycle_manager_viz/0.2`` JSON for HTML consumer.
-
-    Schema-aware: emits ``cycle_manager/0.2`` records via the public API
-    in ``utils.cycle_manager``.
-    """
-    logger = ctx.setup_logging()
-    action = getattr(args, "cycle_action", None)
-    if not action:
-        print("[updd_cli] ERROR: 'updd cycle' requires a sub-action "
-              "(init / add / add-result / set-wt / status / report / viz)",
-              file=sys.stderr)
-        return 2
-    # Prefer sub-action --output-root override if present, else cycle-level.
-    sub_root = getattr(args, "cycle_output_root_sub", None)
-    output_root = (sub_root
-                   or getattr(args, "cycle_output_root", None)
-                   or "outputs/projects")
-    project_id = getattr(args, "cycle_project_id", None)
-
-    try:
-        if action == "init":
-            target_pdb = getattr(args, "cycle_target", None) or ""
-            md: Dict[str, Any] = {}
-            if getattr(args, "cycle_operator", None):
-                md["operator"] = args.cycle_operator
-            if getattr(args, "cycle_ncaa_budget", None) is not None:
-                md["ncaa_budget"] = args.cycle_ncaa_budget
-            if getattr(args, "cycle_target_kd", None):
-                md["target_kd"] = args.cycle_target_kd
-            if getattr(args, "cycle_notes", None):
-                md["notes"] = args.cycle_notes
-            history = cm_init_project(
-                project_id=project_id,
-                target_pdb=target_pdb,
-                output_root=output_root,
-                overwrite=getattr(args, "cycle_overwrite", False),
-                **md,
-            )
-            print(f"[updd_cli cycle init] OK — schema={history.schema} "
-                  f"project={history.project_id} "
-                  f"output_root={output_root}")
-            return 0
-
-        if action in ("add", "add-cycle"):
-            variants_raw = getattr(args, "cycle_variants", "") or ""
-            variants = [v.strip() for v in variants_raw.split(",")
-                        if v.strip()]
-            entry = cm_add_cycle(
-                project_id=project_id,
-                cycle_n=int(args.cycle_n),
-                wt_sequence=getattr(args, "cycle_wt", None),
-                variant_sequences=variants,
-                notes=getattr(args, "cycle_notes", None),
-                synthesized=getattr(args, "cycle_synthesized", False),
-                output_root=output_root,
-            )
-            print(f"[updd_cli cycle add] OK — cycle={entry.cycle_n} "
-                  f"variants={len(entry.variants)} "
-                  f"wt={entry.wt_sequence!r}")
-            return 0
-
-        if action == "add-result":
-            kd_arg = getattr(args, "cycle_kd", None)
-            assay = getattr(args, "cycle_assay", None) or "unknown"
-            confidence = getattr(args, "cycle_confidence", None)
-            wlr = cm_add_result(
-                project_id=project_id,
-                cycle_n=int(args.cycle_n),
-                sequence=args.cycle_sequence,
-                kd=kd_arg,
-                assay=assay,
-                confidence=confidence,
-                temperature_k=getattr(args, "cycle_temperature_k", 298.15),
-                notes=getattr(args, "cycle_notes", None),
-                output_root=output_root,
-            )
-            print(f"[updd_cli cycle add-result] OK — sequence={wlr.sequence} "
-                  f"K_d={wlr.kd_molar:.3e} M assay={wlr.assay} "
-                  f"ΔG={wlr.ddg_calc:+.3f} kcal/mol")
-            return 0
-
-        if action == "set-wt":
-            chosen = cm_set_next_wt(
-                project_id=project_id,
-                source_cycle=int(args.cycle_source_cycle),
-                best=(getattr(args, "cycle_best", None) or "auto"),
-                output_root=output_root,
-            )
-            print(f"[updd_cli cycle set-wt] OK — chosen={chosen!r}")
-            return 0
-
-        if action in ("status", "trajectory"):
-            target_kd_molar = None
-            if getattr(args, "cycle_target_kd", None):
-                target_kd_molar = _cm_parse_kd(args.cycle_target_kd)
-            traj = cm_compute_trajectory(
-                project_id=project_id,
-                output_root=output_root,
-                lookback=getattr(args, "cycle_lookback", 3),
-                threshold_kcal=getattr(args, "cycle_threshold_kcal", 0.5),
-                target_kd_molar=target_kd_molar,
-            )
-            print(f"[updd_cli cycle status] project={project_id} "
-                  f"plateau={traj['plateau_detected']} "
-                  f"recommendation={traj['recommendation']!r}")
-            print(f"[updd_cli cycle status]   delta_kd_kcal={traj['delta_kd_kcal']}")
-            print(f"[updd_cli cycle status]   ratio_per_cycle={traj['ratio_per_cycle']}")
-            print(f"[updd_cli cycle status]   final_ddg_kcal={traj['final_ddg_kcal']}")
-            return 0
-
-        if action == "report":
-            fmt = getattr(args, "cycle_format", None) or "markdown"
-            if fmt in ("markdown", "md", "both"):
-                output_path = getattr(args, "cycle_output_path", None)
-                text = cm_generate_report(
-                    project_id=project_id,
-                    output_root=output_root,
-                    output_path=output_path,
-                )
-                if not ctx.quiet:
-                    print(text)
-                return 0
-            if fmt == "json":
-                history = _cm_load_history(project_id, output_root=output_root)
-                viz = cm_export_visualization_data(history)
-                blob = json.dumps(viz, indent=2, default=str)
-                output_path = getattr(args, "cycle_output_path", None)
-                if output_path:
-                    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-                    with open(output_path, "w", encoding="utf-8") as f:
-                        f.write(blob)
-                if not ctx.quiet:
-                    print(blob)
-                return 0
-            print(f"[updd_cli cycle report] ERROR: unknown format {fmt!r} "
-                  "(supported: markdown, json)", file=sys.stderr)
-            return 2
-
-        if action == "viz":
-            history = _cm_load_history(project_id, output_root=output_root)
-            target_kd_molar = None
-            if getattr(args, "cycle_target_kd", None):
-                target_kd_molar = _cm_parse_kd(args.cycle_target_kd)
-            viz = cm_export_visualization_data(
-                history,
-                lookback=getattr(args, "cycle_lookback", 3),
-                threshold_kcal=getattr(args, "cycle_threshold_kcal", 0.5),
-                target_kd_molar=target_kd_molar,
-            )
-            blob = json.dumps(viz, indent=2, default=str)
-            output_path = getattr(args, "cycle_output_path", None)
-            if output_path:
-                Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-                with open(output_path, "w", encoding="utf-8") as f:
-                    f.write(blob)
-            if not ctx.quiet:
-                print(blob)
-            return 0
-
-        print(f"[updd_cli cycle] ERROR: unknown sub-action {action!r}",
-              file=sys.stderr)
-        return 2
-
-    except CMProjectNotFoundError as exc:
-        print(f"[updd_cli cycle] ProjectNotFoundError: {exc}",
-              file=sys.stderr)
-        return 4
-    except CMInvalidCycleError as exc:
-        print(f"[updd_cli cycle] InvalidCycleError: {exc}", file=sys.stderr)
-        return 5
-    except CMKdParseError as exc:
-        print(f"[updd_cli cycle] KdParseError: {exc}", file=sys.stderr)
-        return 6
-    except CycleManagerError as exc:
-        print(f"[updd_cli cycle] CycleManagerError: {type(exc).__name__}: "
-              f"{exc}", file=sys.stderr)
-        return 2
-
-
-def _add_cycle(sub: Any) -> None:
-    """Register the ``updd cycle`` subcommand + its sub-actions.
-
-    PR-NEW-C Day 2 entry point. Schema: ``cycle_manager/0.2``.
-    """
-    p = sub.add_parser(
-        "cycle",
-        help="Iterative peptide-design cycle manager (PR-NEW-C).",
-        description=(
-            f"UPDD Iterative Cycle Manager (schema {CYCLE_SCHEMA_VERSION}). "
-            "Multi-cycle wet-lab K_d feedback + plateau detection + "
-            "Markdown/JSON cycle report."),
-    )
-    # Common cycle-scoped options that don't conflict with the parent's
-    # argparse namespace (we use cycle_-prefixed dests).
-    p.add_argument("--output-root", default=None, dest="cycle_output_root",
-                   help="Root directory for project state "
-                        "(default: outputs/projects).")
-    p.add_argument("--verbose", action="store_true", dest="cycle_verbose",
-                   default=False, help="DEBUG-level logging.")
-    p.add_argument("--quiet", action="store_true", dest="cycle_quiet",
-                   default=False, help="Suppress stdout summary lines.")
-    p.set_defaults(verbose=False, quiet=False, dry_run=False, format="both",
-                   output=None, target=None, solvent="auto",
-                   df_strategy="conservative", strict_charge_audit=False)
-
-    sub_cycle = p.add_subparsers(dest="cycle_action", required=False,
-                                 metavar="<action>",
-                                 title="cycle actions")
-
-    # init
-    p_init = sub_cycle.add_parser(
-        "init", help="Create a new cycle-manager project.")
-    p_init.add_argument("--project", required=True, dest="cycle_project_id")
-    p_init.add_argument("--target", dest="cycle_target", default="",
-                        help="Target PDB / identifier (informational).")
-    p_init.add_argument("--target-kd", dest="cycle_target_kd", default=None,
-                        help="Target K_d (e.g. '10nM'); used by status / "
-                             "viz to drive recommendation.")
-    p_init.add_argument("--operator", dest="cycle_operator", default=None)
-    p_init.add_argument("--ncaa-budget", dest="cycle_ncaa_budget",
-                        type=int, default=None)
-    p_init.add_argument("--notes", dest="cycle_notes", default=None)
-    p_init.add_argument("--overwrite", action="store_true",
-                        dest="cycle_overwrite")
-    p_init.add_argument("--output-root", default=None,
-                        dest="cycle_output_root_sub",
-                        help="Override --output-root for this action.")
-
-    # add (alias add-cycle)
-    for action_name in ("add", "add-cycle"):
-        p_add = sub_cycle.add_parser(
-            action_name,
-            help="Register a new cycle on the project.")
-        p_add.add_argument("--project", required=True,
-                           dest="cycle_project_id")
-        p_add.add_argument("--cycle", type=int, required=True,
-                           dest="cycle_n")
-        p_add.add_argument("--wt", default=None, dest="cycle_wt",
-                           help="WT sequence (omit for Cycle 0 de novo).")
-        p_add.add_argument("--variants", default="", dest="cycle_variants",
-                           help="Comma-separated variant sequences.")
-        p_add.add_argument("--notes", default=None, dest="cycle_notes")
-        p_add.add_argument("--synthesized", action="store_true",
-                           dest="cycle_synthesized")
-        p_add.add_argument("--output-root", default=None,
-                           dest="cycle_output_root_sub")
-
-    # add-result
-    p_res = sub_cycle.add_parser(
-        "add-result", help="Record a wet-lab K_d for a sequence.")
-    p_res.add_argument("--project", required=True, dest="cycle_project_id")
-    p_res.add_argument("--cycle", type=int, required=True, dest="cycle_n")
-    p_res.add_argument("--sequence", required=True, dest="cycle_sequence")
-    p_res.add_argument("--kd", required=True, dest="cycle_kd",
-                       help="K_d value (e.g. '80nM', '8e-8', '0.08uM').")
-    p_res.add_argument("--assay", default="unknown", dest="cycle_assay",
-                       help="Assay label (ITC/SPR/FP/BLI/...).")
-    p_res.add_argument("--confidence", type=float, default=None,
-                       dest="cycle_confidence")
-    p_res.add_argument("--temperature", type=float, default=298.15,
-                       dest="cycle_temperature_k")
-    p_res.add_argument("--notes", default=None, dest="cycle_notes")
-    p_res.add_argument("--output-root", default=None,
-                       dest="cycle_output_root_sub")
-
-    # set-wt
-    p_wt = sub_cycle.add_parser(
-        "set-wt", help="Pick best-validated sequence from a cycle.")
-    p_wt.add_argument("--project", required=True, dest="cycle_project_id")
-    p_wt.add_argument("--source-cycle", type=int, required=True,
-                      dest="cycle_source_cycle")
-    p_wt.add_argument("--best", default="auto", dest="cycle_best",
-                      help="'auto' (default) or a literal sequence string.")
-    p_wt.add_argument("--output-root", default=None,
-                      dest="cycle_output_root_sub")
-
-    # status (alias trajectory)
-    for action_name in ("status", "trajectory"):
-        p_st = sub_cycle.add_parser(
-            action_name,
-            help="Compute K_d trajectory + plateau detection.")
-        p_st.add_argument("--project", required=True,
-                          dest="cycle_project_id")
-        p_st.add_argument("--lookback", type=int, default=3,
-                          dest="cycle_lookback")
-        p_st.add_argument("--threshold-kcal", type=float, default=0.5,
-                          dest="cycle_threshold_kcal")
-        p_st.add_argument("--target-kd", default=None,
-                          dest="cycle_target_kd",
-                          help="Optional target K_d (e.g. '10nM').")
-        p_st.add_argument("--output-root", default=None,
-                          dest="cycle_output_root_sub")
-
-    # report
-    p_rep = sub_cycle.add_parser(
-        "report", help="Render Markdown / JSON cycle report.")
-    p_rep.add_argument("--project", required=True, dest="cycle_project_id")
-    p_rep.add_argument("--format", default="markdown",
-                       choices=("markdown", "md", "json", "both"),
-                       dest="cycle_format")
-    p_rep.add_argument("--output", default=None, dest="cycle_output_path",
-                       help="Optional output file path.")
-    p_rep.add_argument("--output-root", default=None,
-                       dest="cycle_output_root_sub")
-
-    # viz (PR-NEW-E HTML consumer)
-    p_viz = sub_cycle.add_parser(
-        "viz", help="Emit cycle_manager_viz/0.2 JSON (HTML consumer).")
-    p_viz.add_argument("--project", required=True, dest="cycle_project_id")
-    p_viz.add_argument("--lookback", type=int, default=3,
-                       dest="cycle_lookback")
-    p_viz.add_argument("--threshold-kcal", type=float, default=0.5,
-                       dest="cycle_threshold_kcal")
-    p_viz.add_argument("--target-kd", default=None, dest="cycle_target_kd")
-    p_viz.add_argument("--output", default=None, dest="cycle_output_path")
-    p_viz.add_argument("--output-root", default=None,
-                       dest="cycle_output_root_sub")
 
 
 # ---------------------------------------------------------------------------
@@ -2399,60 +1611,31 @@ def _add_refine(sub: Any) -> None:
 
 def _add_discover(sub: Any) -> None:
     p = sub.add_parser("discover",
-                       help="De novo discovery (Cycle 0; file-based + Day-3 --de-novo).",
+                       help="De novo discovery (Cycle 0, file-based — Day 1).",
                        description=(
-                           "Day-1 file-based input or Day-3 --de-novo Stage 1-2 "
-                           "(RFdiffusion + ProteinMPNN + AF2) integration."))
+                           "Day-1 scope: file-based candidate list. Real Stage 1-2 "
+                           "(RFdiffusion + ProteinMPNN + AF2) hookup is Day 2-3."))
     _add_common_options(p, target_required=True)
-    # --sequence-file is required only when --de-novo is NOT set; we enforce
-    # this in cmd_discover rather than at the argparse layer so the flag
-    # combination is clear from the error message.
-    p.add_argument("--sequence-file", default=None,
-                   help="(Day-1 mode) Plain-text file with one sequence per line "
-                        "('#' = comment). Required when --de-novo is not set.")
+    p.add_argument("--sequence-file", required=True,
+                   help="Plain-text file with one sequence per line ('#' = comment).")
     p.add_argument("--ncaa-budget", type=int, default=None,
                    help="Advisory ncAA count budget (Day-1: not enforced).")
-    # Day-3 — de-novo pipeline flags.
-    p.add_argument("--de-novo", dest="de_novo", action="store_true",
-                   help="(Day-3) Drive Stage 1-2 (RFdiffusion + ProteinMPNN "
-                        "+ AF2) instead of file-based input. Mock fallback "
-                        "is automatic when binaries are absent.")
-    p.add_argument("--num-designs", type=int, default=4,
-                   help="(Day-3 --de-novo) Number of RFdiffusion backbones "
-                        "(default: 4).")
-    p.add_argument("--num-sequences-per-backbone", type=int, default=4,
-                   help="(Day-3 --de-novo) ProteinMPNN sequences per "
-                        "backbone (default: 4).")
-    p.add_argument("--hotspot-residues", default=None,
-                   help="(Day-3 --de-novo) Comma-separated hotspot list "
-                        "(e.g. 'A12,A45').")
-    p.add_argument("--af2-recycles", type=int, default=3,
-                   help="(Day-3 --de-novo) AF2 recycle iterations "
-                        "(default: 3).")
-    p.add_argument("--contigs", default=None,
-                   help="(Day-3 --de-novo) RFdiffusion contigs spec; "
-                        "default is '[A1-100/0 30-60]'.")
 
 
 def _add_report(sub: Any) -> None:
     p = sub.add_parser("report",
                        help="Generate human-readable report from branched_ddg.json.",
                        description=(
-                           "Reads a branched_ddg/0.x or cycle_manager/0.x result "
-                           "and renders a markdown / JSON / HTML summary. HTML "
-                           "uses utils.html_report (PR-NEW-E v0.2)."))
+                           "Reads a branched_ddg/0.1 result and renders a markdown / "
+                           "JSON summary. HTML is reserved for PR-NEW-E."))
     _add_common_options(p, target_required=False)
     p.add_argument("--result", required=True,
-                   help="Path to a branched_ddg JSON result, a list of such "
-                        "records, or a cycle_manager JSON.")
+                   help="Path to a branched_ddg JSON result.")
     p.add_argument("--report-format", dest="format",
                    choices=("json", "markdown", "html", "both"),
                    default="markdown",
-                   help="Render format (default: markdown). 'html' invokes "
-                        "utils.html_report (PR-NEW-E Day 2).")
-    p.add_argument("--theme", choices=("light", "dark"), default="light",
-                   help="HTML theme (only used when --report-format html). "
-                        "Default: light.")
+                   help="Render format (default: markdown). 'html' is "
+                        "reserved for PR-NEW-E and currently falls back to markdown.")
 
 
 # ---------------------------------------------------------------------------
@@ -2484,15 +1667,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
     sub = parser.add_subparsers(
         dest="cmd", required=True,
-        title="subcommands",
-        metavar="{check,compare,refine,discover,report,cycle}",
+        title="subcommands", metavar="{check,compare,refine,discover,report}",
     )
     _add_check(sub)
     _add_compare(sub)
     _add_refine(sub)
     _add_discover(sub)
     _add_report(sub)
-    _add_cycle(sub)
 
     args = parser.parse_args(argv)
     ctx = CLIContext.from_args(args)
@@ -2502,7 +1683,6 @@ def main(argv: Optional[List[str]] = None) -> int:
         "refine": cmd_refine,
         "discover": cmd_discover,
         "report": cmd_report,
-        "cycle": cmd_cycle,
     }
     try:
         return handlers[args.cmd](args, ctx)

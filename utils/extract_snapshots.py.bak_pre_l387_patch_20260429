@@ -6,24 +6,6 @@ MDtraj으로 Restrained MD DCD 궤적에서 대표 스냅샷을 추출합니다.
 - 클러스터링 기반으로 구조적으로 다양한 스냅샷 선택
 - 각 스냅샷을 독립 PDB로 저장 (QM/MM 입력용)
 사용 환경: qmmm (conda)
-
-Revision history (recent):
-    v39 (2026-04-XX): _unwrap_frame_pbc() introduced — image_molecules() with
-        explicit anchor (largest molecule) so non-half-mass anchor heuristic
-        does not drop multi-chain complexes.
-    v52 (2026-04-XX): manual minimum-image fallback in _unwrap_frame_pbc().
-    v53 (2026-04-XX): replaced image_molecules() invocation in save_snapshots
-        with _unwrap_binder_manual() only — REGRESSION: HETATM/ATOM tag
-        boundary at ncAA junction (e.g. VAL5-C ↔ MTR6-N) left within-chain
-        peptide bond broken (~113 Å) when the binder chain straddled a
-        periodic boundary.
-    v54 (2026-04-29): L387 PBC defect fix — restore _unwrap_frame_pbc()
-        invocation BEFORE _unwrap_binder_manual(), layering image_molecules()
-        + make_whole=True (within-chain bond repair) with the manual centroid
-        shift (receptor↔binder relative positioning). References:
-        outputs/analysis/phase_beta_stage1_repair_20260428.md §3.3 (smoking
-        gun — 7TL8_MTR6_s7 median 112.64 Å) + §3.4 (HETATM/ATOM tag mismatch
-        mechanism) + §4.2 (patch design). Verification: scripts/verify_pbc_integrity.py.
 """
 
 import os
@@ -391,142 +373,17 @@ def _unwrap_frame_pbc(frame):
     return frame
 
 
-def _ensure_intrachain_peptide_bonds(traj):
-    """[v54 helper] 동일 chain 의 인접 두 residue 사이 C-N 펩타이드 결합이
-    topology 에 없는 경우 추가한다.
-
-    Background — strip_solvent / mdtraj.load 는 ncAA (예: MTR) 의 HETATM
-    tag 잔기와 인접 canonical (ATOM tag) 잔기 사이의 peptide bond 를
-    bond graph 에 등록하지 않는 경우가 많다. 이 결과 `find_molecules()`
-    가 MTR 의 backbone N (또는 인접 residue 의 C) 을 single-atom
-    "molecule" 로 분류하고, `image_molecules` 가 그 atom 을 anchor
-    molecule 과 독립적으로 imaging 하여 within-chain peptide bond 가
-    PBC 를 가로질러 복원되지 않거나 오히려 boundary 로 끌려가는 경우가
-    발생한다 (Phase β Stage 1-Repair 진단의 v53 회귀 메커니즘).
-
-    이 helper 는 보수적으로 다음 조건의 누락 결합만 추가한다:
-        - 동일 chain
-        - 잔기 인덱스 가 1 차이 (직접 인접)
-        - 두 잔기 모두 backbone C / N atom 을 가짐
-        - 이미 결합이 등록되어 있지 않음
-        - 두 atom 의 평균 좌표 거리가 box 의 반보다 작거나, box 가 없음
-
-    좌표 거리 조건이 없으면 PBC-broken frame 에서 "잘못된" 결합 (실제로
-    boundary 너머의 atom 과의 결합) 을 만들 수 있으므로, 좌표 검사 후
-    box/2 미만일 때만 결합을 등록한다 (즉 within-cell distance 가 합리
-    적인 경우만). 만약 boundary 를 가로지르는 frame 이라면 결합은
-    추가하지 않고 후속 processing 으로 위임한다.
-
-    Returns:
-        int: 추가된 결합 수.
-    """
-    top = traj.topology
-    existing = set()
-    for b in top.bonds:
-        existing.add(frozenset((b.atom1.index, b.atom2.index)))
-
-    added = 0
-    # box (nm) — first frame's unitcell, only used as a sanity check.
-    box = None
-    if traj.unitcell_lengths is not None and traj.n_frames > 0:
-        box = traj.unitcell_lengths[0]
-
-    chains = list(top.chains)
-    for ch in chains:
-        residues = list(ch.residues)
-        for i in range(len(residues) - 1):
-            r_curr = residues[i]
-            r_next = residues[i + 1]
-            # Backbone C of current, N of next.
-            c_atom = next((a for a in r_curr.atoms if a.name == "C"), None)
-            n_atom = next((a for a in r_next.atoms if a.name == "N"), None)
-            if c_atom is None or n_atom is None:
-                continue
-            key = frozenset((c_atom.index, n_atom.index))
-            if key in existing:
-                continue
-            # Sanity: in some frame (use first), is this distance reasonable?
-            # If they are far apart in EVERY frame, it isn't really a peptide
-            # bond. We accept the bond if at least one frame has the atoms
-            # within ~3 Å (typical peptide bond ~1.33 Å + margin), accounting
-            # for periodic-boundary wrap by checking minimum-image distance.
-            try:
-                xyz_c = traj.xyz[:, c_atom.index, :]
-                xyz_n = traj.xyz[:, n_atom.index, :]
-                diff = xyz_n - xyz_c  # (n_frames, 3)
-                if box is not None:
-                    diff = diff - np.round(diff / box) * box
-                d_nm = np.linalg.norm(diff, axis=1)
-                if np.min(d_nm) > 0.30:  # 3 Å — too far for any frame
-                    continue
-            except Exception:
-                continue
-            top.add_bond(c_atom, n_atom)
-            existing.add(key)
-            added += 1
-    return added
-
-
 def save_snapshots(traj, selected_frames, output_dir, basename):
     """스냅샷 PDB 를 저장한다.
 
-    [v54 FIX — L387 PBC defect, 2026-04-29] mdtraj 의 PDB-format
-    topology loader 는 ncAA HETATM 잔기와 인접 canonical ATOM 잔기
-    사이의 peptide 결합을 bond graph 에 등록하지 않는 경우가 있다
-    (HETATM/ATOM tag 경계). 결과적으로 `find_molecules()` 는 ncAA 의
-    backbone atom 을 독립 "molecule" 로 분류하고, 후속 `image_molecules`
-    가 boundary 를 가로지르는 frame 에서 within-chain peptide bond 를
-    잘못 imaging 하여 ~113 Å broken bond 를 PDB 에 직렬화한다 (Phase β
-    Stage 1-Repair 진단의 smoking gun).
-
-    [v54 patch] 두 단계 layered approach:
-        Layer 0 (NEW): `_ensure_intrachain_peptide_bonds(traj)` — 동일
-            chain 의 인접 잔기 C-N 결합이 누락된 경우 conservatively
-            추가하여 `find_molecules()` 가 chain 전체를 단일 분자로
-            인식하도록 한다.
-        Layer 1: `_unwrap_frame_pbc(frame)` — image_molecules(anchor=
-            largest molecule, make_whole=True). Layer 0 덕분에 이제
-            chain 전체가 anchor 와 함께 imaging 되어 within-chain
-            peptide bond 가 정상 거리 (~1.3 Å) 로 복원된다.
-        Layer 2: `_unwrap_binder_manual(frame)` — receptor↔binder
-            centroid minimum-image. multi-chain complex 의 inter-chain
-            상대 위치 보정용 (image_molecules 만으로는 두 chain
-            centroid 의 inter-chain distance > box/2 case 가 처리되지
-            않는다).
-
-    Pre-v54 (v53) 동작: Layer 1 이 빠진 채 Layer 2 만 호출했으나, Layer
-    2 는 chain 전체 centroid 만 shift 하므로 within-chain broken bond 는
-    복원하지 못함. v53 회귀 결과 7TL8_MTR6_s7 median 112.64 Å (broken)
-    PDB 가 production 으로 흘러갔다.
-
-    [v39 FIX — Bug 1] save_pdb 직전에 PBC 래핑을 해제한다.
-
-    Reference:
-        outputs/analysis/phase_beta_stage1_repair_20260428.md
-            §3.3 (smoking gun — 7TL8_MTR6_s7 median 112.64 Å)
-            §3.4 (HETATM/ATOM tag mismatch mechanism)
-            §4.2 (patch design)
-        Verification: scripts/verify_pbc_integrity.py
+    [v39 FIX — Bug 1] save_pdb 직전에 _unwrap_frame_pbc 를 호출하여 PBC 래핑을
+    해제한다. 이 처리 없이 저장된 PDB 는 물리적으로 무의미한 좌표를 가진다.
     """
-    # [v54 Layer 0] Repair missing inter-residue peptide bonds in the
-    # topology so image_molecules sees chains as single molecules. This
-    # is a one-time topology mutation per save_snapshots invocation.
-    n_added = _ensure_intrachain_peptide_bonds(traj)
-    if n_added > 0:
-        print(f"  [v54] 누락된 chain-internal peptide bond {n_added}개 추가 (image_molecules anchor 정확도 확보)")
-
     saved = []
     for i, fidx in enumerate(selected_frames):
         frame = traj.slice([fidx])
-
-        # [v54 Layer 1] image_molecules(anchor=largest molecule,
-        # make_whole=True) — within-chain peptide bonds 가 boundary 에
-        # 걸친 경우 정상 거리(~1.3 Å)로 복원. Layer 0 가 chain 결합을
-        # 보강했으므로 ncAA HETATM/ATOM tag 경계에서도 동작.
-        _unwrap_frame_pbc(frame)
-
-        # [v54 Layer 2 — v53 retained] receptor↔binder centroid minimum-
-        # image 보정. multi-chain complex 의 inter-chain 상대 위치 처리용.
+        # [v53 FIX] image_molecules는 multi-chain complex의 상대 위치를
+        # 보정하지 않음. minimum-image convention을 직접 적용한다.
         _unwrap_binder_manual(frame)
 
         out_pdb = os.path.join(

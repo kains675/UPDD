@@ -1,8 +1,7 @@
 #!/usr/bin/env python
 """scripts/verify_pbc_integrity.py — UPDD PBC Integrity Verification Tool.
 
-Schema: ``pbc_integrity/0.2`` (PR-21 Auto-Diagnostic v0.7 Level 1, 2026-05-04)
-Pre-PR-21: ``pbc_integrity/0.1`` (Phase β PBC cross-check, 2026-04-29)
+Schema: ``pbc_integrity/0.1`` (Phase β PBC cross-check, 2026-04-29)
 
 Verifies that MD trajectories preserve binder peptide-bond integrity
 across the full simulation. The relevant defect was characterized in
@@ -14,17 +13,6 @@ L387, which calls ``_unwrap_binder_manual`` only) can leave the
 prev_C ↔ ncAA_N peptide bond at ~110 Å instead of ~1.3 Å — a periodic
 imaging artifact, not a real broken bond.
 
-[v0.2 — PR-21 2026-05-04] A second defect class (intra-residue bond
-stretch) was identified in the 7TL8_MTR6_s55 outlier audit (#95):
-snap05_f63 had MTR6_N atom imaged across the box (Y = -4.70 Å while
-H/CA/C/O/sidechain stayed at Y ≈ 109 Å), producing N↔CA = 113.15 Å
-while prev_VAL5_C↔MTR6_N stayed at 1.40 Å. The v0.1 (inter-only) check
-PASSED on this case. v0.2 adds an intra-residue check on every covalent
-bond inside the binder ncAA residue (N↔CA, CA↔C, C↔O) and reports it
-as a third axis. References:
-    outputs/analysis/7tl8_s55_outlier_audit_20260430.md (#95)
-    outputs/analysis/7tl8_n8_post_s55_fix_20260430.md (#96)
-
 This is a **read-only** verification driver: it loads each system's
 restrained DCD, applies no imaging, and reports the median peptide-bond
 distance across all frames as evidence of latent PBC vulnerability.
@@ -32,18 +20,11 @@ distance across all frames as evidence of latent PBC vulnerability.
 CLI::
 
     python scripts/verify_pbc_integrity.py [--filter PATTERN] [--output FILE] [--root DIR]
-                                           [--check-intra-residue|--inter-only]
-                                           [--intra-residue-threshold ANGSTROM]
 
-Classification (default mode — intra+inter):
-    INTACT      : inter < INTACT_MAX AND intra ≤ threshold
-    BROKEN      : inter > BROKEN_MIN OR intra > threshold
-    AMBIGUOUS   : INTACT_MAX ≤ inter ≤ BROKEN_MIN AND intra ≤ threshold
-
-Classification (--inter-only mode, v0.1 backward-compat):
-    INTACT     : median_inter < 5 Å
-    BROKEN     : median_inter > 50 Å
-    AMBIGUOUS  : 5 ≤ median_inter ≤ 50 Å
+Classification:
+    - INTACT     : median < 5 Å
+    - BROKEN     : median > 50 Å
+    - AMBIGUOUS  : 5 ≤ median ≤ 50 Å
 
 Exit codes:
     0 — all checked systems INTACT
@@ -93,7 +74,7 @@ except (AttributeError, Exception):
 # Constants
 # ---------------------------------------------------------------------------
 
-SCHEMA_VERSION = "pbc_integrity/0.2"
+SCHEMA_VERSION = "pbc_integrity/0.1"
 TOOL_NAME = "scripts.verify_pbc_integrity"
 
 # Canonical residue names (amber14 + standard variants). Anything else in a
@@ -118,14 +99,9 @@ TOPOLOGY_CANDIDATES = [
     "*.pdb",
 ]
 
-# Classification thresholds (Å) — inter-residue (v0.1 axis)
+# Classification thresholds (Å)
 INTACT_MAX = 5.0
 BROKEN_MIN = 50.0
-
-# v0.2 — intra-residue bond threshold (PR-21 Auto-Diagnostic Level 1).
-# Mirrors ``utils.extract_snapshots.INTRA_RESIDUE_BOND_THRESHOLD_ANGSTROM``
-# and ``utils.branched_ddg._INTRA_RESIDUE_BOND_THRESHOLD_ANGSTROM``.
-INTRA_RESIDUE_THRESHOLD_DEFAULT = 5.0
 
 
 # ---------------------------------------------------------------------------
@@ -134,71 +110,21 @@ INTRA_RESIDUE_THRESHOLD_DEFAULT = 5.0
 
 @dataclass
 class IntegrityRow:
-    """Per-system PBC integrity record.
-
-    v0.2 adds three new fields populated when ``check_intra_residue=True``:
-        - ``intra_max_angstrom``   : max intra-residue bond distance (Å)
-        - ``intra_offending_bond`` : bond label ('N-CA', 'CA-C', 'C-O') or None
-        - ``check_intra_residue`` : whether the intra check ran (False in
-          --inter-only mode → 4-column legacy output)
-    """
+    """Per-system PBC integrity record."""
 
     system: str
     n_frames: Optional[int] = None
     median_angstrom: Optional[float] = None
     status: str = "SKIPPED"    # INTACT | BROKEN | AMBIGUOUS | SKIPPED
     skip_reason: Optional[str] = None
-    # v0.2 NEW — intra-residue bond integrity (PR-21)
-    intra_max_angstrom: Optional[float] = None
-    intra_offending_bond: Optional[str] = None
-    check_intra_residue: bool = True
-
-    def render_legacy_4col(self) -> str:
-        """v0.1 backward-compat 4-column rendering (used by --inter-only)."""
-        sys_col = self.system.ljust(28)[:28]
-        if self.status == "SKIPPED":
-            return (
-                f"{sys_col} | {'-':>6} | {'-':>8} | "
-                f"SKIPPED ({self.skip_reason or 'unknown'})"
-            )
-        nf = f"{self.n_frames:>4}" if self.n_frames is not None else "  -- "
-        med = (
-            f"{self.median_angstrom:>6.2f}"
-            if self.median_angstrom is not None else "   -- "
-        )
-        return f"{sys_col} | {nf:>6} | {med:>8} | {self.status}"
-
-    def render_v02_3col(self) -> str:
-        """v0.2 3-column rendering: inter_med | intra_max | overall.
-
-        Format::
-            System                       | inter_med | intra_max | overall
-        """
-        sys_col = self.system.ljust(28)[:28]
-        if self.status == "SKIPPED":
-            return (
-                f"{sys_col} | {'-':>9} | {'-':>9} | "
-                f"SKIPPED ({self.skip_reason or 'unknown'})"
-            )
-        inter = (
-            f"{self.median_angstrom:>9.2f}"
-            if self.median_angstrom is not None else "       --"
-        )
-        intra = (
-            f"{self.intra_max_angstrom:>9.2f}"
-            if self.intra_max_angstrom is not None else "       --"
-        )
-        if self.status == "BROKEN" and self.intra_offending_bond:
-            verdict = f"BROKEN (intra:{self.intra_offending_bond})"
-        else:
-            verdict = self.status
-        return f"{sys_col} | {inter} | {intra} | {verdict}"
 
     def render(self) -> str:
-        """Dispatch to the appropriate renderer."""
-        if self.check_intra_residue:
-            return self.render_v02_3col()
-        return self.render_legacy_4col()
+        sys_col = self.system.ljust(28)[:28]
+        if self.status == "SKIPPED":
+            return f"{sys_col} | {'-':>6} | {'-':>8} | SKIPPED ({self.skip_reason or 'unknown'})"
+        nf = f"{self.n_frames:>4}" if self.n_frames is not None else "  -- "
+        med = f"{self.median_angstrom:>6.2f}" if self.median_angstrom is not None else "   -- "
+        return f"{sys_col} | {nf:>6} | {med:>8} | {self.status}"
 
 
 # ---------------------------------------------------------------------------
@@ -304,90 +230,13 @@ def _atom_by_name(residue, atom_name):
 
 
 # ---------------------------------------------------------------------------
-# v0.2 NEW — intra-residue bond integrity
-# ---------------------------------------------------------------------------
-
-def _intra_residue_max_distance(traj, residue, threshold_angstrom):
-    """[PR-21 v0.2] Compute max intra-residue covalent distance for ``residue``
-    across every frame of ``traj``; return ``(max_distance, label, broken)``.
-
-    Inspects backbone covalent bonds N↔CA, CA↔C, C↔O. Returns the maximum
-    bond length observed (in Å) across all frames + the offending bond
-    label when it exceeds ``threshold_angstrom``.
-
-    This duplicates the smaller ``intra_residue_bond_check`` helper from
-    ``utils.extract_snapshots`` in inline form so this script remains a
-    single-file standalone driver (no utils import). The semantics are
-    identical: scan every (a, b) where ``a.residue.index == b.residue.index``
-    and report the maximum distance.
-
-    Args:
-        traj: mdtraj.Trajectory.
-        residue: target residue (mdtraj.Residue) — typically the binder ncAA.
-        threshold_angstrom: bond distance threshold (default 5.0 Å).
-
-    Returns:
-        (max_dist_angstrom, offending_bond_label, broken_bool). When no
-        usable bond endpoints are found, returns (None, None, False).
-    """
-    # Backbone bond pairs: (label, atom_a_name, atom_b_name)
-    pairs = [("N-CA", "N", "CA"), ("CA-C", "CA", "C"), ("C-O", "C", "O")]
-    n_atom = _atom_by_name(residue, "N")
-    ca_atom = _atom_by_name(residue, "CA")
-    c_atom = _atom_by_name(residue, "C")
-    o_atom = _atom_by_name(residue, "O")
-    name_to_atom = {"N": n_atom, "CA": ca_atom, "C": c_atom, "O": o_atom}
-
-    max_dist = 0.0
-    offending_label: Optional[str] = None
-    found_any = False
-    for label, a_name, b_name in pairs:
-        a = name_to_atom.get(a_name)
-        b = name_to_atom.get(b_name)
-        if a is None or b is None:
-            continue
-        found_any = True
-        # Compute distance per frame; use max across frames
-        d_nm = np.linalg.norm(
-            traj.xyz[:, a.index, :] - traj.xyz[:, b.index, :],
-            axis=1,
-        )
-        d_ang = d_nm * 10.0
-        m = float(np.max(d_ang))
-        if m > max_dist:
-            max_dist = m
-            if m > threshold_angstrom:
-                offending_label = label
-    if not found_any:
-        return None, None, False
-    broken = max_dist > threshold_angstrom
-    return max_dist, offending_label, broken
-
-
-# ---------------------------------------------------------------------------
 # Per-system analysis
 # ---------------------------------------------------------------------------
 
-def analyze_system(system_dir: Path,
-                   *,
-                   check_intra_residue: bool = True,
-                   intra_residue_threshold: float = INTRA_RESIDUE_THRESHOLD_DEFAULT,
-                   ) -> IntegrityRow:
-    """Run the PBC integrity check on a single system directory.
-
-    Args:
-        system_dir: path to the calib system root.
-        check_intra_residue: if True, run the v0.2 intra-residue bond check
-            on the binder ncAA (default True). If False, only the legacy
-            v0.1 inter-residue check runs (output is 4-column).
-        intra_residue_threshold: bond distance threshold for the intra
-            check (default 5.0 Å).
-    """
+def analyze_system(system_dir: Path) -> IntegrityRow:
+    """Run the PBC integrity check on a single system directory."""
     system = system_dir.name
-    row = IntegrityRow(
-        system=system,
-        check_intra_residue=check_intra_residue,
-    )
+    row = IntegrityRow(system=system)
 
     dcd = _find_dcd(system_dir)
     if dcd is None:
@@ -440,44 +289,12 @@ def analyze_system(system_dir: Path,
 
     row.n_frames = int(traj.n_frames)
     row.median_angstrom = median_ang
-
-    # v0.2 — intra-residue bond integrity check (PR-21)
-    intra_broken = False
-    if check_intra_residue:
-        try:
-            intra_max, intra_label, intra_broken = _intra_residue_max_distance(
-                traj, ncaa, threshold_angstrom=intra_residue_threshold,
-            )
-            row.intra_max_angstrom = intra_max
-            row.intra_offending_bond = intra_label
-        except Exception:
-            row.intra_max_angstrom = None
-            row.intra_offending_bond = None
-            intra_broken = False
-
-    # Verdict logic — v0.2 vs v0.1
-    if check_intra_residue:
-        # Combined verdict:
-        #   BROKEN if median > BROKEN_MIN OR intra > threshold
-        #   INTACT if median < INTACT_MAX AND intra ≤ threshold
-        #   AMBIGUOUS otherwise (INTACT_MAX ≤ median ≤ BROKEN_MIN AND
-        #             intra ≤ threshold)
-        inter_broken = median_ang > BROKEN_MIN
-        inter_intact = median_ang < INTACT_MAX
-        if inter_broken or intra_broken:
-            row.status = "BROKEN"
-        elif inter_intact and not intra_broken:
-            row.status = "INTACT"
-        else:
-            row.status = "AMBIGUOUS"
+    if median_ang < INTACT_MAX:
+        row.status = "INTACT"
+    elif median_ang > BROKEN_MIN:
+        row.status = "BROKEN"
     else:
-        # v0.1 legacy axis (inter-only)
-        if median_ang < INTACT_MAX:
-            row.status = "INTACT"
-        elif median_ang > BROKEN_MIN:
-            row.status = "BROKEN"
-        else:
-            row.status = "AMBIGUOUS"
+        row.status = "AMBIGUOUS"
     return row
 
 
@@ -494,35 +311,17 @@ def discover_systems(root: Path, pattern: Optional[str]) -> List[Path]:
     return candidates
 
 
-def render_report(rows: List[IntegrityRow],
-                  *,
-                  check_intra_residue: bool = True) -> str:
-    """Format the TERSE report.
-
-    v0.2 adds a 3-column rendering when ``check_intra_residue=True`` —
-    "inter_med | intra_max | overall". When False the legacy v0.1 4-column
-    rendering ("Frames | Median Å | Status") is preserved for backward
-    compat (--inter-only flag).
-    """
+def render_report(rows: List[IntegrityRow]) -> str:
+    """Format the TERSE report."""
     lines: List[str] = []
-    if check_intra_residue:
-        lines.append("PBC Integrity Check Report (v0.2 — intra+inter)")
-        lines.append("===============================================")
-        lines.append(
-            "System                       | inter_med | intra_max | overall"
-        )
-        lines.append(
-            "-----------------------------|-----------|-----------|--------"
-        )
-    else:
-        lines.append("PBC Integrity Check Report")
-        lines.append("==========================")
-        lines.append(
-            "System                       | Frames | Median Å | Status"
-        )
-        lines.append(
-            "-----------------------------|--------|----------|--------"
-        )
+    lines.append("PBC Integrity Check Report")
+    lines.append("==========================")
+    lines.append(
+        "System                       | Frames | Median Å | Status"
+    )
+    lines.append(
+        "-----------------------------|--------|----------|--------"
+    )
     for row in rows:
         lines.append(row.render())
 
@@ -559,9 +358,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         description=(
             "Verify PBC integrity of MD trajectories by checking the prev_C ↔ "
             "ncAA_N peptide-bond distance per frame; classify each system as "
-            "INTACT / BROKEN / AMBIGUOUS. v0.2 adds an intra-residue bond "
-            "integrity check on the binder ncAA (default ON; --inter-only "
-            "for the v0.1 backward-compat 4-column output)."
+            "INTACT / BROKEN / AMBIGUOUS."
         ),
     )
     parser.add_argument(
@@ -579,38 +376,6 @@ def main(argv: Optional[List[str]] = None) -> int:
         default="/home/san/UPDD_proj/outputs",
         help="outputs root directory (default: /home/san/UPDD_proj/outputs)",
     )
-    # v0.2 — PR-21 Auto-Diagnostic Level 1 flags
-    intra_grp = parser.add_mutually_exclusive_group()
-    intra_grp.add_argument(
-        "--check-intra-residue",
-        dest="check_intra_residue",
-        action="store_true",
-        default=True,
-        help=(
-            "Enable the v0.2 intra-residue bond integrity check on the "
-            "binder ncAA (default). Output uses the 3-column "
-            "inter_med | intra_max | overall format."
-        ),
-    )
-    intra_grp.add_argument(
-        "--inter-only",
-        dest="check_intra_residue",
-        action="store_false",
-        help=(
-            "Backward-compat v0.1 mode: skip intra-residue check; emit the "
-            "legacy 4-column Frames | Median Å | Status output."
-        ),
-    )
-    parser.add_argument(
-        "--intra-residue-threshold",
-        dest="intra_residue_threshold",
-        type=float,
-        default=INTRA_RESIDUE_THRESHOLD_DEFAULT,
-        help=(
-            "Distance threshold (Å) above which an intra-residue bond is "
-            f"reported as BROKEN (default {INTRA_RESIDUE_THRESHOLD_DEFAULT})."
-        ),
-    )
     args = parser.parse_args(argv)
 
     root = Path(args.root).resolve()
@@ -622,21 +387,16 @@ def main(argv: Optional[List[str]] = None) -> int:
     rows: List[IntegrityRow] = []
     for sysd in systems:
         try:
-            row = analyze_system(
-                sysd,
-                check_intra_residue=args.check_intra_residue,
-                intra_residue_threshold=args.intra_residue_threshold,
-            )
+            row = analyze_system(sysd)
         except Exception as exc:
             row = IntegrityRow(
                 system=sysd.name,
                 status="SKIPPED",
                 skip_reason=f"unhandled: {type(exc).__name__}",
-                check_intra_residue=args.check_intra_residue,
             )
         rows.append(row)
 
-    report = render_report(rows, check_intra_residue=args.check_intra_residue)
+    report = render_report(rows)
     if args.output:
         Path(args.output).write_text(report)
     else:

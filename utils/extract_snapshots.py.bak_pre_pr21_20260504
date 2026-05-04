@@ -33,21 +33,6 @@ Revision history (recent):
         records still emit original serial strings from the source PDB
         (downstream consumer compat preserved). Reference Phase β finding
         outputs/analysis/phase_beta_mmpbsa_rerun_20260429.md §5.2.
-    v56 (2026-05-04): PR-21 Auto-Diagnostic Framework v0.7 (Level 1) —
-        ``intra_residue_bond_check()`` helper + advisory hook in
-        ``save_snapshots`` that scans every per-frame topology bond
-        ``(a, b)`` where ``a.residue.index == b.residue.index`` for a
-        stretched covalent distance > ``INTRA_RESIDUE_BOND_THRESHOLD_ANGSTROM``
-        (default 5.0 Å). The hook runs AFTER the v54 PBC layers (Layer 0/1/2)
-        and emits a stderr WARNING per offending bond. Default behavior is
-        non-blocking (snapshot is still written); ``strict_intra_bond_check
-        =True`` skips writing the PDB. Trigger event: 7TL8_MTR6_s55
-        outlier audit (#95, 2026-04-30) — snap05_f63 had MTR6_N↔CA = 113.15 Å
-        (canonical 1.46 Å, box 114.37 Å) which the v54 inter-residue check
-        could not detect because the prev_C↔ncAA_N peptide bond was
-        intact at 1.40 Å. References:
-        outputs/analysis/7tl8_s55_outlier_audit_20260430.md (#95) +
-        outputs/analysis/7tl8_n8_post_s55_fix_20260430.md (#96 Framing B).
 """
 
 import os
@@ -306,136 +291,6 @@ def calc_rmsd_stats(traj, selected_frames) -> dict:
 
 
 # ==========================================
-# [PR-21 v0.7 Level 1] Intra-residue bond integrity check
-# ==========================================
-# Trigger event: 7TL8_MTR6_s55 outlier audit (#95, 2026-04-30) — snap05_f63
-# had a single-atom PBC defect: MTR6_N atom got wrapped to the opposite side
-# of the periodic box (114.37 Å) while H, CA, C, O and the entire sidechain
-# stayed on the original side. Canonical N–CA covalent bond stretched from
-# 1.46 Å to 113.15 Å. The v54 inter-residue check (prev_C↔ncAA_N) passed
-# (1.40 Å, normal) so the snapshot was emitted with a hidden 113 Å
-# intra-residue covalent stretch which then drove ΔG = +686 kcal/mol in the
-# downstream MM-PBSA step. This Level-1 guard scans every (a, b) bond where
-# a.residue.index == b.residue.index and warns if d > threshold.
-#
-# References:
-#     outputs/analysis/7tl8_s55_outlier_audit_20260430.md (#95)
-#     outputs/analysis/7tl8_n8_post_s55_fix_20260430.md (#96 Framing B)
-INTRA_RESIDUE_BOND_THRESHOLD_ANGSTROM = 5.0
-
-
-def intra_residue_bond_check(traj, threshold_angstrom=INTRA_RESIDUE_BOND_THRESHOLD_ANGSTROM):
-    """Scan every intra-residue bond in ``traj`` for stretched covalent
-    distances and return a list of broken-bond records.
-
-    Iterates over ``traj.topology.bonds``; for each bond ``(a, b)`` whose
-    two endpoints belong to the same residue (``a.residue.index ==
-    b.residue.index``), computes the Euclidean distance between the two
-    atoms in every frame of ``traj`` and records the bond if the distance
-    exceeds ``threshold_angstrom``.
-
-    This is an **advisory** check — the caller is responsible for emitting
-    warnings, skipping snapshots, etc. The returned list is empty when all
-    intra-residue bonds are within threshold.
-
-    Args:
-        traj: ``mdtraj.Trajectory`` (single-frame or multi-frame).
-        threshold_angstrom: distance threshold above which a bond is
-            classified as broken (default 5.0 Å, equal to
-            ``INTRA_RESIDUE_BOND_THRESHOLD_ANGSTROM``). Canonical covalent
-            backbone distances (N–H ~1.0, N–CA ~1.46, CA–C ~1.52, C–O ~1.23)
-            are well below 5 Å; rotation about side-chain dihedrals never
-            exceeds ~3 Å for a single bond. The PBC defect class produces
-            distances on the order of half-box-length (≥ 50 Å) which is
-            far above threshold for any reasonable cubic simulation cell.
-
-    Returns:
-        List of dicts, one per (frame, broken-bond) violation::
-
-            [{
-                "frame": int,            # 0-based frame index in traj
-                "residue_name": str,     # residue resname (e.g. 'MTR')
-                "residue_index": int,    # mdtraj residue.index (0-based)
-                "atom_a": str,           # bond endpoint A atom name
-                "atom_b": str,           # bond endpoint B atom name
-                "distance": float,       # bond distance in Å
-            }, ...]
-
-        Empty list when every intra-residue bond is intact in every frame.
-    """
-    if traj is None or traj.n_frames == 0:
-        return []
-    broken = []
-    top = traj.topology
-    # Pre-compute (atom_a_index, atom_b_index, residue_index, residue_name,
-    # atom_a_name, atom_b_name) tuples for intra-residue bonds so the inner
-    # frame loop is a fast numpy distance calc.
-    #
-    # PR-21 design note (#95 finding): mdtraj's PDB loader does not
-    # auto-create intra-residue bonds for HETATM ncAAs (e.g. MTR's N↔CA
-    # never appears in ``traj.topology.bonds`` even when CONECT records
-    # are emitted). This was the precise mechanism by which v54 missed
-    # the snap05_f63 defect. To detect it the scan must include canonical
-    # backbone covalent bonds (N↔CA, CA↔C, C↔O) for every residue
-    # regardless of whether those bonds are in the topology graph.
-    seen_pairs = set()
-    intra_bonds = []
-    for bond in top.bonds:
-        a = bond.atom1
-        b = bond.atom2
-        if a.residue.index != b.residue.index:
-            continue
-        key = (min(a.index, b.index), max(a.index, b.index))
-        if key in seen_pairs:
-            continue
-        seen_pairs.add(key)
-        intra_bonds.append((
-            a.index, b.index,
-            a.residue.index, a.residue.name,
-            a.name, b.name,
-        ))
-
-    # Additional backbone-by-name pairs for every residue (catches HETATM
-    # ncAAs whose intra-residue bonds are absent from topology.bonds).
-    _BACKBONE_PAIRS = (("N", "CA"), ("CA", "C"), ("C", "O"))
-    for residue in top.residues:
-        atom_by_name = {a.name: a for a in residue.atoms}
-        for a_name, b_name in _BACKBONE_PAIRS:
-            a = atom_by_name.get(a_name)
-            b = atom_by_name.get(b_name)
-            if a is None or b is None:
-                continue
-            key = (min(a.index, b.index), max(a.index, b.index))
-            if key in seen_pairs:
-                continue
-            seen_pairs.add(key)
-            intra_bonds.append((
-                a.index, b.index,
-                residue.index, residue.name,
-                a.name, b.name,
-            ))
-
-    if not intra_bonds:
-        return []
-
-    for fi in range(traj.n_frames):
-        xyz = traj.xyz[fi]  # (n_atoms, 3) in nm
-        for a_idx, b_idx, res_idx, res_name, a_name, b_name in intra_bonds:
-            d_nm = float(np.linalg.norm(xyz[a_idx] - xyz[b_idx]))
-            d_ang = d_nm * 10.0
-            if d_ang > threshold_angstrom:
-                broken.append({
-                    "frame": fi,
-                    "residue_name": res_name,
-                    "residue_index": res_idx,
-                    "atom_a": a_name,
-                    "atom_b": b_name,
-                    "distance": d_ang,
-                })
-    return broken
-
-
-# ==========================================
 # 스냅샷 PDB 저장
 # ==========================================
 def _unwrap_binder_manual(frame, binder_chain_idx=None):
@@ -621,9 +476,7 @@ def _ensure_intrachain_peptide_bonds(traj):
     return added
 
 
-def save_snapshots(traj, selected_frames, output_dir, basename,
-                   strict_intra_bond_check=False,
-                   intra_residue_threshold_angstrom=INTRA_RESIDUE_BOND_THRESHOLD_ANGSTROM):
+def save_snapshots(traj, selected_frames, output_dir, basename):
     """스냅샷 PDB 를 저장한다.
 
     [v54 FIX — L387 PBC defect, 2026-04-29] mdtraj 의 PDB-format
@@ -663,35 +516,7 @@ def save_snapshots(traj, selected_frames, output_dir, basename,
             §3.4 (HETATM/ATOM tag mismatch mechanism)
             §4.2 (patch design)
         Verification: scripts/verify_pbc_integrity.py
-
-    [v56 — PR-21 Auto-Diagnostic Level 1, 2026-05-04] After Layers 0/1/2,
-    each per-frame trajectory is screened by ``intra_residue_bond_check``
-    which iterates over ``frame.topology.bonds`` and flags any
-    intra-residue covalent distance > ``intra_residue_threshold_angstrom``
-    (default 5.0 Å). The trigger event was 7TL8_MTR6_s55 snap05_f63 (#95
-    audit, 2026-04-30) where Layer 1 + Layer 2 left a single MTR6_N atom
-    on the wrong side of the periodic box (N↔CA = 113.15 Å, N↔H =
-    114.32 Å) while keeping prev_VAL5_C↔MTR6_N = 1.40 Å — the
-    inter-residue v54 check passes but the intra-residue defect ruined the
-    downstream MM-PBSA evaluation (ΔG = +686 kcal/mol single-frame
-    outlier). Default behavior: warning to stderr per offending bond,
-    snapshot still written. ``strict_intra_bond_check=True`` skips
-    writing the PDB. Reference:
-        outputs/analysis/7tl8_s55_outlier_audit_20260430.md (#95)
-        outputs/analysis/7tl8_n8_post_s55_fix_20260430.md (#96 Framing B)
-
-    Args:
-        traj: input ``mdtraj.Trajectory``.
-        selected_frames: list of frame indices to save.
-        output_dir: target directory for ``<basename>_snapNN_fNNN.pdb``.
-        basename: file-prefix for the saved PDBs.
-        strict_intra_bond_check: when True, any intra-residue bond exceeding
-            ``intra_residue_threshold_angstrom`` causes the snapshot to be
-            SKIPPED (no PDB written). Default False (advisory only).
-        intra_residue_threshold_angstrom: per-bond threshold (default 5.0 Å).
     """
-    import sys as _sys_for_warn  # local alias — module-level ``sys`` is used
-    # widely above; keep stderr emission self-contained.
     # [v54 Layer 0] Repair missing inter-residue peptide bonds in the
     # topology so image_molecules sees chains as single molecules. This
     # is a one-time topology mutation per save_snapshots invocation.
@@ -712,30 +537,6 @@ def save_snapshots(traj, selected_frames, output_dir, basename,
         # [v54 Layer 2 — v53 retained] receptor↔binder centroid minimum-
         # image 보정. multi-chain complex 의 inter-chain 상대 위치 처리용.
         _unwrap_binder_manual(frame)
-
-        # [v56 Layer 3 — PR-21 Auto-Diagnostic v0.7 Level 1] Intra-residue
-        # bond integrity check. Detects single-atom imaging defects that
-        # passed Layer 0/1/2 (e.g. 7TL8_MTR6 s55 snap05_f63 N↔CA = 113.15 Å
-        # while prev_VAL5_C↔MTR6_N stayed 1.40 Å). Default: emit warning,
-        # write PDB anyway. With ``strict_intra_bond_check=True``: skip PDB.
-        broken_intra = intra_residue_bond_check(
-            frame, threshold_angstrom=intra_residue_threshold_angstrom
-        )
-        if broken_intra:
-            for rec in broken_intra:
-                _sys_for_warn.stderr.write(
-                    f"[PR-21 WARN] frame {fidx} (snap{i+1:02d}): "
-                    f"{rec['residue_name']} resid {rec['residue_index']} "
-                    f"{rec['atom_a']}↔{rec['atom_b']} = {rec['distance']:.2f} Å "
-                    f"> {intra_residue_threshold_angstrom:.1f} Å threshold "
-                    f"— possible PBC intra-residue defect\n"
-                )
-            if strict_intra_bond_check:
-                _sys_for_warn.stderr.write(
-                    f"[PR-21] strict mode: skipping PDB write for snap{i+1:02d} "
-                    f"(frame {fidx}); {len(broken_intra)} broken bond(s)\n"
-                )
-                continue
 
         out_pdb = os.path.join(
             output_dir,

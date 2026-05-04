@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """utils/branched_ddg.py — UPDD Branched ΔΔG Engine.
 
-Schema: ``branched_ddg/0.3`` (PR-21 Auto-Diagnostic v0.7 Level 1, 2026-05-04)
+Schema: ``branched_ddg/0.2`` (PR-NEW-B Option A; v0.2 Light D Hybrid, 2026-04-29)
 
 Aggregates per-seed ``mmpbsa_summary.json`` files (or ``mmgbsa_summary.json``)
 into a same-protocol pairwise WT vs Variant ΔΔG result with full statistical
@@ -26,22 +26,6 @@ Version history:
         per user memory marker "추후 반드시 풀어야 할 문제" (2026-04-29).
         Reference: outputs/analysis/phase_beta_re_extraction_20260429.md;
         outputs/analysis/pr_new_b_v02_light_d_implementation_20260429.md
-    v0.3 (2026-05-04) — PR-21 Auto-Diagnostic v0.7 Level 1: intra-residue
-        bond integrity check added to ``compute_detachment_metric``. For
-        each snapshot PDB the parser now also computes the
-        ncAA_N↔ncAA_CA distance (canonical 1.46 Å) and flags it as
-        broken when > ``threshold_angstrom``. Two NEW aggregate fields:
-        ``intra_residue_bond_broken_fraction`` (fraction of snapshots
-        with intra-residue defect) + ``max_intra_residue_bond_distance``.
-        NEW warning level ``"intra_bond_broken"`` (highest priority,
-        overrides existing detachment levels). Trigger: 7TL8_MTR6_s55
-        snap05_f63 outlier (#95 audit) — MTR6 N↔CA = 113.15 Å while
-        prev_VAL5_C↔MTR6_N stayed 1.40 Å (passes v0.2 inter-residue
-        check). Backward compat: v0.2 readers handle missing intra_*
-        fields → default None/False; ΔΔG behavior IDENTICAL to v0.2
-        (regression gate: T1/T2 anchors byte-identical).
-        Reference: outputs/analysis/7tl8_s55_outlier_audit_20260430.md (#95);
-        outputs/analysis/7tl8_n8_post_s55_fix_20260430.md (#96)
 
 Detachment metric API (v0.2):
 
@@ -113,12 +97,8 @@ from typing import Any, Dict, List, Optional, Tuple
 # Constants / Schema
 # ---------------------------------------------------------------------------
 
-SCHEMA_VERSION = "branched_ddg/0.3"
-SCHEMA_VERSIONS_ACCEPTED = (
-    "branched_ddg/0.1",
-    "branched_ddg/0.2",
-    "branched_ddg/0.3",
-)
+SCHEMA_VERSION = "branched_ddg/0.2"
+SCHEMA_VERSIONS_ACCEPTED = ("branched_ddg/0.1", "branched_ddg/0.2")
 TOOL_NAME = "utils.branched_ddg"
 
 # Standard amino-acid residue codes (3-letter) — anything outside this set
@@ -148,14 +128,6 @@ _NON_RESIDUE_CODES = frozenset({
 # Detachment warning thresholds (advisory only).
 _DETACH_WARN_HIGH = 0.5
 _DETACH_WARN_MOD = 0.2
-
-# v0.3 — intra-residue bond integrity check (PR-21 Auto-Diagnostic Level 1).
-# Threshold mirrors ``utils.extract_snapshots.INTRA_RESIDUE_BOND_THRESHOLD_ANGSTROM``.
-# Canonical N–CA covalent distance is ~1.46 Å; the PBC defect class produces
-# distances on the order of half-box-length (≥ 50 Å for a typical 100 Å cell)
-# so 5 Å is a generous detection threshold. See module docstring v0.3 entry
-# for the trigger event (7TL8_MTR6_s55 snap05_f63, #95 audit).
-_INTRA_RESIDUE_BOND_THRESHOLD_ANGSTROM = 5.0
 
 # Two-tail Student's t critical at α=0.05 (95% CI). Hard-coded LUT for
 # small df. Beyond df=10 we fall back to z=1.96 (large-sample limit).
@@ -738,31 +710,14 @@ def _euclid(p: Tuple[float, float, float],
     )
 
 
-def _detachment_warning(fraction: float,
-                        intra_bond_broken_fraction: float = 0.0) -> str:
+def _detachment_warning(fraction: float) -> str:
     """Map an aggregate detachment fraction to a warning level.
 
     Thresholds (advisory):
-        intra_bond_broken_fraction > 0.0 → "intra_bond_broken" (NEW v0.3,
-            highest priority; overrides any detachment level when triggered)
-        fraction > 0.5 → "high_detachment"
-        fraction > 0.2 → "moderate_detachment"
-        otherwise      → "none"
-
-    Args:
-        fraction: prev_C↔ncAA_N detachment fraction (existing v0.2 metric).
-        intra_bond_broken_fraction: ncAA intra-residue bond-broken fraction
-            (NEW v0.3 metric). Any value > 0.0 escalates the warning to
-            "intra_bond_broken" because intra-residue covalent stretching
-            indicates a single-atom PBC imaging defect that produces
-            unphysical MM-PBSA energies (e.g. 7TL8_MTR6_s55 snap05_f63
-            ΔG = +686 kcal/mol from a 113 Å MTR6_N↔CA stretch).
-
-    The two-arg signature is keyword-compatible: pre-v0.3 callers that
-    pass one positional arg behave identically.
+        > 0.5 → "high_detachment"
+        > 0.2 → "moderate_detachment"
+        ≤ 0.2 → "none"
     """
-    if intra_bond_broken_fraction > 0.0:
-        return "intra_bond_broken"
     if fraction > _DETACH_WARN_HIGH:
         return "high_detachment"
     if fraction > _DETACH_WARN_MOD:
@@ -786,55 +741,6 @@ def _list_snapshot_pdbs(snapshots_dir: str) -> List[str]:
     )
     snap_pdbs = [p for p in all_pdbs if "_snap" in os.path.basename(p).lower()]
     return snap_pdbs if snap_pdbs else all_pdbs
-
-
-def _ncaa_intra_residue_max_distance(
-    atoms: List[Dict[str, Any]],
-    ncaa_resseq: int,
-    *,
-    threshold_angstrom: float = _INTRA_RESIDUE_BOND_THRESHOLD_ANGSTROM,
-) -> Tuple[Optional[float], bool]:
-    """[v0.3 PR-21] Compute maximum backbone covalent bond length within the
-    ncAA residue and decide whether any of them exceeds ``threshold_angstrom``.
-
-    Backbone bonds inspected: N↔CA, CA↔C, C↔O. These are the canonical
-    covalent bonds whose distance is well below 5 Å in any physically
-    sensible snapshot (~1.0–1.5 Å). The PBC defect class produces a single
-    atom imaging artifact where one of these distances explodes to
-    ~half-box-length (e.g. 113.15 Å for MTR6_N↔CA in 7TL8_MTR6 s55).
-
-    Args:
-        atoms: list of ATOM/HETATM records as returned by
-            :func:`_parse_pdb_atoms_for_chain`.
-        ncaa_resseq: PDB residue sequence number of the ncAA residue.
-        threshold_angstrom: any backbone bond exceeding this distance
-            triggers ``broken=True``.
-
-    Returns:
-        ``(max_distance, broken)`` — maximum bond distance in Å (None if
-        no backbone bond endpoints could be located) and a boolean flag.
-        ``broken=False`` when no usable bond was found (cannot conclude).
-    """
-    n = _atom_coord(atoms, ncaa_resseq, "N")
-    ca = _atom_coord(atoms, ncaa_resseq, "CA")
-    c = _atom_coord(atoms, ncaa_resseq, "C")
-    o = _atom_coord(atoms, ncaa_resseq, "O")
-    # Build (label, p, q) tuples for every available backbone bond pair.
-    pairs: List[Tuple[str, Tuple[float, float, float], Tuple[float, float, float]]] = []
-    if n is not None and ca is not None:
-        pairs.append(("N-CA", n, ca))
-    if ca is not None and c is not None:
-        pairs.append(("CA-C", ca, c))
-    if c is not None and o is not None:
-        pairs.append(("C-O", c, o))
-    if not pairs:
-        return None, False
-    max_d = 0.0
-    for _label, p, q in pairs:
-        d = _euclid(p, q)
-        if d > max_d:
-            max_d = d
-    return max_d, (max_d > threshold_angstrom)
 
 
 def compute_detachment_metric(
@@ -877,26 +783,18 @@ def compute_detachment_metric(
                 "n_skipped": int,            # frames missing ncAA / prev_C / N
                 "n_detached": int,
                 "aggregate_fraction": float, # n_detached / max(n_frames,1)
-                "warning": str,              # intra_bond_broken|high|moderate|none
+                "warning": str,              # high|moderate|none
                 "ncaa_resname": Optional[str],   # first ncAA seen
                 "ncaa_resseq": Optional[int],
-                # v0.3 NEW (PR-21 Auto-Diagnostic Level 1)
-                "intra_residue_bond_broken_fraction": float,
-                "max_intra_residue_bond_distance": float,
-                "n_intra_residue_broken": int,
                 "per_frame": [
                     {"snapshot": basename, "distance_angstrom": float|None,
-                     "detached": bool|None, "skipped_reason": Optional[str],
-                     # v0.3 NEW
-                     "intra_residue_bond_max_distance": float|None,
-                     "intra_residue_broken": bool},
+                     "detached": bool|None, "skipped_reason": Optional[str]},
                     ...
                 ]
             }
 
         When ``snapshots_dir`` is missing or contains no usable PDBs,
-        returns a dict with ``n_frames=0``, ``intra_residue_bond_broken_fraction=0.0``,
-        and warning ``"none"``.
+        returns a dict with ``n_frames=0`` and warning ``"none"``.
     """
     pdb_paths = _list_snapshot_pdbs(snapshots_dir)
     out: Dict[str, Any] = {
@@ -910,10 +808,6 @@ def compute_detachment_metric(
         "warning": "none",
         "ncaa_resname": None,
         "ncaa_resseq": None,
-        # v0.3 NEW — PR-21 Auto-Diagnostic Level 1
-        "intra_residue_bond_broken_fraction": 0.0,
-        "max_intra_residue_bond_distance": 0.0,
-        "n_intra_residue_broken": 0,
         "per_frame": [],
     }
     if not pdb_paths:
@@ -922,8 +816,6 @@ def compute_detachment_metric(
     n_detached = 0
     n_frames = 0
     n_skipped = 0
-    n_intra_broken = 0  # v0.3 — frames where ncAA N↔CA exceeds threshold
-    max_intra_distance = 0.0
     first_ncaa_resname: Optional[str] = None
     first_ncaa_resseq: Optional[int] = None
     for pdb in pdb_paths:
@@ -936,8 +828,6 @@ def compute_detachment_metric(
                 "distance_angstrom": None,
                 "detached": None,
                 "skipped_reason": "no_chain_atoms",
-                "intra_residue_bond_max_distance": None,
-                "intra_residue_broken": False,
             })
             continue
         ncaa_id = _identify_ncaa_residue(atoms)
@@ -948,8 +838,6 @@ def compute_detachment_metric(
                 "distance_angstrom": None,
                 "detached": None,
                 "skipped_reason": "no_ncaa_in_chain",
-                "intra_residue_bond_max_distance": None,
-                "intra_residue_broken": False,
             })
             continue
         ncaa_resname, ncaa_resseq = ncaa_id
@@ -959,17 +847,6 @@ def compute_detachment_metric(
         prev_resseq = ncaa_resseq - 1
         prev_c = _atom_coord(atoms, prev_resseq, "C")
         ncaa_n = _atom_coord(atoms, ncaa_resseq, "N")
-
-        # [v0.3 PR-21] Intra-residue bond integrity check on the ncAA.
-        # Scans every backbone covalent bond inside the ncAA: N↔CA, CA↔C,
-        # C↔O. Reports the maximum distance observed; broken iff that
-        # max exceeds threshold. Distinct from the prev_C↔ncAA_N
-        # inter-residue check (which can pass with intra-residue defect
-        # — the very pattern of 7TL8_MTR6_s55 snap05_f63).
-        intra_max, intra_broken = _ncaa_intra_residue_max_distance(
-            atoms, ncaa_resseq, threshold_angstrom=threshold_angstrom,
-        )
-
         if prev_c is None or ncaa_n is None:
             n_skipped += 1
             out["per_frame"].append({
@@ -979,55 +856,26 @@ def compute_detachment_metric(
                 "skipped_reason": (
                     "no_prev_C" if prev_c is None else "no_ncaa_N"
                 ),
-                "intra_residue_bond_max_distance": intra_max,
-                "intra_residue_broken": intra_broken,
             })
-            # v0.3 — even if peptide-bond endpoints missing, intra-residue
-            # check still contributes to the aggregate (skip-counted frames
-            # without prev_C are still legitimate snapshots whose intra-
-            # residue integrity matters).
-            if intra_broken:
-                n_intra_broken += 1
-            if intra_max is not None and intra_max > max_intra_distance:
-                max_intra_distance = intra_max
             continue
         d = _euclid(prev_c, ncaa_n)
         is_det = d > threshold_angstrom
         n_frames += 1
         if is_det:
             n_detached += 1
-        if intra_broken:
-            n_intra_broken += 1
-        if intra_max is not None and intra_max > max_intra_distance:
-            max_intra_distance = intra_max
         out["per_frame"].append({
             "snapshot": snap_basename,
             "distance_angstrom": d,
             "detached": is_det,
             "skipped_reason": None,
-            "intra_residue_bond_max_distance": intra_max,
-            "intra_residue_broken": intra_broken,
         })
 
-    # Denominators: detachment fraction uses n_frames (frames with usable
-    # peptide-bond endpoints); intra fraction uses TOTAL snapshots scanned
-    # so that a defect which corrupts prev_C/ncaa_N is still reflected.
     aggregate_fraction = n_detached / n_frames if n_frames > 0 else 0.0
-    n_total_snaps = len(pdb_paths)
-    intra_broken_fraction = (
-        n_intra_broken / n_total_snaps if n_total_snaps > 0 else 0.0
-    )
     out["n_frames"] = n_frames
     out["n_skipped"] = n_skipped
     out["n_detached"] = n_detached
     out["aggregate_fraction"] = aggregate_fraction
-    out["intra_residue_bond_broken_fraction"] = intra_broken_fraction
-    out["max_intra_residue_bond_distance"] = max_intra_distance
-    out["n_intra_residue_broken"] = n_intra_broken
-    out["warning"] = _detachment_warning(
-        aggregate_fraction,
-        intra_bond_broken_fraction=intra_broken_fraction,
-    )
+    out["warning"] = _detachment_warning(aggregate_fraction)
     out["ncaa_resname"] = first_ncaa_resname
     out["ncaa_resseq"] = first_ncaa_resseq
     return out
@@ -1088,10 +936,6 @@ def _detachment_for_branch(
     total_frames = 0
     total_detached = 0
     total_skipped = 0
-    # v0.3 — PR-21 intra-residue bond rollup across seeds in this branch.
-    total_snap_count = 0  # frames + skipped (i.e. all PDBs scanned)
-    total_intra_broken = 0
-    max_intra_distance_branch = 0.0
     first_ncaa_resname: Optional[str] = None
     first_ncaa_resseq: Optional[int] = None
     for sd in snap_dirs:
@@ -1105,30 +949,16 @@ def _detachment_for_branch(
             "n_frames": m["n_frames"],
             "n_detached": m["n_detached"],
             "fraction": m["aggregate_fraction"],
-            # v0.3 NEW
-            "intra_residue_bond_broken_fraction": m.get(
-                "intra_residue_bond_broken_fraction", 0.0),
-            "max_intra_residue_bond_distance": m.get(
-                "max_intra_residue_bond_distance", 0.0),
-            "n_intra_residue_broken": m.get("n_intra_residue_broken", 0),
         })
         total_frames += m["n_frames"]
         total_detached += m["n_detached"]
         total_skipped += m["n_skipped"]
-        total_snap_count += m["n_frames"] + m["n_skipped"]
-        total_intra_broken += int(m.get("n_intra_residue_broken", 0) or 0)
-        m_max = float(m.get("max_intra_residue_bond_distance", 0.0) or 0.0)
-        if m_max > max_intra_distance_branch:
-            max_intra_distance_branch = m_max
         if first_ncaa_resname is None and m["ncaa_resname"] is not None:
             first_ncaa_resname = m["ncaa_resname"]
             first_ncaa_resseq = m["ncaa_resseq"]
 
     aggregate_fraction = (
         total_detached / total_frames if total_frames > 0 else 0.0
-    )
-    intra_broken_fraction = (
-        total_intra_broken / total_snap_count if total_snap_count > 0 else 0.0
     )
     return {
         "per_seed_fraction": [s["fraction"] for s in per_seed],
@@ -1139,14 +969,7 @@ def _detachment_for_branch(
         "n_frames": total_frames,
         "n_detached": total_detached,
         "n_skipped": total_skipped,
-        # v0.3 NEW — PR-21 Auto-Diagnostic Level 1 rollup
-        "intra_residue_bond_broken_fraction": intra_broken_fraction,
-        "max_intra_residue_bond_distance": max_intra_distance_branch,
-        "n_intra_residue_broken": total_intra_broken,
-        "warning": _detachment_warning(
-            aggregate_fraction,
-            intra_bond_broken_fraction=intra_broken_fraction,
-        ),
+        "warning": _detachment_warning(aggregate_fraction),
         "ncaa_resname": first_ncaa_resname,
         "ncaa_resseq": first_ncaa_resseq,
     }
@@ -1430,52 +1253,23 @@ def compute_branched_ddg(wt_dir: str, variant_dir: str, *,
         )
         # Roll-up warning = max severity across branches.
         fractions = []
-        intra_fractions = []
-        intra_max_distances = []
         if wt_branch is not None:
             fractions.append(wt_branch["aggregate_fraction"])
-            intra_fractions.append(
-                wt_branch.get("intra_residue_bond_broken_fraction", 0.0)
-            )
-            intra_max_distances.append(
-                wt_branch.get("max_intra_residue_bond_distance", 0.0)
-            )
         if var_branch is not None:
             fractions.append(var_branch["aggregate_fraction"])
-            intra_fractions.append(
-                var_branch.get("intra_residue_bond_broken_fraction", 0.0)
-            )
-            intra_max_distances.append(
-                var_branch.get("max_intra_residue_bond_distance", 0.0)
-            )
         roll_fraction = max(fractions) if fractions else 0.0
-        roll_intra_fraction = max(intra_fractions) if intra_fractions else 0.0
-        roll_intra_max = max(intra_max_distances) if intra_max_distances else 0.0
         detachment_metric = {
-            # v0.3 — schema_subversion bumped to mark intra-residue bond
-            # rollup at the top-level detachment_metric. Backward compat:
-            # v0.2 readers that do not parse this key still see the same
-            # ``wt_branch`` / ``variant_branch`` payloads (with extra fields
-            # appended) — graceful missing-field handling required.
-            "schema_subversion": "light_d_hybrid_v2_intra",
+            "schema_subversion": "light_d_hybrid_v1",
             "threshold_angstrom": float(detachment_threshold),
             "binder_chain": binder_chain,
             "wt_branch": wt_branch,
             "variant_branch": var_branch,
-            "warning": _detachment_warning(
-                roll_fraction,
-                intra_bond_broken_fraction=roll_intra_fraction,
-            ),
+            "warning": _detachment_warning(roll_fraction),
             "rollup_fraction": roll_fraction,
-            # v0.3 NEW — PR-21 Auto-Diagnostic Level 1
-            "intra_residue_bond_broken_fraction": roll_intra_fraction,
-            "max_intra_residue_bond_distance": roll_intra_max,
             "advisory_note": (
-                "Light D Hybrid (v0.3, PR-21): advisory. ΔΔG aggregation "
-                "unchanged from v0.1/v0.2. Full D framework (frame filter + "
-                "detachment-aware ΔΔG) deferred to v0.8 milestone. v0.3 "
-                "adds intra-residue bond integrity rollup; "
-                "warning='intra_bond_broken' is highest priority."
+                "Light D Hybrid (v0.2): advisory only. ΔΔG aggregation "
+                "unchanged from v0.1. Full D framework (frame filter + "
+                "detachment-aware ΔΔG) deferred to v0.8 milestone."
             ),
         }
 

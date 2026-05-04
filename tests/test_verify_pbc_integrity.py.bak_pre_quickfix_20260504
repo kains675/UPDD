@@ -20,7 +20,6 @@ exit code + stdout are validated as a unit.
 
 from __future__ import annotations
 
-import importlib.util as _ilu
 import io
 import os
 import sys
@@ -28,20 +27,13 @@ from pathlib import Path
 
 import pytest
 
-# Load scripts/verify_pbc_integrity.py via importlib.util.spec_from_file_location
-# WITHOUT mutating sys.path. Mirroring the idiom from
-# tests/test_updd_cli.py:38-46. Rationale: ``sys.path.insert(0, scripts/)``
-# persists for the entire pytest session and shadows ``utils/updd_cli.py``
-# (TUI legacy) with ``scripts/updd_cli.py`` (CLI), which lacks ``arrow_menu``
-# and breaks 14 downstream tests with ImportError. See ULTRAREVIEW
-# outputs/analysis/test_failure_diagnosis_20260504.md (2026-05-04).
+# Make scripts/ importable
 _REPO_ROOT = Path(__file__).resolve().parents[1]
-_VERIFY_PBC_PATH = _REPO_ROOT / "scripts" / "verify_pbc_integrity.py"
-_spec = _ilu.spec_from_file_location("verify_pbc_integrity", _VERIFY_PBC_PATH)
-assert _spec is not None and _spec.loader is not None
-vpi = _ilu.module_from_spec(_spec)
-sys.modules["verify_pbc_integrity"] = vpi
-_spec.loader.exec_module(vpi)  # type: ignore[union-attr]
+_SCRIPTS_DIR = _REPO_ROOT / "scripts"
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+
+import verify_pbc_integrity as vpi  # noqa: E402
 
 
 OUTPUTS_ROOT = _REPO_ROOT / "outputs"

@@ -1,0 +1,942 @@
+#!/usr/bin/env python
+"""
+run_mmpbsa.py
+-------------
+MM-PBSA ΔG_bind analysis on existing Fix 4 MM-GBSA trajectories.
+
+Scientific rationale
+====================
+Test whether the GBn2 implicit-solvent model is the bottleneck in the
+X.B Cp4 ΔΔG ESCALATE gap (Rev. 0.6.1 §K.6 hypothesis #3, weight 20-30%).
+GBn2 (Nguyen 2013) often over- or under-estimates polar solvation for
+charged cyclic peptides; Poisson-Boltzmann + SASA is the canonical
+reference solvation model (Homeyer & Gohlke 2012, DOI:10.1002/minf.201100135).
+
+Design
+======
+- Reuses the Fix 4 (1-trajectory) minimization geometry:
+  minimize the complex once with amber14 + GBn2 (identical to
+  `utils/run_mmgbsa.py::calc_mmgbsa_1traj`), then freeze the minimized
+  positions for receptor / ligand subsystems (bound-state strain cancels
+  symmetrically — Genheden & Ryde 2015 §2.1).
+- For each subsystem, build an AMBER prmtop/inpcrd pair via parmed
+  (`parmed.openmm.load_topology` → `AmberParm`) so ncAA parameters are
+  preserved (OpenMM XML → parmed → AMBER).
+- Invoke AmberTools `MMPBSA.py` in single-trajectory mode with a PB-only
+  input file (`&general igb=0, /` + `&pb ipb=2 inp=2 istrng=0.150 /`).
+- Parse `FINAL_RESULTS_MMPBSA.dat` for ΔG_bind (PB polar + SASA nonpolar).
+
+Output JSON schema (bump: 0.6.8 → 0.6.9 with `solvent_model` extension)
+======================================================================
+    {
+      "schema_version":   "0.6.9",
+      "protocol_variant": "1traj",            # or "3traj"
+      "solvent_model":    "pbsa",             # NEW, alongside "gb"
+      "gb_model":         "n2",               # preserved for back-compat
+      "pbsa_config": {
+          "solver":          "ambertools_pbsa",
+          "ionic_strength_M": 0.150,
+          "temperature_K":    300.0,
+          "epsilon_solute":   1.0,
+          "epsilon_solvent": 80.0,
+          "cavity_surften":   0.0378,
+          "cavity_offset":   -0.5692,
+          "inp":              2,
+          "ipb":              2,
+          "radiopt":          0,
+          "amberhome":        "<path>",
+      },
+      "n_calc":   <int>,
+      "mean_dg":  <kcal/mol>,
+      "best_dg":  <kcal/mol>,
+      "results":  [ {snapshot, e_complex_kcal, e_receptor_kcal,
+                     e_ligand_kcal, delta_g_kcal, delta_g_pb_polar_kcal,
+                     delta_g_pb_sasa_kcal, ...}, ... ]
+    }
+
+Constraints
+===========
+- Non-destructive: does NOT modify `utils/run_mmgbsa.py`.
+- R-17 cofactor compatibility: `--target_id` propagates cofactor mol2
+  registration identically to MM-GBSA.
+- Subprocess isolation: MMPBSA.py runs in a per-snap working directory
+  so parallel invocations do not collide on `_MMPBSA_*` intermediate
+  filenames.
+- Regime: ranking-only (R-11) — absolute ΔG from PBSA retains the same
+  calibration caveat as GBn2.
+
+Reference
+=========
+- Homeyer N, Gohlke H. Molecular Informatics 2012, DOI:10.1002/minf.201100135
+- Genheden S, Ryde U. Expert Opin Drug Discov 2015, DOI:10.1517/17460441.2015.1032250
+- Nguyen H, Roe DR, Simmerling C. JCTC 2013 (GBn2), DOI:10.1021/ct3010485
+"""
+
+import argparse
+import glob
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+from typing import Dict, List, Optional, Tuple
+
+import numpy as np
+
+from openmm import app, unit
+import openmm as mm
+from openmm.app import PDBFile, ForceField, Simulation, HBonds
+
+# Reuse MM-GBSA helpers (split_complex, write_temp_pdb, GB override,
+# cyclic-bond injection, STRIP / CAP filters) so the solvent-model swap
+# is the only axis of difference between the two scripts.
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir, "utils"))
+from utils_common import KNOWN_COFACTORS  # noqa: E402
+from run_mmgbsa import (  # noqa: E402
+    split_complex,
+    write_temp_pdb,
+    apply_gb_radius_override,
+    _apply_cyclic_bonds_mmgbsa,
+    _CAP_RESNAMES,
+    _MMGBSA_STRIP_RESNAMES,
+    GB_RADII_OVERRIDE,
+)
+
+# --------------------------------------------------------------------
+# PBSA defaults (AmberTools pbsa input namelist values)
+# --------------------------------------------------------------------
+# Literature defaults (Homeyer & Gohlke 2012 Table 1, Wang 2006 ipb=2).
+# Conservative choices:
+#   - istrng 0.150 M  : physiological ionic strength
+#   - inp 2           : SASA-based nonpolar (surften + offset)
+#   - ipb 2           : smooth dielectric boundary via cubic spline
+#   - radiopt 0       : use prmtop intrinsic radii (mbondi from tleap
+#                       via amber14SB force field; matches MM-GBSA
+#                       radius set to the extent the prmtop carries it).
+#   - epsin 1.0, epsout 80.0 : standard vacuum-in / water-out.
+PBSA_DEFAULTS = {
+    "ionic_strength_M":   0.150,
+    "temperature_K":      300.0,
+    "epsilon_solute":     1.0,
+    "epsilon_solvent":    80.0,
+    "cavity_surften":     0.0378,   # kcal/mol/Å² (Tan 2007)
+    "cavity_offset":     -0.5692,   # kcal/mol (Tan 2007)
+    "inp":                2,
+    "ipb":                2,
+    # radiopt=0 : read radii from the prmtop. We apply mbondi2 via
+    # parmed's `tools.changeRadii` *before* writing the prmtop (see
+    # `_system_to_amber`) so the RADIUS_SET field carries valid values.
+    #
+    # Rationale: parmed.openmm.load_topology on a vacuum OpenMM System
+    # emits a prmtop with all-zero RADII (no GB force is present to
+    # carry them). `radiopt=1` (pbsa-internal table) chokes on atom
+    # types parmed uses (e.g. "N1"), raising
+    # `PB Bomb in pb_aaradi(): No radius assigned for atom ...`.
+    # Baking mbondi2 radii into the prmtop with parmed is element-based
+    # (plus H-bond-context for mbondi2) and therefore robust to atom-type
+    # labelling quirks.
+    "radiopt":            0,
+}
+
+
+# --------------------------------------------------------------------
+# AmberTools invocation helpers
+# --------------------------------------------------------------------
+def _find_amberhome() -> str:
+    """Locate AMBERHOME. Prefer environment variable; fall back to the
+    active conda prefix if tleap is discoverable.
+    """
+    env = os.environ.get("AMBERHOME")
+    if env and os.path.isdir(env):
+        return env
+    tleap = shutil.which("tleap")
+    if tleap:
+        # tleap lives in $AMBERHOME/bin/tleap
+        return os.path.dirname(os.path.dirname(os.path.abspath(tleap)))
+    raise RuntimeError(
+        "AMBERHOME not set and `tleap` not on PATH. "
+        "Activate the qmmm or md_simulation conda env before running."
+    )
+
+
+def _write_pbsa_input(path: str, pbsa_cfg: Dict) -> None:
+    """Write a minimal MMPBSA.py input file that disables GB and runs a
+    single-frame PB + SASA evaluation.
+    """
+    # use_sander=1 routes the PB solve through external sander + pbsa
+    # (the full AmberTools pbsa solver). The default (mmpbsa_py_energy)
+    # silently drops the EPB polar term for systems that exceed its
+    # limited feature set — observed as EPB = 0.0 in the Differences
+    # block. Forcing sander avoids this failure mode.
+    content = f"""MM-PBSA single-frame PB + SASA (run_mmpbsa.py)
+&general
+  startframe=1, endframe=1, interval=1,
+  keep_files=0, verbose=1,
+  use_sander=1,
+  strip_mask=":WAT,Cl*,CIO,Cs+,IB,K*,Li+,Na+,Rb+,CS,RB,NA,F,CL",
+/
+&pb
+  istrng={pbsa_cfg['ionic_strength_M']},
+  inp={pbsa_cfg['inp']},
+  ipb={pbsa_cfg['ipb']},
+  radiopt={pbsa_cfg['radiopt']},
+  indi={pbsa_cfg['epsilon_solute']},
+  exdi={pbsa_cfg['epsilon_solvent']},
+  cavity_surften={pbsa_cfg['cavity_surften']},
+  cavity_offset={pbsa_cfg['cavity_offset']},
+/
+"""
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
+
+
+# --------------------------------------------------------------------
+# OpenMM System → AMBER prmtop/inpcrd via parmed
+# --------------------------------------------------------------------
+def _positions_to_ndarray(positions) -> "np.ndarray":
+    """Normalize OpenMM positions (any of: Quantity[Vec3], list[Quantity[Vec3]],
+    list[Vec3]) into a plain (N, 3) float64 ndarray in Angstrom, which is
+    what parmed.Structure.coordinates expects.
+
+    parmed's `Structure.coordinates` setter calls `np.asanyarray(value,
+    dtype=np.float64)` which fails when the list contains Quantity
+    objects that do not convert element-wise to float. We therefore
+    pre-extract nanometer values and scale to Angstrom (parmed's native
+    coordinate unit).
+    """
+    # Convert each element to nm value then scale to Å.
+    out = np.empty((len(positions), 3), dtype=np.float64)
+    for i, p in enumerate(positions):
+        # p may be Quantity or Vec3; either way, stripping unit.nanometer yields
+        # a Vec3 whose .x/.y/.z are plain floats.
+        try:
+            p_nm = p.value_in_unit(unit.nanometer)
+        except AttributeError:
+            p_nm = p  # already a Vec3 in nm
+        out[i, 0] = float(p_nm.x) * 10.0
+        out[i, 1] = float(p_nm.y) * 10.0
+        out[i, 2] = float(p_nm.z) * 10.0
+    return out
+
+
+def _patch_missing_bond_types(structure) -> int:
+    """Fill any bond with ``type is None`` using a default amide-bond
+    BondType (k=490 kcal/mol/Å², r0=1.335 Å — amber14SB peptide C–N).
+
+    Returns the number of bonds patched.
+
+    Context
+    -------
+    ``parmed.openmm.load_topology`` inspects ``HarmonicBondForce`` and only
+    assigns a ``BondType`` to bonds it finds there. For ncAA peptide runs
+    (e.g. MTR in the Cp4 binder), OpenMM's ``createSystem`` silently drops
+    inter-residue peptide bonds whose atom-type pair (e.g. GAFF2 ``C4`` ↔
+    amber14 ``N`` or amber14 ``C`` ↔ GAFF2 ``N1``) has no matching
+    ``<Bond>`` entry in any loaded XML. The Topology retains the bond
+    (OBBO inference gives 215 bonds), but ``HarmonicBondForce`` carries
+    only 213; parmed then stores a ``Bond`` with ``type=None`` and trips
+    ``AmberParm._xfer_bond_info`` with ``'NoneType' object has no
+    attribute 'used'``.
+
+    The ranking-regime fix (R-11) is to splice a canonical amide
+    parameter into these cross-residue bonds. Because the same bonds
+    appear in both the Complex and the Ligand subsystems (both carry
+    MTR3–GLN4 and VAL2–MTR3 peptide links), the bonded stretch energy
+    cancels in the 1-trajectory ΔG = E_cplx − E_rec − E_lig difference
+    (Genheden & Ryde 2015 §2.1). Receptor has no MTR, so the asymmetry
+    is irrelevant there.
+
+    Rationale for parameter choice
+    ------------------------------
+    amber14SB's standard protein backbone bond: C–N, k=490 kcal/mol/Å²,
+    r0=1.335 Å (Hornak 2006 / Maier 2015). ncAA side-chain–backbone
+    joins that actually exist in native amide geometry are within 1–2%
+    of this value, so any residual stretch energy (after minimization
+    already flattened it) is well below PB numerical noise.
+    """
+    from parmed import BondType
+    n_missing = sum(1 for b in structure.bonds if b.type is None)
+    if n_missing == 0:
+        return 0
+    amide_type = BondType(k=490.0, req=1.335, list=structure.bond_types)
+    structure.bond_types.append(amide_type)
+    for b in structure.bonds:
+        if b.type is None:
+            b.type = amide_type
+    return n_missing
+
+
+def _system_to_amber(topology, system, positions, out_prefix: str,
+                     _retry_with_patch: bool = True) -> Tuple[str, str, bool]:
+    """Convert an OpenMM (topology, system, positions) triple into an
+    AMBER prmtop + inpcrd pair. Returns (prmtop_path, inpcrd_path, patched).
+
+    parmed.openmm.load_topology consumes the OpenMM Topology + System and
+    emits a parmed Structure carrying the Amber-style parameters; the
+    Structure can then be written via `save(..., format='amber')` to
+    produce prmtop + rst7.
+
+    Positions are normalized into a plain ndarray (Å) before assignment
+    because parmed's setter cannot ingest a list of Quantity/Vec3 objects
+    whose `__float__` does not return a plain float (raises
+    `ValueError: setting an array element with a sequence.`).
+
+    ncAA fallback (Track B Step B2, 2026-04-23)
+    -------------------------------------------
+    When ncAA residues (GAFF2-typed, e.g. MTR) border amber14SB residues,
+    ``createSystem`` can silently drop the peptide-junction bonds whose
+    atom-type pair has no ``<Bond>`` entry in any loaded XML. The saved
+    ``AmberParm`` then trips with ``'NoneType' object has no attribute
+    'used'`` inside ``_xfer_bond_info``. On that specific exception we
+    patch the missing bond types with a canonical amide parameter (see
+    ``_patch_missing_bond_types``) and retry. The ``patched`` boolean
+    flows up to the per-snap JSON as ``fallback_triggered`` so the Path
+    agent can filter patched vs un-patched runs.
+    """
+    from parmed.openmm import load_topology
+    # Build structure first (without positions), then override coordinates
+    # with the normalized ndarray.
+    structure = load_topology(topology, system=system)
+    structure.coordinates = _positions_to_ndarray(positions)
+    prmtop = out_prefix + ".prmtop"
+    inpcrd = out_prefix + ".inpcrd"
+
+    patched = False
+    try:
+        # overwrite=True since we may re-run for failed snaps.
+        structure.save(prmtop, format="amber", overwrite=True)
+    except AttributeError as exc:
+        # The specific ncAA-junction failure: ``bond.type is None``
+        # triggers ``'NoneType' object has no attribute 'used'`` inside
+        # ``AmberParm._xfer_bond_info``. Any other AttributeError is a
+        # genuine programming error and we re-raise.
+        if "used" not in str(exc) or not _retry_with_patch:
+            raise
+        n_patched = _patch_missing_bond_types(structure)
+        if n_patched == 0:
+            # The error cause was something else than missing bond types —
+            # cannot auto-recover.
+            raise
+        print(f"    [fallback] patched {n_patched} missing ncAA "
+              f"peptide-junction bond type(s); retrying save")
+        # Discard any half-written prmtop and retry with a fresh Structure
+        # (parmed's internal caches may have inconsistent state after the
+        # aborted ``AmberParm.from_structure``). We rebuild from scratch.
+        structure = load_topology(topology, system=system)
+        structure.coordinates = _positions_to_ndarray(positions)
+        _patch_missing_bond_types(structure)
+        structure.save(prmtop, format="amber", overwrite=True)
+        patched = True
+
+    structure.save(inpcrd, format="rst7", overwrite=True)
+    # Bake mbondi2 radii into the just-written prmtop. parmed's tool is
+    # element-based and works off the raw prmtop, so we re-open, run
+    # changeRadii, and write back. Using a temporary AmberParm instance
+    # avoids touching the already-saved inpcrd.
+    from parmed import load_file as _pmd_load
+    from parmed.tools import changeRadii
+    parm = _pmd_load(prmtop)
+    changeRadii(parm, "mbondi2").execute()
+    parm.write_parm(prmtop)
+    return prmtop, inpcrd, patched
+
+
+# --------------------------------------------------------------------
+# MMPBSA.py execution + output parsing
+# --------------------------------------------------------------------
+# Parser regex for `FINAL_RESULTS_MMPBSA.dat` DELTAS TOTAL line. The
+# "Differences" block lists per-energy-term deltas; we need the PB totals
+# (polar EPB, nonpolar ENPOLAR / EDISPER, cumulative DELTA TOTAL).
+_RE_TOTAL = re.compile(r"^DELTA TOTAL\s+([-\d.]+)")
+_RE_EPB   = re.compile(r"^EPB\s+([-\d.]+)\s+([-\d.]+)")
+_RE_ENPOLAR = re.compile(r"^ENPOLAR\s+([-\d.]+)\s+([-\d.]+)")
+_RE_EDISPER = re.compile(r"^EDISPER\s+([-\d.]+)\s+([-\d.]+)")
+
+
+def _run_mmpbsa_py(work_dir: str, cplx_prmtop: str, rec_prmtop: str,
+                   lig_prmtop: str, cplx_mdcrd: str, pbsa_cfg: Dict,
+                   amberhome: str) -> Optional[Dict]:
+    """Invoke MMPBSA.py in single-trajectory mode. Returns parsed ΔG
+    components (kcal/mol) or None on failure.
+
+    Runs in a dedicated work_dir so `_MMPBSA_*` scratch files are
+    isolated from concurrent snap-level invocations.
+    """
+    input_file = os.path.join(work_dir, "pbsa.in")
+    _write_pbsa_input(input_file, pbsa_cfg)
+    out_file = os.path.join(work_dir, "FINAL_RESULTS_MMPBSA.dat")
+
+    env = os.environ.copy()
+    env["AMBERHOME"] = amberhome
+    env["PATH"] = os.path.join(amberhome, "bin") + os.pathsep + env.get("PATH", "")
+
+    # 2026-04-23 fix: cwd=work_dir + relative paths conflict (MMPBSA.py treats
+    # "outputs/.../pbsa.in" as relative to cwd=work_dir which doubles the path).
+    # Pass absolute paths so cwd= is only used for _MMPBSA_*.mdin scratch files.
+    cmd = [
+        "MMPBSA.py", "-O",
+        "-i", os.path.abspath(input_file),
+        "-o", os.path.abspath(out_file),
+        "-cp", os.path.abspath(cplx_prmtop),
+        "-rp", os.path.abspath(rec_prmtop),
+        "-lp", os.path.abspath(lig_prmtop),
+        "-y",  os.path.abspath(cplx_mdcrd),
+    ]
+    try:
+        result = subprocess.run(
+            cmd, cwd=work_dir, env=env, capture_output=True,
+            text=True, timeout=1800,  # 30 min per snap upper bound
+        )
+    except subprocess.TimeoutExpired:
+        print(f"    [!] MMPBSA.py timeout (>30 min) in {work_dir}")
+        return None
+
+    if result.returncode != 0:
+        print(f"    [!] MMPBSA.py returncode={result.returncode}")
+        print(f"    [stderr head] {result.stderr[:400]}")
+        return None
+    if not os.path.exists(out_file):
+        print(f"    [!] MMPBSA.py produced no output at {out_file}")
+        return None
+
+    return _parse_mmpbsa_output(out_file)
+
+
+def _parse_mmpbsa_output(dat_path: str) -> Optional[Dict]:
+    """Extract ΔG_bind (PB total) + components from FINAL_RESULTS_MMPBSA.dat.
+
+    The deltas block is the last occurrence of "Differences" in the file;
+    we scan forward from there and pick up EPB, ENPOLAR, EDISPER, and
+    DELTA TOTAL lines.
+    """
+    with open(dat_path, "r", encoding="utf-8") as f:
+        lines = f.readlines()
+
+    # Locate the final "Differences (Complex - Receptor - Ligand)" section.
+    diff_start = None
+    for i, line in enumerate(lines):
+        if "Differences" in line and "Complex" in line and "Ligand" in line:
+            diff_start = i
+    if diff_start is None:
+        return None
+
+    total = epb = enpolar = edisper = None
+    for line in lines[diff_start:]:
+        m = _RE_TOTAL.match(line)
+        if m:
+            total = float(m.group(1))
+        m = _RE_EPB.match(line)
+        if m:
+            epb = float(m.group(1))
+        m = _RE_ENPOLAR.match(line)
+        if m:
+            enpolar = float(m.group(1))
+        m = _RE_EDISPER.match(line)
+        if m:
+            edisper = float(m.group(1))
+
+    if total is None:
+        return None
+    return {
+        "delta_g_kcal":       total,
+        "delta_epb_kcal":     epb,
+        "delta_enpolar_kcal": enpolar,
+        "delta_edisper_kcal": edisper,
+    }
+
+
+# --------------------------------------------------------------------
+# Single-snap driver (Fix 4 minimize → parmed → MMPBSA.py)
+# --------------------------------------------------------------------
+def calc_mmpbsa_1traj(pdb_path: str, output_dir: str, ff: ForceField,
+                      ncaa_elem: str, si_radius: float,
+                      receptor_chain: str = "A",
+                      binder_chain: str = "B",
+                      pbsa_cfg: Optional[Dict] = None,
+                      amberhome: Optional[str] = None,
+                      cofactor_mol2_paths: Optional[List] = None,
+                      ncaa_xmls: Optional[List[str]] = None) -> Optional[Dict]:
+    """Compute ΔG_bind(PBSA) for one snapshot, reusing the Fix 4 1-traj
+    protocol (minimize complex once, freeze bound geometry for receptor
+    and ligand).
+    """
+    pbsa_cfg = dict(PBSA_DEFAULTS, **(pbsa_cfg or {}))
+    amberhome = amberhome or _find_amberhome()
+    cofactor_mol2_paths = list(cofactor_mol2_paths or [])
+    _vacuum_ncaa_xmls = list(ncaa_xmls or [])
+
+    basename = os.path.basename(pdb_path).replace(".pdb", "")
+    tmp_dir = os.path.join(output_dir, "tmp_pbsa", basename)
+    os.makedirs(tmp_dir, exist_ok=True)
+
+    print(f"\n  계산 [PBSA 1-traj]: {basename}")
+
+    complex_lines, receptor_lines, ligand_lines = split_complex(
+        pdb_path, receptor_chain, binder_chain,
+    )
+    if not receptor_lines or not ligand_lines:
+        print(f"    [!] receptor/ligand 누락 — skip")
+        return None
+
+    cplx_pdb = os.path.join(tmp_dir, f"{basename}_complex.pdb")
+    recv_pdb = os.path.join(tmp_dir, f"{basename}_receptor.pdb")
+    lig_pdb  = os.path.join(tmp_dir, f"{basename}_ligand.pdb")
+    write_temp_pdb(complex_lines,  cplx_pdb)
+    write_temp_pdb(receptor_lines, recv_pdb)
+    write_temp_pdb(ligand_lines,   lig_pdb)
+
+    _min_iter = int(os.environ.get("UPDD_MMPBSA_MIN_ITER",
+                                   os.environ.get("UPDD_MMGBSA_MIN_ITER", "5000")))
+    _min_tol = float(os.environ.get("UPDD_MMPBSA_MIN_TOL",
+                                    os.environ.get("UPDD_MMGBSA_MIN_TOL", "1.0")))
+
+    # --- 1. Build + minimize complex under GBn2 (bound-state geometry) ---
+    # Inject cofactor bonds (R-17 G6 parity with MM-GBSA path).
+    try:
+        pdb = PDBFile(cplx_pdb)
+    except Exception as e:
+        print(f"    [!] complex PDB 로드 실패: {e}")
+        return None
+    cplx_modeller = app.Modeller(pdb.topology, pdb.positions)
+    if cofactor_mol2_paths:
+        try:
+            sys.path.append(os.path.join(
+                os.path.dirname(os.path.abspath(__file__)), os.pardir, "utils"))
+            from run_restrained_md import inject_cofactor_bonds  # type: ignore
+            inject_cofactor_bonds(cplx_modeller, cofactor_mol2_paths)
+        except ImportError:
+            pass
+    if binder_chain:
+        cplx_modeller, _ = _apply_cyclic_bonds_mmgbsa(cplx_modeller, binder_chain)
+
+    try:
+        cplx_gb_system = ff.createSystem(
+            cplx_modeller.topology,
+            nonbondedMethod   = app.NoCutoff,
+            constraints       = HBonds,
+            soluteDielectric  = 1.0,
+            solventDielectric = 78.5,
+        )
+    except Exception as e:
+        print(f"    [!] Complex GB system 생성 실패: {e}")
+        return None
+    cplx_gb_system = apply_gb_radius_override(
+        cplx_gb_system, cplx_modeller.topology, ncaa_elem, si_radius,
+    )
+
+    _pref = os.environ.get("UPDD_MMGBSA_PLATFORM", "CUDA")
+    platform = None
+    for name in (_pref, "CUDA", "OpenCL", "CPU"):
+        try:
+            platform = mm.Platform.getPlatformByName(name)
+            break
+        except Exception:
+            continue
+    if platform is None:
+        platform = mm.Platform.getPlatformByName("CPU")
+
+    integrator = mm.VerletIntegrator(1.0 * unit.femtoseconds)
+    sim = Simulation(cplx_modeller.topology, cplx_gb_system, integrator, platform)
+    sim.context.setPositions(cplx_modeller.positions)
+    print(f"    [Fix4 min] {_min_iter} iter, tol={_min_tol} ({platform.getName()})")
+    sim.minimizeEnergy(maxIterations=_min_iter, tolerance=_min_tol)
+    min_state = sim.context.getState(getEnergy=True, getPositions=True)
+    cplx_min_positions = min_state.getPositions(asNumpy=False)
+
+    # --- 2. Build vacuum Systems (no GB) for prmtop export ---
+    # AmberParm carries the bonded + LJ + Coulomb terms only; PB contributes
+    # the solvation term separately via MMPBSA.py. We therefore strip GB
+    # from the force field used for prmtop generation.
+    #
+    # IMPORTANT: do NOT pass `constraints=HBonds` here. HBonds rewrites the
+    # bonded slot for H-containing bonds into Constraint objects, which
+    # leaves the corresponding HarmonicBondForce entries with null bond
+    # types. parmed.amber.AmberParm.from_structure then fails with
+    # `'NoneType' object has no attribute 'used'` while transferring
+    # bond info. MMPBSA.py is a single-point PB evaluator (no dynamics),
+    # so omitting constraints has no physical consequence for ΔG_PBSA.
+    def _build_vacuum(modeller, is_binder_side: bool):
+        # Pull ncAA XMLs / HFE multivalent from the *parent* ff so MTR /
+        # metal ions in the ligand / receptor retain parameters when we
+        # rebuild the vacuum System. We mimic the loader in _load_forcefield
+        # minus implicit/gbn2.xml.
+        vac_ff_files = [
+            "amber14-all.xml",
+            "amber/tip3p_HFE_multivalent.xml",
+        ]
+        # ncAA XML parameters need to propagate from the caller.
+        vac_ff = ForceField(*vac_ff_files, *_vacuum_ncaa_xmls)
+        # Re-register cofactor GAFF templates onto the vacuum FF as well
+        # so non-standard residues (GNP, ATP, …) receive parameters.
+        if cofactor_mol2_paths:
+            try:
+                from run_restrained_md import register_cofactor_templates  # type: ignore
+                register_cofactor_templates(vac_ff, cofactor_mol2_paths)
+            except ImportError:
+                pass
+        try:
+            vac_system = vac_ff.createSystem(
+                modeller.topology,
+                nonbondedMethod = app.NoCutoff,
+                # NO `constraints=HBonds` — required for parmed compatibility.
+            )
+        except Exception as e:
+            print(f"    [!] vacuum system 생성 실패 (binder={is_binder_side}): {e}")
+            return None
+        return vac_system
+
+    cplx_vac_system = _build_vacuum(cplx_modeller, True)
+    if cplx_vac_system is None:
+        return None
+
+    # --- 3. Subsystem topologies (position-transfer by atom key) ---
+    def _atom_key(atom):
+        res = atom.residue
+        chain_id = res.chain.id if res.chain is not None else " "
+        return (chain_id, res.name, str(res.id), atom.name)
+
+    cplx_index_map = {_atom_key(a): a.index for a in cplx_modeller.topology.atoms()}
+
+    def _load_subsystem(sub_pdb_path: str, sub_binder_chain: str):
+        try:
+            sub_pdb = PDBFile(sub_pdb_path)
+        except Exception as e:
+            print(f"    [!] subsystem PDB 로드 실패 ({sub_pdb_path}): {e}")
+            return None
+        sub_modeller = app.Modeller(sub_pdb.topology, sub_pdb.positions)
+        if cofactor_mol2_paths:
+            try:
+                from run_restrained_md import inject_cofactor_bonds  # type: ignore
+                inject_cofactor_bonds(sub_modeller, cofactor_mol2_paths)
+            except ImportError:
+                pass
+        if sub_binder_chain:
+            sub_modeller, _ = _apply_cyclic_bonds_mmgbsa(
+                sub_modeller, sub_binder_chain,
+            )
+        else:
+            sub_modeller.addHydrogens(ff)
+        sub_vac = _build_vacuum(sub_modeller, bool(sub_binder_chain))
+        if sub_vac is None:
+            return None
+        # Transfer minimized positions from complex → subsystem.
+        sub_positions = list(sub_modeller.positions)
+        for atom in sub_modeller.topology.atoms():
+            key = _atom_key(atom)
+            if key in cplx_index_map:
+                sub_positions[atom.index] = cplx_min_positions[cplx_index_map[key]]
+        return sub_modeller, sub_vac, sub_positions
+
+    rec_triple = _load_subsystem(recv_pdb, sub_binder_chain="")
+    lig_triple = _load_subsystem(lig_pdb, sub_binder_chain=binder_chain)
+    if rec_triple is None or lig_triple is None:
+        return None
+
+    # --- 4. Export AMBER prmtop/inpcrd via parmed ---
+    cplx_prefix = os.path.join(tmp_dir, "cplx")
+    rec_prefix  = os.path.join(tmp_dir, "rec")
+    lig_prefix  = os.path.join(tmp_dir, "lig")
+
+    try:
+        cplx_prm, cplx_inp, cplx_patched = _system_to_amber(
+            cplx_modeller.topology, cplx_vac_system, cplx_min_positions, cplx_prefix,
+        )
+        rec_prm, rec_inp, rec_patched = _system_to_amber(
+            rec_triple[0].topology, rec_triple[1], rec_triple[2], rec_prefix,
+        )
+        lig_prm, lig_inp, lig_patched = _system_to_amber(
+            lig_triple[0].topology, lig_triple[1], lig_triple[2], lig_prefix,
+        )
+    except Exception as e:
+        print(f"    [!] parmed prmtop 생성 실패: {e}")
+        return None
+    fallback_triggered = bool(cplx_patched or rec_patched or lig_patched)
+
+    # --- 5. Build a 1-frame mdcrd from the minimized complex inpcrd ---
+    # MMPBSA.py single-trajectory mode: -y complex.mdcrd. parmed rst7 is
+    # accepted by MMPBSA.py as a 1-frame trajectory (the MDCRD reader
+    # auto-detects format via extension or content).
+    cplx_mdcrd = cplx_inp  # rst7 is a legitimate single-frame trajectory
+
+    # --- 6. Run MMPBSA.py, parse result ---
+    parsed = _run_mmpbsa_py(
+        work_dir=tmp_dir,
+        cplx_prmtop=cplx_prm, rec_prmtop=rec_prm, lig_prmtop=lig_prm,
+        cplx_mdcrd=cplx_mdcrd, pbsa_cfg=pbsa_cfg, amberhome=amberhome,
+    )
+    if parsed is None:
+        return None
+
+    result = {
+        "snapshot":              basename,
+        "pdb_path":              pdb_path,
+        "ncaa_element":          ncaa_elem,
+        "si_radius_A":           si_radius,
+        "delta_g_kcal":          parsed["delta_g_kcal"],
+        "delta_epb_kcal":        parsed.get("delta_epb_kcal"),
+        "delta_enpolar_kcal":    parsed.get("delta_enpolar_kcal"),
+        "delta_edisper_kcal":    parsed.get("delta_edisper_kcal"),
+        "favorable":             parsed["delta_g_kcal"] < 0,
+        "protocol_variant":      "1traj",
+        "solvent_model":         "pbsa",
+        "minimize_iter":         _min_iter,
+        "minimize_tol":          _min_tol,
+        "platform":              platform.getName(),
+        # ncAA fallback flags — R-11 audit trail. ``fallback_triggered``
+        # flips to True when any of complex/receptor/ligand required the
+        # bond-type patch in ``_system_to_amber``.
+        "fallback_triggered":    fallback_triggered,
+        "fallback_detail":       {
+            "complex":  bool(cplx_patched),
+            "receptor": bool(rec_patched),
+            "ligand":   bool(lig_patched),
+        },
+    }
+
+    out_json = os.path.join(output_dir, f"{basename}_mmpbsa.json")
+    with open(out_json, "w", encoding="utf-8") as f:
+        json.dump(result, f, indent=2)
+    print(f"    ΔG_bind(PBSA) = {parsed['delta_g_kcal']:+.4f} kcal/mol")
+    return result
+
+
+# --------------------------------------------------------------------
+# CLI
+# --------------------------------------------------------------------
+def _load_forcefield(md_dir: str) -> Tuple[ForceField, List[str], List[str]]:
+    """Replicate the MM-GBSA ForceField assembly: amber14 + HFE multivalent
+    + GBn2 + any ncAA XML + ncAA Hydrogens defs, reading from the sibling
+    `params/` directory.
+    """
+    ff_files = [
+        "amber14-all.xml",
+        "amber/tip3p_HFE_multivalent.xml",
+        "implicit/gbn2.xml",
+    ]
+    params_dir = os.path.join(os.path.dirname(md_dir), "params")
+    ncaa_xmls: List[str] = []
+    ncaa_hydrogens: List[str] = []
+    for mf in sorted(glob.glob(os.path.join(params_dir, "*_params_manifest.json"))):
+        try:
+            with open(mf, "r", encoding="utf-8") as _mf:
+                manifest = json.load(_mf)
+            xml_path = manifest.get("xml_path", "")
+            if xml_path and os.path.exists(xml_path):
+                ncaa_xmls.append(xml_path)
+            h_path = manifest.get("hydrogens_path", "")
+            if h_path and os.path.exists(h_path):
+                ncaa_hydrogens.append(h_path)
+        except Exception as _me:
+            print(f"  [!] manifest 파싱 실패 ({os.path.basename(mf)}): {_me}")
+    for h_xml in ncaa_hydrogens:
+        try:
+            app.Modeller.loadHydrogenDefinitions(h_xml)
+        except Exception:
+            pass
+    try:
+        ff = ForceField(*ff_files, *ncaa_xmls)
+    except Exception as _ff_err:
+        print(f"  [!] ncAA XML 로드 실패 — amber14 only 로 폴백: {_ff_err}")
+        ff = ForceField(*ff_files)
+    return ff, ncaa_xmls, ncaa_hydrogens
+
+
+def _load_cofactor_mol2(target_id: str) -> List:
+    """R-17 G6 parity with MM-GBSA: load `cofactor_ff_parameters` from
+    the target_card so mol2-based cofactors (GNP/ATP/…) survive the
+    OpenMM Modeller bond-inference step.
+    """
+    if not target_id:
+        return []
+    try:
+        sys.path.append(os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), os.pardir, "utils"))
+        from run_restrained_md import load_cofactor_ff_parameters  # type: ignore
+        from utils_common import load_target_card  # type: ignore
+        cards_dir = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            os.pardir, "target_cards",
+        )
+        card = load_target_card(target_id, cards_dir=cards_dir)
+        return [
+            (r, p) for r, p in load_cofactor_ff_parameters(card)
+            if p.endswith(".mol2")
+        ]
+    except (FileNotFoundError, ValueError, ImportError) as _tc_err:
+        print(f"  [R-17 G6][WARN] target_card '{target_id}' 로드 실패 "
+              f"({_tc_err}) — cofactor FF 등록 생략")
+        return []
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="MM-PBSA ΔG — AmberTools pbsa on Fix 4 minimized geometries.",
+    )
+    parser.add_argument("--md_dir",         required=True,
+                        help="MD snapshot directory (same shape as run_mmgbsa.py).")
+    parser.add_argument("--outputdir",      required=True,
+                        help="MM-PBSA 결과 출력 디렉토리.")
+    parser.add_argument("--ncaa_elem",      default="none",
+                        help="ncAA 핵심 원소 (예: Si, F, 기본 none).")
+    parser.add_argument("--si_radius",      type=float, default=2.10,
+                        help="Si GB 반경 (legacy, 기본 2.10).")
+    parser.add_argument("--receptor_chain", default="A",
+                        help="Receptor chain ID (기본 A).")
+    parser.add_argument("--binder_chain",   default="B",
+                        help="Binder chain ID (기본 B).")
+    parser.add_argument("--target_id",      default="",
+                        help="target_card stem (예: 2QKI / 6WGN) for cofactor FF.")
+    parser.add_argument("--protocol",       default="1traj",
+                        choices=("1traj",),
+                        help="MM-PBSA protocol (현재 1traj 만 지원).")
+    parser.add_argument("--ionic_strength", type=float,
+                        default=PBSA_DEFAULTS["ionic_strength_M"],
+                        help="pbsa 이온 세기 (M, 기본 0.150).")
+    parser.add_argument("--n_snaps",        type=int, default=0,
+                        help="0 = all; 양수 = 앞에서부터 N 개만 (dry-run/test 용).")
+    parser.add_argument("--max_snaps",      type=int, default=None,
+                        help="Alias of --n_snaps (Track B validation convention). "
+                             "Takes precedence if both are given.")
+    parser.add_argument("--dry_run",        action="store_true",
+                        help="MMPBSA.py 호출 없이 입력 파일 / 명령줄만 점검.")
+    args = parser.parse_args()
+
+    os.makedirs(args.outputdir, exist_ok=True)
+
+    amberhome = _find_amberhome()
+    print(f"[MM-PBSA ΔG Calculation]")
+    print(f"  AMBERHOME   : {amberhome}")
+    print(f"  solver      : ambertools_pbsa (MMPBSA.py single-traj)")
+    print(f"  protocol    : {args.protocol}")
+    print(f"  md_dir      : {args.md_dir}")
+    print(f"  outputdir   : {args.outputdir}")
+
+    ff, ncaa_xmls, ncaa_hydrogens = _load_forcefield(args.md_dir)
+    if ncaa_xmls:
+        print(f"  ncAA XML    : {[os.path.basename(x) for x in ncaa_xmls]}")
+    cofactor_mol2 = _load_cofactor_mol2(args.target_id)
+    if cofactor_mol2:
+        print(f"  cofactor mol2: {[r for r,_ in cofactor_mol2]}")
+
+    # Register cofactor GAFF templates on the main-process ff so
+    # Modeller / createSystem do not fail at cofactor residues.
+    if cofactor_mol2:
+        try:
+            sys.path.append(os.path.join(
+                os.path.dirname(os.path.abspath(__file__)), os.pardir, "utils"))
+            from run_restrained_md import register_cofactor_templates  # type: ignore
+            register_cofactor_templates(ff, cofactor_mol2)
+        except ImportError:
+            pass
+
+    pdb_files = sorted(glob.glob(os.path.join(args.md_dir, "*_final.pdb")))
+    if not pdb_files:
+        pdb_files = sorted(glob.glob(os.path.join(args.md_dir, "*.pdb")))
+    if not pdb_files:
+        print(f"[!] PDB 파일 없음: {args.md_dir}")
+        return
+    _cap = args.max_snaps if args.max_snaps is not None else args.n_snaps
+    if _cap and _cap > 0:
+        pdb_files = pdb_files[:_cap]
+
+    print(f"  대상 PDB    : {len(pdb_files)}개")
+    print(f"  ionic 세기  : {args.ionic_strength} M")
+
+    pbsa_cfg = dict(PBSA_DEFAULTS)
+    pbsa_cfg["ionic_strength_M"] = args.ionic_strength
+
+    if args.dry_run:
+        print("\n[DRY RUN] Constructing MMPBSA.py command skeleton only.")
+        sample_work = os.path.join(args.outputdir, "tmp_pbsa", "DRYRUN")
+        os.makedirs(sample_work, exist_ok=True)
+        input_file = os.path.join(sample_work, "pbsa.in")
+        _write_pbsa_input(input_file, pbsa_cfg)
+        print(f"  input file : {input_file}")
+        with open(input_file, "r", encoding="utf-8") as _f:
+            print("----- pbsa.in -----")
+            print(_f.read())
+            print("-------------------")
+        sample_cmd = [
+            "MMPBSA.py", "-O",
+            "-i", input_file,
+            "-o", os.path.join(sample_work, "FINAL_RESULTS_MMPBSA.dat"),
+            "-cp", "<cplx.prmtop>",
+            "-rp", "<rec.prmtop>",
+            "-lp", "<lig.prmtop>",
+            "-y",  "<cplx.inpcrd>",
+        ]
+        print(f"  sample cmd : {' '.join(sample_cmd)}")
+        print(f"  AMBERHOME  : {amberhome}")
+        return
+
+    all_results: List[Dict] = []
+    for pdb_path in pdb_files:
+        try:
+            res = calc_mmpbsa_1traj(
+                pdb_path, args.outputdir, ff,
+                args.ncaa_elem, args.si_radius,
+                receptor_chain=args.receptor_chain,
+                binder_chain=args.binder_chain,
+                pbsa_cfg=pbsa_cfg, amberhome=amberhome,
+                cofactor_mol2_paths=cofactor_mol2,
+                ncaa_xmls=ncaa_xmls,
+            )
+        except Exception as _err:
+            print(f"  [!] snap 실패 ({os.path.basename(pdb_path)}): "
+                  f"{_err.__class__.__name__}: {_err}")
+            res = None
+        if res is not None:
+            all_results.append(res)
+
+    if not all_results:
+        print("\n[!] 계산된 결과 없음")
+        return
+
+    all_results.sort(key=lambda r: r["delta_g_kcal"])
+    _n_fallback = sum(1 for r in all_results if r.get("fallback_triggered"))
+    summary = {
+        "schema_version":   "0.6.9",
+        "protocol_variant": args.protocol,
+        "solvent_model":    "pbsa",
+        "gb_model":         "n2",
+        "fallback_triggered": _n_fallback > 0,
+        "n_fallback_snaps":  _n_fallback,
+        "pbsa_config": {
+            "solver":           "ambertools_pbsa",
+            "ionic_strength_M": args.ionic_strength,
+            "temperature_K":    pbsa_cfg["temperature_K"],
+            "epsilon_solute":   pbsa_cfg["epsilon_solute"],
+            "epsilon_solvent":  pbsa_cfg["epsilon_solvent"],
+            "cavity_surften":   pbsa_cfg["cavity_surften"],
+            "cavity_offset":    pbsa_cfg["cavity_offset"],
+            "inp":              pbsa_cfg["inp"],
+            "ipb":              pbsa_cfg["ipb"],
+            "radiopt":          pbsa_cfg["radiopt"],
+            "amberhome":        amberhome,
+        },
+        "ncaa_elem":  args.ncaa_elem,
+        "si_radius":  args.si_radius,
+        "n_calc":     len(all_results),
+        "mean_dg":    float(np.mean([r["delta_g_kcal"] for r in all_results])),
+        "best_dg":    float(all_results[0]["delta_g_kcal"]),
+        "results":    all_results,
+    }
+    summary_path = os.path.join(args.outputdir, "mmpbsa_summary.json")
+    with open(summary_path, "w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=2)
+
+    print(f"\n  [ΔG_bind(PBSA) 순위]")
+    print(f"  {'순위':<4} {'스냅샷':<42} {'ΔG (kcal/mol)':>14}")
+    print("  " + "-" * 62)
+    for i, r in enumerate(all_results, 1):
+        flag = "✅" if r["favorable"] else "⚠️ "
+        print(f"  {i:<4} {r['snapshot'][:40]:<42} {r['delta_g_kcal']:>+12.4f}  {flag}")
+    print(f"\n  평균 ΔG : {summary['mean_dg']:+.4f} kcal/mol")
+    print(f"  최선 ΔG : {summary['best_dg']:+.4f} kcal/mol")
+    print(f"  요약 저장 : {summary_path}")
+
+
+if __name__ == "__main__":
+    main()

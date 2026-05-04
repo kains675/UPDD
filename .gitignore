@@ -1,0 +1,9 @@
+# UPDD .gitignore (created 2026-05-05, Phase 2 of code unification)
+
+# AmberTools MMPBSA.py transient scratch (regenerable)
+# These files are written by MMPBSA.py to its CWD; if MMPBSA.py is launched
+# from repo root they pollute the working tree. Pattern is conservative
+# enough to not match any tracked .md / .py / .json paths.
+_MMPBSA_*
+mdout
+*.mdcrd.0

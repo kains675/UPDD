@@ -341,8 +341,10 @@ def run_pixi_command(script_path: str, args: List[str], description: str) -> Non
 
 
 # [v3 1-1] arrow_menu / select_topology / select_ncaa / get_target_preprocess_options /
-# gather_all_inputs 는 utils/updd_cli.py 로 분리되었다. 본 모듈은 UI 책임을 갖지 않는다.
-from updd_cli import (  # noqa: E402
+# gather_all_inputs 는 utils/updd_tui.py 로 분리되었다. 본 모듈은 UI 책임을 갖지 않는다.
+# (Phase 1 rename 2026-05-05: utils/updd_cli.py → utils/updd_tui.py — namespace
+#  collision with scripts/updd_cli.py removed, incident #99/#100 root cause closed.)
+from updd_tui import (  # noqa: E402
     arrow_menu,
     select_topology as _select_topology_ui,
     select_ncaa as _select_ncaa_ui,

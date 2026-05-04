@@ -1669,64 +1669,74 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
                 ),
             )
 
-            # ── R-16: binder hint vs runtime chemistry ─────────────────
+            # ── R-16 X1 (schema 0.6.6): runtime-only policy ────────────
+            # SciVal verdict_mmgbsa_rootcause_20260420 + user partner review:
+            # target_card.binder_net_charge 는 **informational hint** 로 격하.
+            # Runtime-computed chemistry 가 authoritative → fail-fast 아닌 warn.
+            # Safety net: (1) build_qm_mol 의 OddElectronError parity check,
+            # (2) classify_residue_charge 의 regression test (tests/).
+            import warnings as _w_r16
             if _binder_charge_computed != _binder_charge_declared:
                 _diag(
-                    "binder_charge_mismatch",
+                    "binder_charge_hint_mismatch",
                     snapshot=basename,
-                    binder_card=int(_binder_charge_declared),
-                    binder_chem=int(_binder_charge_computed),
-                    policy="fail_fast_r14",
+                    binder_card_hint=int(_binder_charge_declared),
+                    binder_chem_runtime=int(_binder_charge_computed),
+                    policy="runtime_authoritative_x1",
                 )
-                _msg = (
-                    f"R-16 BinderChargeMismatch: target_card.binder_net_charge="
-                    f"{_binder_charge_declared} but runtime PDB computes "
-                    f"{_binder_charge_computed} for chain "
-                    f"{_tc_binder_chain}. Per-residue breakdown: "
-                    f"{(_charge_topology_diag or {}).get('binder_diag', {}).get('per_residue')}"
+                _w_r16.warn(
+                    f"R-16 X1: target_card.binder_net_charge="
+                    f"{_binder_charge_declared} is a HINT; runtime PDB chemistry "
+                    f"computes {_binder_charge_computed} for chain "
+                    f"{_tc_binder_chain} — using runtime value as authoritative. "
+                    f"Per-residue breakdown: "
+                    f"{(_charge_topology_diag or {}).get('binder_diag', {}).get('per_residue')}",
+                    RuntimeWarning, stacklevel=2,
                 )
-                raise BinderChargeMismatch(_msg)
 
-            # ── R-15: declared magnitude vs runtime chemistry ──────────
+            # ── R-15 X1: declared total magnitude (hint) vs runtime ────
             _declared_total = _binder_charge_declared + int(_target_iso_charge)
             if _declared_total != _total_charge_computed:
                 _diag(
-                    "charge_declaration_mismatch",
+                    "charge_declaration_hint_mismatch",
                     snapshot=basename,
-                    declared=int(_declared_total),
-                    computed=int(_total_charge_computed),
+                    declared_hint=int(_declared_total),
+                    computed_runtime=int(_total_charge_computed),
                     binder_declared=int(_binder_charge_declared),
                     target_declared=int(_target_iso_charge),
                     binder_chem=int(_binder_charge_computed),
                     target_chem=int(_target_charge_computed),
-                    policy="fail_fast_r13",
+                    policy="runtime_authoritative_x1",
                 )
-                _msg = (
-                    f"R-15 ChargeDeclarationMismatch: declared qm_net_charge="
-                    f"{_declared_total} (binder={_binder_charge_declared} + target="
-                    f"{_target_iso_charge}) but chemistry-true topology computes "
-                    f"{_total_charge_computed} (binder={_binder_charge_computed} + "
-                    f"target={_target_charge_computed}). "
-                    "Parity-invariant silent pass prevented. "
-                    "See SciVal verdict_target_card_charge_rationale_20260419_v2.md."
+                _w_r16.warn(
+                    f"R-15 X1: declared qm_net_charge={_declared_total} "
+                    f"(binder={_binder_charge_declared}+target={_target_iso_charge}) "
+                    f"is a HINT; runtime chemistry computes "
+                    f"{_total_charge_computed} (binder={_binder_charge_computed}+"
+                    f"target={_target_charge_computed}) — using runtime as "
+                    f"authoritative. Parity-invariant wrong-state prevention "
+                    f"delegated to build_qm_mol OddElectronError + "
+                    f"classify_residue_charge regression tests.",
+                    RuntimeWarning, stacklevel=2,
                 )
-                raise ChargeDeclarationMismatch(_msg)
-
-            # Equal → verification passed.
-            _diag(
-                "charge_magnitude_verified",
-                snapshot=basename,
-                declared=int(_declared_total),
-                computed=int(_total_charge_computed),
-            )
+            else:
+                _diag(
+                    "charge_magnitude_verified",
+                    snapshot=basename,
+                    declared=int(_declared_total),
+                    computed=int(_total_charge_computed),
+                )
     except (BinderChargeMismatch, ChargeDeclarationMismatch) as _chem_guard_err:
+        # X1 note: 본 분기는 더 이상 runtime-only policy 하에서 발생하지 않지만,
+        # 레거시 호출 경로나 test fixture 가 수동으로 BinderChargeMismatch/
+        # ChargeDeclarationMismatch 를 raise 할 수 있으므로 방어적으로 유지.
         _reason = (
-            "binder_charge_mismatch_r14"
+            "binder_charge_mismatch_legacy"
             if isinstance(_chem_guard_err, BinderChargeMismatch)
-            else "charge_declaration_mismatch_r13"
+            else "charge_declaration_mismatch_legacy"
         )
-        print(f"  [R-15/R-16] charge guard raised → skipped: {basename}")
-        print(f"  [R-15/R-16] detail: {_chem_guard_err}")
+        print(f"  [R-15/R-16][LEGACY] charge guard raised → skipped: {basename}")
+        print(f"  [R-15/R-16][LEGACY] detail: {_chem_guard_err}")
         failure_result = {
             "snapshot":               basename,
             "pdb_path":               pdb_path,
@@ -1749,7 +1759,6 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
             "binder_charge_computed": int(_binder_charge_computed),
             "charge_consistency_audit": "failed",
             "charge_topology_diag":   _charge_topology_diag,
-            # Diagnostic-mode flags (injection not reached — guard fired first).
             "diagnostic_mode":              bool(os.environ.get("UPDD_COFACTOR_INJECT_DIAGNOSTIC") == "1"),
             "cofactors_injected_at_runtime": [],
             "cofactor_source_pdb":          None,
@@ -1759,11 +1768,11 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
             json.dump(failure_result, f, indent=2)
         return failure_result
 
-    # v0.6.x legacy path: ``_binder_charge`` name retained for downstream
-    # diagnostic messages below. Use computed value as the source of truth
-    # (equal to declared when guards pass; guards raise on mismatch).
+    # [R-16 X1, schema 0.6.6] Runtime chemistry 가 authoritative.
+    # target_card.binder_net_charge / target_iso_net_charge 는 hint 전용 →
+    # QM total charge 는 PDB 에서 계산된 runtime 값 사용.
     _binder_charge = int(_binder_charge_computed)
-    qm_net_charge = _binder_charge + int(_target_iso_charge)
+    qm_net_charge = int(_total_charge_computed)
 
     try:
         mol = build_qm_mol(qm_atoms, charge=qm_net_charge, basis=qm_basis)

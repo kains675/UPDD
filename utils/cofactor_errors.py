@@ -28,6 +28,9 @@ Design notes
 - R-15 ``ChargeDeclarationMismatch`` and R-16 ``BinderChargeMismatch`` stay in
   their existing module (``utils/charge_topology.py``) — R-17 is orthogonal
   (atom presence), not a charge-topology concern.
+- [2026-04-20 X1] R-15/R-16 은 schema 0.6.6 부터 **runtime-only policy** 로
+  전환되어 기본적으로 raise 되지 않고 warn 만 방출한다. 본 exception 들은
+  legacy test fixture / downstream module 의 호환용으로 유지.
 
 Python 3.8+ compatible (Optional[str], no PEP 604 unions).
 """

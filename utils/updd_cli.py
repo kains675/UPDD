@@ -262,6 +262,20 @@ def gather_all_inputs(base_name: str,
     iptm_cutoff = input("\n ipTM 필터 임계값 (기본 0.3, Enter로 스킵): ").strip()
     iptm_cutoff = float(iptm_cutoff) if iptm_cutoff else 0.3
 
+    # Pre-filter RMSD threshold (Step 6.5 RMSD sub-filter).
+    # Kabsch Cα RMSD of AF2 rank_001 chain A vs crystal — rejects designs
+    # where AF2 predicted the target fold too far from the reference.
+    # Default 2.5 Å accepts the full AF2-multimer noise envelope (Bryant
+    # 2022 Nat Commun IQR 1.5-3.2 Å); set 2.0 Å for stricter pre-screen.
+    rmsd_cutoff_in = input(
+        "\n 구조 RMSD 필터 임계값 (Å, 기본 2.5, Enter로 스킵; "
+        "더 엄격히 하려면 2.0 입력): "
+    ).strip()
+    try:
+        rmsd_cutoff = float(rmsd_cutoff_in) if rmsd_cutoff_in else 2.5
+    except ValueError:
+        rmsd_cutoff = 2.5
+
     return {
         "preprocess_opts": preprocess_opts,
         "hotspots": hotspots,
@@ -281,4 +295,5 @@ def gather_all_inputs(base_name: str,
         "msa_choice": msa_choice,
         "hdd_name": hdd_name,
         "iptm_cutoff": iptm_cutoff,
+        "rmsd_cutoff": rmsd_cutoff,
     }

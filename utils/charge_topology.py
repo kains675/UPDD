@@ -191,6 +191,15 @@ def compute_binder_chem_charge(
         (binder_chem_charge, diagnostic).
     """
     ncaa_charge_map = dict(ncaa_charge_map or {})
+    # R-16: seed defaults from the ncAA registry (single source of truth) so
+    # charged ncAAs (ORN/DAB/HAR/NMK/NMR/DAR/TPO/PTR/…) are recognized
+    # without requiring callers to repeat the table.
+    try:
+        from ncaa_registry import get_ncaa_charge_map  # type: ignore
+        for _rn, _q in get_ncaa_charge_map().items():
+            ncaa_charge_map.setdefault(_rn, _q)
+    except ImportError:
+        pass
     ncaa_charge_map.setdefault("NME", 0)
     ncaa_charge_map.setdefault("NMA", 0)
     ncaa_charge_map.setdefault("ACE", 0)

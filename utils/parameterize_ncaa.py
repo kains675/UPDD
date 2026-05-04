@@ -532,8 +532,15 @@ def _build_pdb_name_map(atoms, ncaa_mutation_type) -> dict:
 # sum = 0.0000). Reference: Maier 2015 doi:10.1021/acs.jctc.5b00255.
 # HE1 (+0.3412) is removed in MTR (methylated); its charge is redistributed to
 # CM + 3×HM with total = +0.3412 so that MTR net charge preserves TRP's 0.0000.
-# NE1 kept at ff14SB value (−0.3418) — local dipole preserved per Capece 2012
-# (doi:10.1021/jp2082825) group-equivalence principle.
+# NE1 kept at ff14SB value (−0.3418) — local dipole preserved per the RESP
+# group-equivalence principle (Bayly et al. 1993 §III.B
+# doi:10.1021/j100142a004; Cieplak et al. 1995 §II.B
+# doi:10.1002/jcc.540161106). The earlier inline citation to Capece 2012
+# (doi:10.1021/jp2082825) was a misattribution: that paper is a heme
+# dioxygenase reaction-mechanism study (IDO QM/MM), not RESP methodology.
+# PDF re-acquisition was attempted 2026-04-28 (see
+# outputs/analysis/capece_2012_acquisition_log_20260428.md) and the
+# attribution was re-traced to the actual RESP source pair above.
 _MTR_AMBER14_CHARGES = {
     "N":  -0.4157, "H":   0.2719,
     "CA": -0.0275, "HA":  0.1123,
@@ -550,7 +557,12 @@ _MTR_AMBER14_CHARGES = {
     "C":   0.5973, "O":  -0.5679,
     # Extension atoms (CM + HMs) sum = +0.3412 (replaces removed HE1)
     # Split: CM carries residual (0.3412 - 3*HM_q), HMs equal.
-    # HM_q = 0.0975 (Capece 2012 indicative; local RESP would refine ±0.05 e).
+    # HM_q = 0.0975 (consistent with Khoury et al. 2014 Forcefield_PTM RESP-A2
+    # fit for N-methyl side-chain protons, doi:10.1021/sb400168u; cf. Maier
+    # 2015 ff14SB aliphatic-CH₃ HC range 0.07–0.11 e). Local RESP would
+    # refine to ±0.05 e. Earlier "Capece 2012 indicative" attribution
+    # corrected 2026-04-28 — see acquisition log
+    # outputs/analysis/capece_2012_acquisition_log_20260428.md.
     "CM":  0.0487,
     "HM1": 0.0975, "HM2": 0.0975, "HM3": 0.0975,
 }
@@ -801,7 +813,11 @@ def _apply_mtr_amber14_charge_patch(xml_path: str) -> bool:
 def _build_pdb_name_map_trp_bootstrap(atoms) -> dict:
     """[v0.6.6 Strategy A] MTR (1-Me-Trp) 전용 GAFF2 → amber14 PDB 원자명 매핑.
 
-    구현 배경 (Capece 2012 §2 doi:10.1021/jp2082825, Khoury 2014 §2.3):
+    구현 배경 (Khoury 2014 §2.3 doi:10.1021/sb400168u — Forcefield_PTM
+    ncAA atom-naming map; cf. Maier 2015 amber14 TRP scaffold
+    doi:10.1021/acs.jctc.5b00255). 이전 Capece 2012 (jp2082825) 인용은
+    오인용으로 2026-04-28 정정됨 — 자세한 내용은
+    outputs/analysis/capece_2012_acquisition_log_20260428.md 참조.
     - MTR 은 amber14 TRP scaffold 에 N1-methyl 확장. 모든 backbone + indole
       heavy atom 은 amber14 TRP 의 표준 원자명을 갖고, CM 은 NE1 에 부착된
       methyl C. 이 함수는 GAFF2 mol2 의 atom graph 를 걸어 amber14 호환
@@ -1459,7 +1475,15 @@ def main():
     # 는 <AtomTypes> 블록으로 element 추론하는데 amber14 'protein-*' type 은
     # MTR_gaff2.xml 에 정의되지 않아 lookup 실패 → H entries 누락).
     # Fixes Khoury 2013 §2.3 pure-GAFF2 backbone bias.
-    # Ref: Capece 2012 doi:10.1021/jp2082825, Maier 2015 doi:10.1021/acs.jctc.5b00255.
+    # Refs: Maier 2015 (ff14SB TRP charge set, doi:10.1021/acs.jctc.5b00255);
+    # Khoury 2013 / 2014 (Forcefield_PTM ncAA RESP-A2 protocol,
+    # doi:10.1021/ct400556v / doi:10.1021/sb400168u); Bayly 1993
+    # (RESP charge-equivalence, doi:10.1021/j100142a004); Cieplak 1995
+    # (multi-conformer RESP for biopolymers, doi:10.1002/jcc.540161106).
+    # Earlier "Capece 2012 doi:10.1021/jp2082825" inline ref was a
+    # misattribution (heme-dioxygenase reaction-mechanism paper, not FF
+    # methodology) — corrected 2026-04-28; see acquisition log
+    # outputs/analysis/capece_2012_acquisition_log_20260428.md.
     parent_residue = getattr(ncaa_def, "parent_residue", None)
     # [v0.6.6 Strategy A] amber14 type+charge patch is OPT-IN via UPDD_MTR_AMBER14_PATCH=1.
     # Default OFF: pure GAFF2 pipeline works reliably through template matching + graph

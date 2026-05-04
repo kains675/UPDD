@@ -368,6 +368,15 @@ def load_target_card(target_id, cards_dir=None):
                    cards are auto-upgraded at load with defaults
                    (``required=True``, ``source="pdb_literal"``, ``ff_parameters={}``,
                    ``alternative_treatments=[treatment]``) and a one-time warning.
+        - 0.6.6 — Phase 1 Day 1-2 (2026-04-20, R-16 X1): runtime-only charge
+                   policy. ``binder_net_charge`` / ``target_iso_net_charge`` 는
+                   informational hint 으로 격하. Runtime chemistry (PDB 기반)
+                   가 authoritative. R-16/R-15 guard 는 fail-fast 아닌 warn.
+                   Safety net: (1) build_qm_mol 의 OddElectronError parity check,
+                   (2) classify_residue_charge regression test. 이전 cards 는
+                   schema_version 만 0.6.5 그대로 읽히며, runtime 가 hint 와
+                   다르면 단일 warning 발생. SciVal verdict_mmgbsa_rootcause_
+                   20260420 §5 참조.
 
     Args:
         target_id: Target identifier (e.g. "6WGN"). Must match the JSON filename
@@ -392,7 +401,7 @@ def load_target_card(target_id, cards_dir=None):
         raise FileNotFoundError("target_card not found: {}".format(path))
     with open(path, "r", encoding="utf-8") as f:
         card = json.load(f)
-    supported = {"0.6.0", "0.6.1", "0.6.2", "0.6.3", "0.6.4", "0.6.5"}
+    supported = {"0.6.0", "0.6.1", "0.6.2", "0.6.3", "0.6.4", "0.6.5", "0.6.6"}
     if card.get("schema_version") not in supported:
         raise ValueError(
             "Unsupported target_card schema_version: {} (supported: {})".format(

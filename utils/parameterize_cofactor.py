@@ -107,8 +107,12 @@ def _regenerate_gaff2_params(
         )
 
     os.makedirs(out_dir, exist_ok=True)
-    mol2_path = os.path.join(out_dir, f"{resname}.mol2")
-    frcmod_path = os.path.join(out_dir, f"{resname}.frcmod")
+    # Filenames are lowercase to match target_card's canonical layout
+    # ``params/<resname_lower>/<resname_lower>.{mol2,frcmod}``. The internal
+    # residue name inside the files stays uppercase via antechamber ``-rn``.
+    _stem = resname.lower()
+    mol2_path = os.path.join(out_dir, f"{_stem}.mol2")
+    frcmod_path = os.path.join(out_dir, f"{_stem}.frcmod")
 
     try:
         subprocess.run(
@@ -126,6 +130,33 @@ def _regenerate_gaff2_params(
              "-s", "gaff2"],
             check=True, capture_output=True, text=True, cwd=out_dir,
         )
+        # Also emit (a) an SDF and (b) a SYBYL-typed mol2 alongside the GAFF2
+        # mol2. The SYBYL mol2 is what OpenFF/RDKit can actually parse —
+        # RDKit's Mol2 parser rejects GAFF2 atom type codes like 'p5'/'n7',
+        # while SYBYL codes ('P.3'/'N.am') are standard. The SYBYL file
+        # preserves the AM1-BCC partial charges from the GAFF2 file, so G4
+        # can feed charge-carrying OpenFF Molecules to GAFFTemplateGenerator
+        # without needing to re-run AM1-BCC.
+        sdf_path = os.path.join(out_dir, f"{_stem}.sdf")
+        sybyl_mol2_path = os.path.join(out_dir, f"{_stem}_sybyl.mol2")
+        try:
+            subprocess.run(
+                ["antechamber", "-i", mol2_path, "-fi", "mol2",
+                 "-o", sdf_path, "-fo", "sdf",
+                 "-at", "gaff2", "-rn", resname, "-s", "0", "-dr", "no"],
+                check=True, capture_output=True, text=True, cwd=out_dir,
+            )
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            pass
+        try:
+            subprocess.run(
+                ["antechamber", "-i", mol2_path, "-fi", "mol2",
+                 "-o", sybyl_mol2_path, "-fo", "mol2",
+                 "-at", "sybyl", "-rn", resname, "-s", "0", "-dr", "no"],
+                check=True, capture_output=True, text=True, cwd=out_dir,
+            )
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            pass
     except FileNotFoundError as exc:
         raise CofactorParamMissingError(
             f"antechamber/parmchk2 not available on PATH: {exc}",
@@ -139,6 +170,93 @@ def _regenerate_gaff2_params(
         ) from exc
 
     return {"mol2": mol2_path, "frcmod": frcmod_path}
+
+
+# ==========================================
+# Method-token classification (SciVal verdict_cofactor_method_catalog)
+# ==========================================
+# Tokens that resolve to AMBER-shipped ion FF (no per-target mol2/frcmod).
+# G4 consumers skip loadFile() for these resnames.
+_ION_BUILTIN_TOKENS = frozenset({
+    "li_merz_12_6_4",
+    "li_merz",
+    "li_merz_12_6_4_trivalent",  # Fe3+ (frcmod.ions34lm_1264)
+    "li_merz_126",               # Cu+ monovalent transition metal
+    "panteva_12_6_4",            # Mg2+/Mn2+/Zn2+ nucleic-acid context
+    "joung_cheatham",            # Na/K/Cs/Li/Cl/Br/I/F
+    "amber_ion",
+    "ion_builtin",
+})
+
+# Tokens that require pre-shipped community frcmod/mol2 (Meagher polyphosphate,
+# Ryde NAD, Shahrokh heme, Aleksandrov CoA, Kashefolgheta oxoanions, …).
+# G3 does NOT regenerate via antechamber for these — user must ship the files
+# under params/<resname>/ or set ff_parameters.{mol2,frcmod} to their paths.
+_LIBRARY_TOKENS = frozenset({
+    "amber_library",
+    "amber_library_heme",
+    "amber_library_heme_covalent",
+    "gaff2_anion",
+})
+
+# Tokens eligible for antechamber AM1-BCC auto-regeneration from a source PDB.
+_GAFF2_AUTO_TOKENS = frozenset({"gaff2", "gaff2_bcc"})
+
+# Tokens that require user-supplied RESP-fit mol2. G3 verifies the file
+# exists (at ff_parameters.resp_mol2 or .mol2) and runs parmchk2 against it.
+_GAFF2_RESP_EXTERNAL_TOKENS = frozenset({"gaff2_resp", "gaff2_resp_external"})
+
+
+def _library_remediation_hint(resname: str, method: str) -> str:
+    """One-line hint appended to CofactorParamMissingError messages pointing
+    the user at the canonical community library source for ``method``."""
+    hints = {
+        "amber_library":
+            "Ship community frcmod/mol2 (Meagher 2003 polyphosphate / Ryde 1995 NAD / "
+            "Aleksandrov 2006 CoA / Bryce DB). See verdict_cofactor_method_catalog §2.",
+        "amber_library_heme":
+            "Ship Shahrokh 2012 heme library for the declared heme_state; "
+            "set ff_parameters.heme_state and supply the matching .frcmod/.mol2.",
+        "amber_library_heme_covalent":
+            "Run MCPB.py per-target to generate the bonded Fe-S-C frcmod (Li/Merz 2016).",
+        "gaff2_anion":
+            "Ship Kashefolgheta 2017 oxoanion frcmod/mol2.",
+        "gaff2_resp_external":
+            "Run Gaussian/ORCA + antechamber -c resp and place the .mol2 at "
+            "ff_parameters.resp_mol2 (or .mol2). parmchk2 will derive the frcmod.",
+    }
+    return hints.get(method, "")
+
+
+def _parmchk2_from_resp_mol2(
+    resname: str, resp_mol2: str, out_dir: str,
+) -> Dict[str, str]:
+    """Run parmchk2 against a user-supplied RESP .mol2 to derive the frcmod.
+
+    Does NOT touch charges (RESP file is authoritative). Raises
+    CofactorParamMissingError if parmchk2 is unavailable or fails.
+    """
+    os.makedirs(out_dir, exist_ok=True)
+    frcmod_path = os.path.join(out_dir, f"{resname.lower()}.frcmod")
+    try:
+        subprocess.run(
+            ["parmchk2", "-i", resp_mol2, "-f", "mol2", "-o", frcmod_path,
+             "-s", "gaff2"],
+            check=True, capture_output=True, text=True, cwd=out_dir,
+        )
+    except FileNotFoundError as exc:
+        raise CofactorParamMissingError(
+            f"parmchk2 not available on PATH for {resname} "
+            f"(gaff2_resp_external): {exc}",
+            method="gaff2_resp_external", resname=resname, gate="G3",
+        ) from exc
+    except subprocess.CalledProcessError as exc:
+        raise CofactorParamMissingError(
+            f"parmchk2 failed for {resname} (gaff2_resp_external): "
+            f"rc={exc.returncode} stderr={(exc.stderr or '')[:240]}",
+            method="gaff2_resp_external", resname=resname, gate="G3",
+        ) from exc
+    return {"mol2": os.path.abspath(resp_mol2), "frcmod": frcmod_path}
 
 
 # ==========================================
@@ -188,17 +306,18 @@ def ensure_cofactor_params(
 
         mol2_abs = _resolve_abs(ff_params.get("mol2"))
         frcmod_abs = _resolve_abs(ff_params.get("frcmod"))
+        resp_mol2_abs = _resolve_abs(ff_params.get("resp_mol2"))
 
-        # Ion models (Li-Merz 12-6-4 etc.) ship with AMBER and do not need a
-        # per-target frcmod. Report as ion_builtin so G4 skips loadFile().
-        if method in ("li_merz_12_6_4", "li_merz", "amber_ion", "ion_builtin"):
+        # (1) Ion models ship with AMBER and do not need a per-target frcmod.
+        # See verdict_cofactor_method_catalog §2.1 for the token catalog.
+        if method in _ION_BUILTIN_TOKENS:
             out.append({
                 "resname": resname, "status": "ion_builtin",
                 "method": method, "mol2": None, "frcmod": None,
             })
             continue
 
-        # Cache hit: both files exist.
+        # (2) Cache hit: both files exist.
         if mol2_abs and frcmod_abs and os.path.exists(mol2_abs) and os.path.exists(frcmod_abs):
             out.append({
                 "resname": resname, "status": "cache_hit",
@@ -206,14 +325,47 @@ def ensure_cofactor_params(
             })
             continue
 
-        # Regeneration branch (opt-in only).
+        # (3) Community library tokens — user MUST ship frcmod/mol2.
+        # No antechamber regen (polyphosphate / heme / oxoanion cannot be
+        # reproduced via AM1-BCC). Fail-fast with remediation hint.
+        if method in _LIBRARY_TOKENS:
+            raise CofactorParamMissingError(
+                f"R-17 G3: cofactor '{resname}' uses method='{method}' which "
+                f"requires a pre-shipped community library. Checked: "
+                f"mol2={mol2_abs}, frcmod={frcmod_abs}. "
+                f"{_library_remediation_hint(resname, method)}",
+                method=method, resname=resname, gate="G3",
+                param_paths=[p for p in (mol2_abs, frcmod_abs) if p],
+            )
+
+        # (4) User-supplied RESP .mol2 path → run parmchk2 to derive frcmod.
+        if method in _GAFF2_RESP_EXTERNAL_TOKENS and resp_mol2_abs and \
+                os.path.exists(resp_mol2_abs):
+            out_dir = os.path.dirname(frcmod_abs) if frcmod_abs else os.path.join(
+                _PROJ_ROOT, "params", resname.lower()
+            )
+            regen = _parmchk2_from_resp_mol2(resname, resp_mol2_abs, out_dir)
+            out.append({
+                "resname": resname, "status": "regenerated_resp_external",
+                "method": method, "mol2": regen["mol2"], "frcmod": regen["frcmod"],
+            })
+            continue
+
+        # (5) AM1-BCC regeneration branch (opt-in only). Accepts both
+        # gaff2/gaff2_bcc and gaff2_resp/gaff2_resp_external as fallback when
+        # no resp_mol2 is shipped — the caller gets a 'regenerated_bcc_fallback'
+        # status to signal the RESP step is deferred.
         source_key = entry.get("source", "pdb_literal")
-        if source_key == "library_insertion" and _can_run_antechamber():
+        if (method in _GAFF2_AUTO_TOKENS or method in _GAFF2_RESP_EXTERNAL_TOKENS) \
+                and _can_run_antechamber():
             if resname not in source_pdbs or not os.path.exists(source_pdbs[resname]):
                 raise CofactorParamMissingError(
                     f"R-17 G3: required cofactor '{resname}' has no cached "
                     f"frcmod/mol2 (looked at {frcmod_abs}, {mol2_abs}) and "
-                    f"no source PDB was provided for regeneration.",
+                    f"no source PDB was provided for regeneration "
+                    f"(source='{source_key}', method='{method}'). Pass "
+                    f"source_pdbs={{'{resname}': path}} or ship the params "
+                    f"manually.",
                     method=method, resname=resname, gate="G3",
                     param_paths=[p for p in (mol2_abs, frcmod_abs) if p],
                 )
@@ -224,19 +376,25 @@ def ensure_cofactor_params(
             regen = _regenerate_gaff2_params(
                 resname, source_pdbs[resname], out_dir, charge, method="bcc",
             )
+            status = ("regenerated_bcc_fallback"
+                      if method in _GAFF2_RESP_EXTERNAL_TOKENS
+                      else "regenerated")
             out.append({
-                "resname": resname, "status": "regenerated",
+                "resname": resname, "status": status,
                 "method": method, "mol2": regen["mol2"], "frcmod": regen["frcmod"],
             })
             continue
 
-        # No cache, no regeneration permitted → fail-fast.
+        # (6) No cache, unknown / unsupported method token → fail-fast.
         raise CofactorParamMissingError(
-            f"R-17 G3: required cofactor '{resname}' lacks force-field "
-            f"parameters. Checked: mol2={mol2_abs}, frcmod={frcmod_abs}. "
-            f"Set UPDD_ALLOW_ANTECHAMBER=1 + source='library_insertion' to "
-            f"regenerate, or ship the .mol2/.frcmod under "
-            f"params/{resname.lower()}/.",
+            f"R-17 G3: required cofactor '{resname}' (method='{method}') "
+            f"lacks force-field parameters. Checked: mol2={mol2_abs}, "
+            f"frcmod={frcmod_abs}. Supported tokens: ion_builtin="
+            f"{sorted(_ION_BUILTIN_TOKENS)}, library={sorted(_LIBRARY_TOKENS)}, "
+            f"auto-regen={sorted(_GAFF2_AUTO_TOKENS | _GAFF2_RESP_EXTERNAL_TOKENS)}. "
+            f"Set UPDD_ALLOW_ANTECHAMBER=1 (auto-regen path) or ship the "
+            f".mol2/.frcmod under params/{resname.lower()}/. "
+            f"{_library_remediation_hint(resname, method)}",
             method=method, resname=resname, gate="G3",
             param_paths=[p for p in (mol2_abs, frcmod_abs) if p],
         )

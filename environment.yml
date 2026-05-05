@@ -1,0 +1,71 @@
+# UPDD conda environment specification (qmmm)
+# Generated: 2026-05-05 (post Phase 1+2 unification, anchored to commit fd637a8)
+#
+# Tier-1 packages (load-bearing; pinned to current production versions):
+#   - python 3.10                 # CLAUDE.md canonical interpreter
+#   - openmm 8.4                  # MD engine + CustomGBForce GBn2 (run_mmgbsa.py:337-348)
+#   - pyscf 2.12 + gpu4pyscf 1.6  # QM/MM SCF (run_qmmm.py wB97X-D3 / def2-SVP)
+#   - mdtraj 1.10                 # Snapshot extraction + PBC unwrap (extract_snapshots.py)
+#   - parmed 4.3                  # AmberTools prmtop / mbondi2 radius override
+#   - pdbfixer 1.12               # Target preprocessing
+#   - rdkit 2025.09               # ncAA SMILES → 3D / parameterize_ncaa.py
+#   - ambertools 24.8             # MMPBSA.py (scripts/run_mmpbsa.py)
+#   - cupy-cuda12x 14.0           # gpu4pyscf dependency (CUDA 12.x)
+#
+# Reproducibility note:
+#   - GPU path requires NVIDIA driver ≥ 525.x and CUDA Toolkit 12.x.
+#   - For CPU-only validation runs (small unit tests, no MD/QM-MM SCF compute),
+#     gpu4pyscf-cuda12x and cupy-cuda12x can be omitted; pytest baseline
+#     284 pass / 9 skip / 1 fail will still be achievable on the CPU subset.
+#
+# Pytest invocation (R-12 / CLAUDE.md hardening):
+#   /opt/conda/envs/qmmm/bin/python -m pytest tests/
+#   (NEVER use system Python — will produce spurious 13 fails due to missing openmm.)
+
+name: qmmm
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  # Python core
+  - python=3.10
+  - pip
+
+  # MD / structure
+  - openmm=8.4
+  - mdtraj=1.10
+  - parmed=4.3
+  - pdbfixer=1.12
+  - openmmforcefields=0.14
+  - openmmtools=0.25
+  - ambertools=24.8
+
+  # Cheminformatics
+  - rdkit=2025.09
+  - biopython=1.86
+
+  # Numerical / data
+  - numpy=2.2
+  - scipy=1.15
+  - pandas=2.3
+  - networkx=3.4
+  - pyyaml=6.0
+
+  # Plotting / reporting
+  - matplotlib-base=3.10
+
+  # System / utility
+  - psutil=7.2
+  - tqdm=4.67
+
+  # pip packages (not all available via conda channels)
+  - pip:
+    - pyscf==2.12.1
+    - pyscf-dftd3==0.0.2
+    - pyscf-dispersion==1.5.0
+    - gpu4pyscf-cuda12x==1.6.0     # GPU path; remove for CPU-only env
+    - gpu4pyscf-libxc-cuda12x==0.8.1  # GPU path
+    - cupy-cuda12x==14.0.1          # GPU path; remove for CPU-only env
+    - scikit-learn==1.7.2
+    - rich==15.0.0
+    - pytest==9.0.3

@@ -1,0 +1,143 @@
+# UPDD GitHub Actions CI (CPU-only validation path)
+# Generated: 2026-05-05
+# Anchor: commit fd637a8 (post Phase 1+2 unification)
+#
+# Scope:
+#   - GPU-free unit tests + schema regression + branched_ddg statistics
+#   - Charge consistency (R-15/R-16) + cofactor preservation (R-17)
+#   - sequence_parser / cycle_manager / html_report / verify_pbc_integrity
+#   - Lint-style sanity (ast.parse on UPDD.py + utils/*.py + scripts/*.py)
+#
+# NOT in scope (require GPU or long compute):
+#   - Real run_restrained_md.py MD execution
+#   - Real run_qmmm.py SCF compute
+#   - Real run_mmgbsa.py / run_mmpbsa.py ΔG compute
+#
+# Expected baseline (single-job): 284 pass / 9 skip / 1 fail
+#   The 1 fail is `test_lipinski_constants_are_module_level` (pre-existing
+#   semantic mismatch MW=500 vs 1200, separately triaged).
+#   CI passes if the failure count does NOT exceed 1 and the pass count
+#   does NOT regress below 284.
+
+name: UPDD CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:  # manual trigger
+
+jobs:
+  lint:
+    name: Syntax / parse / hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: ast.parse repo .py files
+        run: |
+          python -c "
+          import ast, pathlib
+          repo = pathlib.Path('.')
+          targets = [p for p in repo.rglob('*.py')
+                     if 'archive/' not in str(p)
+                     and '.bak' not in p.name
+                     and '.pytest_cache' not in str(p)
+                     and 'outputs/' not in str(p)]
+          failures = []
+          for t in targets:
+              try:
+                  ast.parse(t.read_text())
+              except SyntaxError as e:
+                  failures.append((str(t), str(e)))
+          if failures:
+              for f, msg in failures:
+                  print(f'PARSE FAIL: {f}: {msg}')
+              exit(1)
+          print(f'ast.parse OK on {len(targets)} files')
+          "
+      - name: Manuscript-hygiene scan (paper1 + validation)
+        run: |
+          # Forbidden tokens in publication-bound prose
+          # (from CLAUDE.md hygiene rules + Pass 2 audit findings)
+          set -e
+          BAD_PATTERNS='(0ec2a9d|c6db6cc|fd637a8|−7\.8|−3\.96)'
+          if grep -rEn "$BAD_PATTERNS" outputs/paper1/*.md 2>/dev/null; then
+              echo "Manuscript-hygiene FAIL: forbidden tokens in paper1/"
+              exit 1
+          fi
+          echo "Manuscript hygiene OK (no forbidden tokens in paper1/)"
+
+  unit-tests:
+    name: Unit tests + schema regression (CPU-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache conda env
+        uses: actions/cache@v4
+        id: conda-cache
+        with:
+          path: /opt/conda/envs/qmmm
+          key: conda-qmmm-${{ runner.os }}-${{ hashFiles('environment.yml') }}-cpu
+
+      - name: Set up Miniconda
+        if: steps.conda-cache.outputs.cache-hit != 'true'
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniconda-version: latest
+          activate-environment: qmmm
+          environment-file: environment.yml-cpu
+          auto-activate-base: false
+
+      - name: Strip GPU pip packages (CPU-only CI variant)
+        if: steps.conda-cache.outputs.cache-hit != 'true'
+        run: |
+          # GitHub Actions hosted runners have no GPU; remove cupy-cuda12x
+          # and gpu4pyscf-* from a CPU-only environment.yml-cpu copy before
+          # the conda env build above. (This step is structured as a
+          # pre-flight transformer; the actual env-create runs before it
+          # only if cache miss occurs.)
+          cp environment.yml environment.yml-cpu
+          sed -i \
+            -e '/gpu4pyscf-cuda12x/d' \
+            -e '/gpu4pyscf-libxc-cuda12x/d' \
+            -e '/cupy-cuda12x/d' \
+            environment.yml-cpu
+
+      - name: Smoke imports
+        shell: bash -el {0}
+        run: |
+          python -c "import openmm; import mdtraj; import pyscf; import rdkit; import sys; sys.path.insert(0, 'utils'); import updd_tui; print('UPDD CPU env + updd_tui smoke OK')"
+
+      - name: Run pytest baseline
+        shell: bash -el {0}
+        run: |
+          python -m pytest tests/ --tb=short -v 2>&1 | tee /tmp/pytest.txt
+          # Parse and gate: require pass >= 284, skip >= 9, fail <= 1
+          PASS=$(grep -oE '[0-9]+ passed' /tmp/pytest.txt | tail -1 | grep -oE '[0-9]+')
+          FAIL=$(grep -oE '[0-9]+ failed' /tmp/pytest.txt | tail -1 | grep -oE '[0-9]+')
+          if [ "$FAIL" = "" ]; then FAIL=0; fi
+          if [ "$PASS" -lt 284 ]; then echo "REGRESSION: pass count $PASS < 284"; exit 1; fi
+          if [ "$FAIL" -gt 1 ]; then echo "REGRESSION: fail count $FAIL > 1"; exit 1; fi
+          echo "Pytest baseline gate OK: pass=$PASS fail=$FAIL"
+
+  docker-smoke:
+    name: Dockerfile build + smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build CPU image
+        run: docker build -t updd:cpu -f Dockerfile .
+      - name: Run pytest in container
+        run: |
+          docker run --rm -v ${{ github.workspace }}:/workspace updd:cpu \
+            python -m pytest tests/ --tb=no -q

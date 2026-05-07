@@ -1,0 +1,32 @@
+{
+  "title": "UPDD: Universal Peptide Drug Discovery — v0.7.1 release for Paper 1 v1",
+  "description": "<p>UPDD (Universal Peptide Drug Discovery) is a five-stage iterative pipeline for non-canonical amino acid (ncAA) peptide drug discovery, integrating generative protein design with quantum-mechanical binding validation on a single consumer-grade workstation.</p><p>This release accompanies the bioRxiv preprint <em>Iterative Non-Canonical Amino Acid Peptide Drug Discovery via Sign-Direction Reproducible Evaluation: A Multi-Layer Verification Framework</em> and contains the Stage-4 evaluation framework (ncAA parameterisation, restrained MD, QM/MM single-point, MM-PBSA scoring) integrated with established generation tools (RFdiffusion, ProteinMPNN, AlphaFold2). UPDD is positioned at Capability Level 1: a decision-support tool for ncAA variant ranking, not a quantitative experimental predictor.</p><p>Three methodological contributions are documented: the sigma_btwn / sigma_w ensemble-quality decomposition with the Convergence Index dual interpretation (binding-mode classifier + automated quality-control auditor); the branched delta-delta-G architecture with bit-identical wild-type control; and the four-layer onion-peeling verification protocol (closed-shell charge bias, periodic-boundary serialisation, intra-residue bond integrity for HETATM ncAAs, source-versus-test consistency). The release also ships a five-module Capability Level 1 suite and a simulated active-learning cycle on the six-target ncAA benchmark.</p>",
+  "creators": [
+    {
+      "name": "Kang, Insan",
+      "affiliation": "Independent Researcher",
+      "orcid": "0009-0007-0753-0636"
+    }
+  ],
+  "keywords": [
+    "non-canonical amino acid",
+    "peptide drug discovery",
+    "cyclic peptide",
+    "MM-PBSA",
+    "MM-GBSA",
+    "QM/MM",
+    "molecular dynamics",
+    "active learning",
+    "computational chemistry",
+    "force field",
+    "convergence index",
+    "RFdiffusion",
+    "ProteinMPNN",
+    "AlphaFold2"
+  ],
+  "license": "MIT",
+  "upload_type": "software",
+  "access_right": "open",
+  "version": "v0.7.1-paper1-v1",
+  "language": "eng"
+}

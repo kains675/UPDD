@@ -5,6 +5,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Release](https://img.shields.io/badge/release-v0.7.1-blue.svg)](https://github.com/kains675/UPDD/releases/tag/v0.7.1-paper1-v1)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20067323.svg)](https://doi.org/10.5281/zenodo.20067323)
 
 ## Overview
 
@@ -83,7 +84,7 @@ Most existing pipelines (RFdiffusion [[2]](#references), ProteinDJ) are benchmar
 - `.github/workflows/ci.yml` — continuous integration (lint, unit tests, Docker smoke test)
 - `tests/` — regression suite (294 pass / 9 skip / 1 pre-existing fail)
 
-The release is archived at Zenodo (DOI: pending — to be added after release tag publication).
+The release is archived at Zenodo: [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20067323.svg)](https://doi.org/10.5281/zenodo.20067323)
 
 ## Citation
 
@@ -91,7 +92,7 @@ If you use UPDD in your research, please cite:
 
 **Paper:** Kang, I. (2026). *Iterative Non-Canonical Amino Acid Peptide Drug Discovery via Sign-Direction Reproducible Evaluation: A Multi-Layer Verification Framework*. bioRxiv [DOI pending].
 
-**Software:** Kang, I. (2026). UPDD: Universal Peptide Drug Discovery — v0.7.1 [Computer software]. Zenodo. [DOI pending]. ORCID: [0009-0007-0753-0636](https://orcid.org/0009-0007-0753-0636).
+**Software:** Kang, I. (2026). UPDD: Universal Peptide Drug Discovery — v0.7.1 [Computer software]. Zenodo. https://doi.org/10.5281/zenodo.20067323. ORCID: [0009-0007-0753-0636](https://orcid.org/0009-0007-0753-0636).
 
 ## References
 

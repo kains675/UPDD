@@ -7,3 +7,71 @@
 _MMPBSA_*
 mdout
 *.mdcrd.0
+
+# ==========================================================================
+# Reference papers — copyright, do NOT redistribute via Zenodo
+# ==========================================================================
+Reference/
+
+# ==========================================================================
+# Local-only markdown (planning, agent instructions, verdicts, roadmaps)
+# ==========================================================================
+CLAUDE.md
+MEMORY.md
+AGENT_IMPROVEMENT_PLAN.md
+RECENTv06.md
+UPDDnow.md
+UPDDfuture*.md
+UPGRADE.md
+UPGRADE_v07_roadmap.md
+overnight_dispatch_*.md
+phase_alpha_steps_*.md
+v07_user_verdict/
+plan/
+Update/
+
+# ==========================================================================
+# Old archives / backups
+# ==========================================================================
+archive/
+chkfile_archive/
+_audit/
+*.bak_pre_*
+v07_user_verdict_backup_*/
+
+# ==========================================================================
+# Runtime logs / scratch
+# ==========================================================================
+log/
+
+# ==========================================================================
+# Local experimental / WIP folders
+# ==========================================================================
+inputs/
+params/
+validation/
+utils_draft/
+
+# ==========================================================================
+# Python project hygiene
+# ==========================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+.coverage.*
+*.egg-info/
+.venv/
+venv/
+.env
+
+# ==========================================================================
+# IDE / OS metadata
+# ==========================================================================
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+.ipynb_checkpoints/

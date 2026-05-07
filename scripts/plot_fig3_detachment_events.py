@@ -1,4 +1,4 @@
-"""scripts/plot_fig4_detachment_events.py - Paper 1 Figure 4 plotting.
+"""scripts/plot_fig3_detachment_events.py - Paper 1 Figure 3 plotting.
 
 Three-row panel composition of detachment event trajectories. Each row
 shows one of the three biophysical detachment events identified in the
@@ -33,7 +33,7 @@ Anchor data SSOT lock notes (verified 2026-05-05):
     verdict section 3.3.3 + section 3.3.2 footnote 2 reconciled values
     (1YCR_NML22_s19 dual-resolution: 0.546 trajectory frame-by-frame /
     0.760 snapshot K-Means oversampled).
-  - Figure 4 scope deliberately excludes 7TL8_MTR6 (which is the s55
+  - Figure 3 scope deliberately excludes 7TL8_MTR6 (which is the s55
     intra-residue PBC defect audit case visualized via figure 1 panel
     (c) sigma_w refresh); that scope split avoids re-using the same
     system across two figures and keeps the PR-21 intra-residue bond
@@ -42,17 +42,28 @@ Anchor data SSOT lock notes (verified 2026-05-05):
 Outline reference: outline section 6, lines 678-689.
 
 Usage:
-    python scripts/plot_fig4_detachment_events.py
-    python scripts/plot_fig4_detachment_events.py --output-dir outputs/paper1/figures
-    python scripts/plot_fig4_detachment_events.py --format png svg pdf
+    python scripts/plot_fig3_detachment_events.py
+    python scripts/plot_fig3_detachment_events.py --output-dir outputs/paper1/figures
+    python scripts/plot_fig3_detachment_events.py --format png svg pdf
 """
 from __future__ import annotations
 
 import argparse
 from pathlib import Path
 
+import matplotlib
 import matplotlib.image as mpimg
 import matplotlib.pyplot as plt
+
+matplotlib.rcParams["font.family"] = "DejaVu Sans"
+matplotlib.rcParams["axes.unicode_minus"] = False
+matplotlib.rcParams["mathtext.fontset"] = "dejavusans"
+
+# Top crop fraction applied to source PNGs to strip baked-in matplotlib titles
+# (the source detachment_plots_20260429/*.png have their own ax.set_title that
+# duplicate the section header rendered by this script; cropping ~10% from the
+# top removes that duplication without losing data content).
+_TOP_CROP_FRAC = 0.10
 
 
 # ---------------------------------------------------------------------------
@@ -82,8 +93,21 @@ SYSTEMS = [
 # ---------------------------------------------------------------------------
 # Layout helpers
 # ---------------------------------------------------------------------------
+def _crop_top(img_array, frac=_TOP_CROP_FRAC):
+    """Crop the top `frac` fraction of an image array to strip baked-in titles."""
+    h = img_array.shape[0]
+    return img_array[int(h * frac):, :]
+
+
 def _draw_row(fig, gs, row_idx, system, panel_label, caption, source_dir):
-    """Render one system row: distance-vs-time (~70%) + histogram (~30%)."""
+    """Render one system row: distance-vs-time (~70%) + histogram (~30%).
+
+    Source PNGs carry baked-in matplotlib titles (e.g., "{system}: peptide-bond
+    proxy distance vs time") that duplicate the section header set on ax_left.
+    We strip those by cropping the top of each source image. The right
+    histogram subplot has no matplotlib-level title (the section header on the
+    left subplot serves the whole row).
+    """
     src_left = source_dir / f"{system}_distance_vs_time.png"
     src_right = source_dir / f"{system}_histogram.png"
 
@@ -92,25 +116,19 @@ def _draw_row(fig, gs, row_idx, system, panel_label, caption, source_dir):
     if not src_right.is_file():
         raise FileNotFoundError(f"histogram PNG missing: {src_right}")
 
-    ax_left = fig.add_subplot(gs[row_idx, :7])
-    ax_left.imshow(mpimg.imread(src_left))
+    ax_left = fig.add_subplot(gs[row_idx, :6])
+    ax_left.imshow(_crop_top(mpimg.imread(src_left)))
     ax_left.set_axis_off()
     ax_left.set_title(
-        f"{panel_label} {system} - distance vs time. {caption}",
+        f"{panel_label} {system} — {caption}",
         fontsize=10.5,
         loc="left",
         pad=4,
     )
 
-    ax_right = fig.add_subplot(gs[row_idx, 7:])
-    ax_right.imshow(mpimg.imread(src_right))
+    ax_right = fig.add_subplot(gs[row_idx, 6:])
+    ax_right.imshow(_crop_top(mpimg.imread(src_right)))
     ax_right.set_axis_off()
-    ax_right.set_title(
-        f"{panel_label}' {system} - per-frame histogram",
-        fontsize=10.5,
-        loc="left",
-        pad=4,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -118,13 +136,13 @@ def _draw_row(fig, gs, row_idx, system, panel_label, caption, source_dir):
 # ---------------------------------------------------------------------------
 def main(argv=None):
     parser = argparse.ArgumentParser(
-        description="Plot Paper 1 Figure 4 (detachment event trajectories).",
+        description="Plot Paper 1 Figure 3 (detachment event trajectories).",
     )
     parser.add_argument(
         "--output-dir",
         type=Path,
         default=Path("outputs/paper1/figures"),
-        help="Directory to write fig4_detachment_events.{png,svg,...}",
+        help="Directory to write fig3_detachment_events.{png,svg,...}",
     )
     parser.add_argument(
         "--format",
@@ -149,11 +167,11 @@ def main(argv=None):
     source_dir = args.source_dir
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
-    fig = plt.figure(figsize=(13, 11), dpi=args.dpi)
+    fig = plt.figure(figsize=(13, 9.8), dpi=args.dpi)
     gs = fig.add_gridspec(
         nrows=3,
         ncols=10,
-        hspace=0.35,
+        hspace=0.20,
         wspace=0.18,
         left=0.03,
         right=0.985,
@@ -165,7 +183,7 @@ def main(argv=None):
         _draw_row(fig, gs, row_idx, system, panel_label, caption, source_dir)
 
     fig.suptitle(
-        "Figure 4. Per-frame detachment event trajectories: "
+        "Figure 3. Per-frame detachment event trajectories: "
         "unimodal at 7-13 A distinguishes biophysical signal from PBC artifact",
         fontsize=13,
         fontweight="bold",
@@ -174,7 +192,7 @@ def main(argv=None):
 
     saved = []
     for fmt in args.format:
-        out = args.output_dir / f"fig4_detachment_events.{fmt}"
+        out = args.output_dir / f"fig3_detachment_events.{fmt}"
         save_kwargs = {"bbox_inches": "tight"}
         if fmt.lower() == "png":
             save_kwargs["dpi"] = args.dpi

@@ -1,4 +1,4 @@
-"""scripts/plot_fig6_pipeline.py - Paper 1 Figure 6 plotting.
+"""scripts/plot_fig1_pipeline.py - Paper 1 Figure 1 plotting.
 
 Generates the 5-stage UPDD pipeline architecture diagram with branching at Stage 4:
   - Stage 1: Sequence Input Parser
@@ -11,18 +11,23 @@ Generates the 5-stage UPDD pipeline architecture diagram with branching at Stage
 This is a vector architecture diagram (not a data plot).
 
 Usage:
-    python scripts/plot_fig6_pipeline.py
-    python scripts/plot_fig6_pipeline.py --output-dir /tmp/fig_test
-    python scripts/plot_fig6_pipeline.py --format png svg pdf
+    python scripts/plot_fig1_pipeline.py
+    python scripts/plot_fig1_pipeline.py --output-dir /tmp/fig_test
+    python scripts/plot_fig1_pipeline.py --format png svg pdf
 """
 from __future__ import annotations
 
 import argparse
 from pathlib import Path
 
+import matplotlib
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
+
+matplotlib.rcParams["font.family"] = "DejaVu Sans"
+matplotlib.rcParams["axes.unicode_minus"] = False
+matplotlib.rcParams["mathtext.fontset"] = "dejavusans"
 
 # ---------------------------------------------------------------------------
 # Style palette
@@ -319,12 +324,15 @@ def panel_draw_pipeline(ax):
                 (center_x, y_s5 + box_h_ext / 2),
                 color=COLOR_GRAY)
 
-    # Cycle-back arrow: Stage 5 -> Stage 1 (left side curving up)
+    # Cycle-back arrow: Stage 5 -> Stage 1 (left side curving up). Endpoint
+    # is shifted slightly INSIDE the Stage 1 box (x = left_edge + 0.25) so
+    # the arrow head visibly penetrates the box rather than floating at the
+    # edge; mutation_scale bumped 16 -> 20 for clearer head.
     cycle_arrow = FancyArrowPatch(
         (center_x - box_w_ext / 2, y_s5),
-        (center_x - box_w_ext / 2, y_s1),
+        (center_x - box_w_ext / 2 + 0.25, y_s1),
         connectionstyle="arc3,rad=-0.45",
-        arrowstyle="-|>", mutation_scale=16,
+        arrowstyle="-|>", mutation_scale=20,
         color=COLOR_GRAY, lw=1.5, linestyle=(0, (4, 2)),
     )
     ax.add_patch(cycle_arrow)
@@ -355,12 +363,12 @@ def panel_draw_pipeline(ax):
 # ---------------------------------------------------------------------------
 def main(argv=None):
     parser = argparse.ArgumentParser(
-        description="Plot Paper 1 Figure 6 (5-stage pipeline architecture).",
+        description="Plot Paper 1 Figure 1 (5-stage pipeline architecture).",
     )
     parser.add_argument(
         "--output-dir", type=Path,
         default=Path("outputs/paper1/figures"),
-        help="Directory to write fig6_pipeline.{png,svg,...}",
+        help="Directory to write fig1_pipeline.{png,svg,...}",
     )
     parser.add_argument(
         "--format", nargs="+", default=["png", "svg"],
@@ -378,13 +386,13 @@ def main(argv=None):
     panel_draw_pipeline(ax)
 
     fig.suptitle(
-        "Figure 6. UPDD 5-stage pipeline — Stage 4 branched evaluation core",
+        "Figure 1. UPDD 5-stage pipeline — Stage 4 branched evaluation core",
         fontsize=13, fontweight="bold", y=0.985,
     )
 
     saved = []
     for fmt in args.format:
-        out = args.output_dir / f"fig6_pipeline.{fmt}"
+        out = args.output_dir / f"fig1_pipeline.{fmt}"
         save_kwargs = {"bbox_inches": "tight"}
         if fmt.lower() == "png":
             save_kwargs["dpi"] = args.dpi

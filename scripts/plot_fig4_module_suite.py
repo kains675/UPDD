@@ -1,4 +1,4 @@
-"""scripts/plot_fig5_module_suite.py - Paper 1 Figure 5 plotting.
+"""scripts/plot_fig4_module_suite.py - Paper 1 Figure 4 plotting.
 
 Generates the Capability Level 1 module suite architecture diagram:
   - 5 modules arranged left-to-right (Sequence Parser, Branched ddG Engine,
@@ -10,18 +10,23 @@ Generates the Capability Level 1 module suite architecture diagram:
 This is a vector architecture diagram (not a data plot).
 
 Usage:
-    python scripts/plot_fig5_module_suite.py
-    python scripts/plot_fig5_module_suite.py --output-dir /tmp/fig_test
-    python scripts/plot_fig5_module_suite.py --format png svg pdf
+    python scripts/plot_fig4_module_suite.py
+    python scripts/plot_fig4_module_suite.py --output-dir /tmp/fig_test
+    python scripts/plot_fig4_module_suite.py --format png svg pdf
 """
 from __future__ import annotations
 
 import argparse
 from pathlib import Path
 
+import matplotlib
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
+
+matplotlib.rcParams["font.family"] = "DejaVu Sans"
+matplotlib.rcParams["axes.unicode_minus"] = False
+matplotlib.rcParams["mathtext.fontset"] = "dejavusans"
 
 # ---------------------------------------------------------------------------
 # Style palette
@@ -68,8 +73,8 @@ MODULES = [
 # Edge labels between adjacent modules (data contracts)
 EDGE_LABELS = [
     "CandidateOutput-\nlike",      # M1 -> M2
-    "BranchedDDG-\nResult",        # M2 -> M3
-    "CycleEntry  (cycle_n + WetLabResult[] + PredictedDDG[])",  # M3 -> M5  (skips M4 visually)
+    "BranchedΔΔGResult",            # M2 -> M3
+    "CycleEntry  (cycle_n + WetLabResult[] + PredictedΔΔG[])",  # M3 -> M5  (skips M4 visually)
 ]
 
 
@@ -175,6 +180,17 @@ def panel_draw_modules(ax, modules):
         fontsize=8.5, color="white", style="italic",
     )
 
+    # Data-flow signature ABOVE the orchestrator (was previously placed at the
+    # M3->M5 arc apex inside the navy bar, which made it unreadable). Position
+    # at x=center, y=orchestrator_top + 0.15 in axes coords.
+    cli_top_y = cli_y + cli_h / 2
+    ax.text(
+        6.5, cli_top_y + 0.15,
+        "Data flow:  CycleEntry  (cycle_n + WetLabResult[] + PredictedΔΔG[])",
+        ha="center", va="bottom",
+        fontsize=9, color="#2a4d6e", style="italic",
+    )
+
     # ----- Module boxes -----
     for cx, mod in zip(centers, modules):
         _draw_module_box(ax, cx, row_y, box_w, box_h, mod)
@@ -214,22 +230,18 @@ def panel_draw_modules(ax, modules):
         (centers[2] - box_w / 2, row_y),
         label=EDGE_LABELS[1], label_offset=(0, 0.05), label_fontsize=6.2,
     )
-    # M3 -> M5 (skip the wrappers visually, curving over Module 4)
+    # M3 -> M5 (skip Module 4): rad bumped further (-0.60 -> -0.75) for
+    # clearer separation from Module 4. Label is no longer placed at the arc
+    # apex — the data-flow signature has been hoisted above the orchestrator
+    # bar (see "Data flow:" annotation above).
     skip_arrow = FancyArrowPatch(
-        (centers[2] + box_w / 2 - 0.10, row_y + box_h / 2 - 0.20),
-        (centers[4] - box_w / 2 + 0.10, row_y + box_h / 2 - 0.20),
-        connectionstyle="arc3,rad=-0.40",
+        (centers[2] + box_w / 2 - 0.10, row_y + box_h / 2),
+        (centers[4] - box_w / 2 + 0.10, row_y + box_h / 2),
+        connectionstyle="arc3,rad=-0.75",
         arrowstyle="-|>", mutation_scale=14,
         color=COLOR_NAVY, lw=1.6,
     )
     ax.add_patch(skip_arrow)
-    # Place label above the curve apex
-    ax.text(
-        (centers[2] + centers[4]) / 2, row_y + box_h / 2 + 1.20,
-        EDGE_LABELS[2],
-        ha="center", va="bottom",
-        fontsize=6.5, color=ANNOT_COLOR, style="italic",
-    )
 
     # Side note: Module 4 also produces wrapper artifacts feeding Module 2 (mock fallback)
     ax.text(
@@ -282,12 +294,12 @@ def panel_draw_modules(ax, modules):
 # ---------------------------------------------------------------------------
 def main(argv=None):
     parser = argparse.ArgumentParser(
-        description="Plot Paper 1 Figure 5 (Capability Level 1 module suite).",
+        description="Plot Paper 1 Figure 4 (Capability Level 1 module suite).",
     )
     parser.add_argument(
         "--output-dir", type=Path,
         default=Path("outputs/paper1/figures"),
-        help="Directory to write fig5_module_suite.{png,svg,...}",
+        help="Directory to write fig4_module_suite.{png,svg,...}",
     )
     parser.add_argument(
         "--format", nargs="+", default=["png", "svg"],
@@ -305,13 +317,13 @@ def main(argv=None):
     panel_draw_modules(ax, MODULES)
 
     fig.suptitle(
-        "Figure 5. Capability Level 1 module suite — 5-module architecture",
+        "Figure 4. Capability Level 1 module suite — 5-module architecture",
         fontsize=13, fontweight="bold", y=0.97,
     )
 
     saved = []
     for fmt in args.format:
-        out = args.output_dir / f"fig5_module_suite.{fmt}"
+        out = args.output_dir / f"fig4_module_suite.{fmt}"
         save_kwargs = {"bbox_inches": "tight"}
         if fmt.lower() == "png":
             save_kwargs["dpi"] = args.dpi

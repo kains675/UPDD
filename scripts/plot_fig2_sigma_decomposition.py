@@ -1,4 +1,4 @@
-"""scripts/plot_fig1_sigma_decomposition.py - Paper 1 Figure 1 plotting.
+"""scripts/plot_fig2_sigma_decomposition.py - Paper 1 Figure 2 plotting.
 
 Generates the 2x2 sigma_btwn / sigma_w decomposition centerpiece figure:
   - top-left  (a): Cp4 n=5 cohort pre vs post charge-fix (sigma_btwn + sigma_w)
@@ -17,18 +17,23 @@ need to re-aggregate raw data from the analysis cache. They must remain in sync
 with the manuscript; if the verdict numbers change, update both files together.
 
 Usage:
-    python scripts/plot_fig1_sigma_decomposition.py
-    python scripts/plot_fig1_sigma_decomposition.py --output-dir outputs/paper1/figures
-    python scripts/plot_fig1_sigma_decomposition.py --format png svg pdf
+    python scripts/plot_fig2_sigma_decomposition.py
+    python scripts/plot_fig2_sigma_decomposition.py --output-dir outputs/paper1/figures
+    python scripts/plot_fig2_sigma_decomposition.py --format png svg pdf
 """
 from __future__ import annotations
 
 import argparse
 from pathlib import Path
 
+import matplotlib
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
+
+matplotlib.rcParams["font.family"] = "DejaVu Sans"
+matplotlib.rcParams["axes.unicode_minus"] = False
+matplotlib.rcParams["mathtext.fontset"] = "dejavusans"
 
 # ---------------------------------------------------------------------------
 # Anchor data (verdict Sec 3.3 / 3.3.1 - hardcoded for traceability)
@@ -62,7 +67,7 @@ Y_LABEL = r"$\sigma$ (kcal/mol)"
 # ---------------------------------------------------------------------------
 # Helper: paired-bar panel for Cp4 / 1EBP_MTR13
 # ---------------------------------------------------------------------------
-def _paired_sigma_bars(ax, data, title, annotations):
+def _paired_sigma_bars(ax, data, title, annotations, ylim_max=None):
     """Draw grouped (pre, post) x (sigma_btwn, sigma_w) bars on ax.
 
     Parameters
@@ -72,7 +77,10 @@ def _paired_sigma_bars(ax, data, title, annotations):
         'sigma_btwn' and 'sigma_w_median'.
     title : str
     annotations : dict with optional keys 'btwn_delta' and 'w_delta'
-        rendered above the post bars.
+        rendered above the post bars (per-pair annot_y so each label sits
+        just above the taller bar of its pair instead of at a global height).
+    ylim_max : float | None
+        Optional explicit y-axis upper limit; if None, defaults to ymax * 1.50.
     """
     groups = ["$\\sigma_{btwn}$", "$\\sigma_{w}$ (median)"]
     pre_vals = [data["pre"]["sigma_btwn"], data["pre"]["sigma_w_median"]]
@@ -104,19 +112,22 @@ def _paired_sigma_bars(ax, data, title, annotations):
             fontsize=8.5, color=ANNOT_COLOR,
         )
 
-    # Delta annotations above the post bars
+    # Delta annotations above the post bars — per-pair annot_y so each label
+    # attaches to its own bar pair (pair max + 0.6) instead of floating at a
+    # shared height.
     ymax = max(pre_vals + post_vals)
-    annot_y = ymax * 1.18
+    btwn_pair_max = max(pre_vals[0], post_vals[0])
+    w_pair_max = max(pre_vals[1], post_vals[1])
     if "btwn_delta" in annotations:
         ax.text(
-            x[0] + width / 2, annot_y,
+            x[0] + width / 2, btwn_pair_max + 0.6,
             annotations["btwn_delta"],
             ha="center", va="bottom",
             fontsize=8.5, color=COLOR_BTWN_SOLID, fontweight="bold",
         )
     if "w_delta" in annotations:
         ax.text(
-            x[1] + width / 2, annot_y,
+            x[1] + width / 2, w_pair_max + 0.6,
             annotations["w_delta"],
             ha="center", va="bottom",
             fontsize=8.5, color=COLOR_W_SOLID, fontweight="bold",
@@ -126,10 +137,10 @@ def _paired_sigma_bars(ax, data, title, annotations):
     ax.set_xticklabels(groups, fontsize=10)
     ax.set_ylabel(Y_LABEL, fontsize=10)
     ax.set_title(title, fontsize=11, fontweight="bold")
-    ax.set_ylim(0, ymax * 1.35)
+    ax.set_ylim(0, ylim_max if ylim_max is not None else ymax * 1.50)
     ax.grid(axis="y", linestyle=":", linewidth=0.6, alpha=0.6)
     ax.set_axisbelow(True)
-    ax.legend(loc="upper right", fontsize=8.5, framealpha=0.85)
+    ax.legend(loc="lower right", fontsize=8.5, framealpha=0.85)
 
 
 # ---------------------------------------------------------------------------
@@ -144,6 +155,7 @@ def panel_a_cp4(ax):
         ax, CP4_N5,
         title="(a) Cp4 (n=5): pre vs post charge fix",
         annotations=annotations,
+        ylim_max=9.0,
     )
 
 
@@ -189,25 +201,22 @@ def panel_c_7tl8(ax):
             fontsize=9.5, color=ANNOT_COLOR, fontweight="bold",
         )
 
-    # Delta annotation arrow between bars
-    arrow_y = max(vals) * 0.55
-    ax.annotate(
-        "", xy=(x[1], arrow_y), xytext=(x[0], arrow_y),
-        arrowprops=dict(arrowstyle="->", color=COLOR_W_SOLID, lw=2),
-    )
+    # Delta annotation: replace floating arrow with a centered text annotation
+    # between the two bars (Option A — anchored cleanly between pre 38.33 and
+    # post 12.13 without geometric ambiguity).
     ax.text(
-        (x[0] + x[1]) / 2, arrow_y * 1.05,
-        "-68 %\n(PBC defect removal)",
-        ha="center", va="bottom",
-        fontsize=9, color=COLOR_W_SOLID, fontweight="bold",
+        (x[0] + x[1]) / 2, 25.0,
+        "-68 % (PBC defect removal)",
+        ha="center", va="center",
+        fontsize=10.5, color=COLOR_W_SOLID, fontweight="bold",
     )
-    # Residual sigma_w note
+    # Residual sigma_w note (compact form, smaller font, centered to fit panel)
     ax.axhline(post, linestyle="--", color="gray", linewidth=0.8, alpha=0.8)
     ax.text(
-        len(labels) - 0.5, post + 0.4,
-        r"residual $\sigma_w \approx 12$: genuine MD heterogeneity",
-        ha="right", va="bottom",
-        fontsize=8.5, color="gray", style="italic",
+        0.5, 17.0,
+        r"residual $\sigma_w \approx 12.13$ (genuine MD heterogeneity)",
+        ha="center", va="center",
+        fontsize=9, color="gray", style="italic",
     )
 
     ax.set_xticks(x)
@@ -251,9 +260,10 @@ def panel_d_schematic(ax):
         ax.fill_between(x_left, base_y, y, color=col, alpha=0.25)
     ax.text(
         2.0, 0.55,
-        "artifact-narrow basins\n(high $\\sigma_{btwn}$, low $\\sigma_w$)",
+        "artifact-narrow basins\n(high $\\sigma_{btwn}$,  low $\\sigma_w$)",
         ha="center", va="center",
         fontsize=9, color=COLOR_BTWN_SOLID, fontweight="bold",
+        linespacing=1.7,
     )
     # Mark sigma_btwn on left
     ax.annotate(
@@ -278,9 +288,10 @@ def panel_d_schematic(ax):
         ax.fill_between(x_right, base_y, y, color=col, alpha=0.20)
     ax.text(
         8.0, 0.55,
-        "genuine-broad ensemble\n(low $\\sigma_{btwn}$, high $\\sigma_w$)",
+        "genuine-broad ensemble\n(low $\\sigma_{btwn}$,  high $\\sigma_w$)",
         ha="center", va="center",
         fontsize=9, color=COLOR_W_SOLID, fontweight="bold",
+        linespacing=1.7,
     )
     # Mark sigma_w on right
     ax.annotate(
@@ -308,11 +319,9 @@ def panel_d_schematic(ax):
         fontsize=9.5, color="#222222", fontweight="bold",
     )
 
-    # Top label: x-axis as binding-energy coordinate
-    ax.text(2.0, 5.5, r"$\Delta G$ coordinate $\rightarrow$",
-            ha="center", va="center", fontsize=8.5, color="gray", style="italic")
-    ax.text(8.0, 5.5, r"$\Delta G$ coordinate $\rightarrow$",
-            ha="center", va="center", fontsize=8.5, color="gray", style="italic")
+    # (no explicit "ΔG coordinate" axis label — the basin distribution shapes
+    # carry the σ_btwn / σ_w contrast on their own; an x-axis label without a
+    # drawn axis was over-specification.)
 
 
 # ---------------------------------------------------------------------------
@@ -320,12 +329,12 @@ def panel_d_schematic(ax):
 # ---------------------------------------------------------------------------
 def main(argv=None):
     parser = argparse.ArgumentParser(
-        description="Plot Paper 1 Figure 1 (sigma decomposition centerpiece).",
+        description="Plot Paper 1 Figure 2 (sigma decomposition centerpiece).",
     )
     parser.add_argument(
         "--output-dir", type=Path,
         default=Path("outputs/paper1/figures"),
-        help="Directory to write fig1_sigma_decomposition.{png,svg,...}",
+        help="Directory to write fig2_sigma_decomposition.{png,svg,...}",
     )
     parser.add_argument(
         "--format", nargs="+", default=["png", "svg"],
@@ -346,7 +355,7 @@ def main(argv=None):
     panel_d_schematic(axes[1, 1])
 
     fig.suptitle(
-        r"Figure 1. $\sigma_{btwn}$ / $\sigma_{w}$ decomposition: "
+        r"Figure 2. $\sigma_{btwn}$ / $\sigma_{w}$ decomposition: "
         r"artifact-narrow $\rightarrow$ genuine-broad transition",
         fontsize=12.5, fontweight="bold", y=0.995,
     )
@@ -354,7 +363,7 @@ def main(argv=None):
 
     saved = []
     for fmt in args.format:
-        out = args.output_dir / f"fig1_sigma_decomposition.{fmt}"
+        out = args.output_dir / f"fig2_sigma_decomposition.{fmt}"
         save_kwargs = {"bbox_inches": "tight"}
         if fmt.lower() == "png":
             save_kwargs["dpi"] = args.dpi

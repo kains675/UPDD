@@ -1485,11 +1485,12 @@ def main():
     # methodology) — corrected 2026-04-28; see acquisition log
     # outputs/analysis/capece_2012_acquisition_log_20260428.md.
     parent_residue = getattr(ncaa_def, "parent_residue", None)
-    # [v0.6.6 Strategy A] amber14 type+charge patch is OPT-IN via UPDD_MTR_AMBER14_PATCH=1.
-    # Default OFF: pure GAFF2 pipeline works reliably through template matching + graph
-    # isomorphism; NVT warmup may fail for bonded param inconsistency at cross-force-field
-    # junction (fix pending — requires full dihedral/improper param addition).
-    # Default ON would require complete hybrid force-field engineering (see UPDATE.md).
+    # [v0.6.6 Strategy A; comment refresh 2026-05-11] amber14 type+charge patch is gated by
+    # UPDD_MTR_AMBER14_PATCH; default value is "1" (patch ON), so the Trp-derived MTR class
+    # XMLs (24/24 production set) ship with q_N = -0.4157 e (amber14SB Trp reference) and
+    # |Σq| ≤ 1×10⁻⁶ e by default. Setting UPDD_MTR_AMBER14_PATCH=0 falls back to pure GAFF2
+    # backbone-N (q_N = -0.8938 e, residual Σq = -0.187 e), retained as the audit baseline
+    # in outputs/_archive/pre_amb14_patch_20260427/.
     if parent_residue == "TRP" and os.environ.get("UPDD_MTR_AMBER14_PATCH", "1") != "0":
         patched = _apply_mtr_amber14_charge_patch(xml_out)
         if patched:

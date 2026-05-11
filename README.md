@@ -79,8 +79,16 @@ Most existing pipelines (RFdiffusion [[2]](#references), ProteinDJ) are benchmar
 
 ## Reproducibility
 
-- `environment.yml` — conda environment specification
-- `Dockerfile` — CPU-only validation container
+See **[`INSTALL.md`](INSTALL.md)** for the step-by-step setup guide covering three reproducibility tiers:
+
+- **Tier A** — CPU-only conda env for code review / pytest / schema regression (~15 min, ~3 GB)
+- **Tier B** — Full pipeline with GPU for MD + QM/MM + MM-PBSA reproduction (~50 GB, 1× NVIDIA GPU ≥ 16 GB VRAM)
+- **Tier C** — Docker container for CI / external reviewers (CPU-only)
+
+Reproducibility primitives shipped in the repo:
+
+- `environment.yml` — conda environment specification (`qmmm` env, Tier-1 packages pinned)
+- `Dockerfile` — CPU-only validation container (Tier C)
 - `.github/workflows/ci.yml` — continuous integration (lint, unit tests, Docker smoke test)
 - `tests/` — regression suite (294 pass / 9 skip / 1 pre-existing fail)
 

@@ -11,7 +11,7 @@
 
 UPDD is an end-to-end *in silico* peptide drug design system that bridges generative protein design with quantum-level binding validation. The pipeline generates, evaluates, and ranks cyclic peptide candidates targeting user-specified protein interfaces — from backbone generation to binding free energy estimation.
 
-This release (v0.7.1) accompanies **Paper 1 v1** — a Capability Level 1 methodology release documenting the σ_btwn / σ_w ensemble-quality decomposition, the Convergence Index dual interpretation, the four-layer onion-peeling verification protocol, and the simulated active-learning cycle on the six-target ncAA benchmark. See the [Citation](#citation) section below for the bioRxiv preprint reference.
+This release (v0.7.1) accompanies **Paper 1 v1** — a Capability Level 1 methodology release documenting the σ_btwn / σ_w ensemble-quality decomposition, the Convergence Index dual interpretation, the four-layer onion-peeling verification protocol, and the simulated active-learning cycle on the six-target ncAA benchmark. See the [Citation](#citation) section below for the ChemRxiv preprint reference.
 
 ## Pipeline
 RFdiffusion → ProteinMPNN → AlphaFold2 → ncAA Substitution → MD → QM/MM → MM-PBSA → Ranking
@@ -98,7 +98,7 @@ The release is archived at Zenodo: [![DOI](https://zenodo.org/badge/DOI/10.5281/
 
 If you use UPDD in your research, please cite:
 
-**Paper:** Kang, I. (2026). *Iterative Non-Canonical Amino Acid Peptide Drug Discovery via Sign-Direction Reproducible Evaluation: A Multi-Layer Verification Framework*. bioRxiv [DOI pending].
+**Paper:** Kang, I. (2026). *An Iterative Evaluation Framework for Non-Canonical Amino Acid Peptide Drug Discovery: Sign-Direction Reproducible Multi-Layer Verification*. ChemRxiv. DOI: [10.26434/chemrxiv.15002948/v2](https://doi.org/10.26434/chemrxiv.15002948/v2).
 
 **Software:** Kang, I. (2026). UPDD: Universal Peptide Drug Discovery — v0.7.1 [Computer software]. Zenodo. https://doi.org/10.5281/zenodo.20067323. ORCID: [0009-0007-0753-0636](https://orcid.org/0009-0007-0753-0636).
 
@@ -119,4 +119,4 @@ This project is licensed under the MIT License — see the [LICENSE](LICENSE) fi
 PotionMaker ([Insan Kang](https://orcid.org/0009-0007-0753-0636)) — Independent Researcher  
 Bio-Organic Chemistry & Computational Peptide Chemistry & AI-driven Drug Design
 
-For correspondence, please use the email address listed on the [ORCID profile](https://orcid.org/0009-0007-0753-0636) or the bioRxiv preprint linked in the Citation section.
+For correspondence, please use the email address listed on the [ORCID profile](https://orcid.org/0009-0007-0753-0636) or the ChemRxiv preprint linked in the Citation section.

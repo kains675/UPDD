@@ -595,6 +595,24 @@ _MTR_AMBER14_TYPES = {
 }
 
 
+# [v0.7.1 T2 / PR-6] amber14SB internal-N reference table for the N-methyl class
+# (Nα-methylated canonical AAs). Values pulled from utils/amber_charges.py SSOT
+# (verified vs Maier 2015 ff14SB Table 1, doi:10.1021/acs.jctc.5b00255).
+# Park 2005 (doi:10.1002/jcc.20301) PRO/HYP precedent supports anchoring a
+# backbone-modified ncAA's q_N/q_H to its parent canonical residue's amber14SB
+# reference values.
+_NMETHYL_PARENT_QN_TABLE = {
+    "ALA": (-0.4157, 0.2719),
+    "LEU": (-0.4157, 0.2719),
+    "VAL": (-0.4157, 0.2719),
+    "GLN": (-0.4157, 0.2719),
+    "GLY": (-0.4157, 0.2719),
+    "PHE": (-0.4157, 0.2719),
+    "LYS": (-0.3479, 0.2747),
+    "ARG": (-0.3479, 0.2747),
+}
+
+
 def _strip_spurious_ncaa_hydrogens(xml_path: str, ncaa_def) -> bool:
     """[v0.6.7] parent_residue 기반 ncAA 의 XML 에서 amber14 parent template 보다
     **많은** H 를 가진 heavy atom 의 남은 H 를 제거한다.
@@ -806,6 +824,132 @@ def _apply_mtr_amber14_charge_patch(xml_path: str) -> bool:
                     "type1": t1, "type2": t2, "type3": t3,
                     "angle": angle_rad, "k": k,
                 })
+        tree.write(xml_path)
+    return modified
+
+
+def _is_nmethyl_class(ncaa_def) -> bool:
+    """Detect N-methyl class (Nα-methyl substituent on a canonical parent).
+
+    A residue is in the N-methyl class iff:
+      (i) parent_residue is one of the keys in _NMETHYL_PARENT_QN_TABLE, AND
+      (ii) extension_atoms contains a ("CM", "C", "N", _) entry — the canonical
+           Nα-methyl substituent pattern shared by NML/MLE, NMV/MVA, MEA, SAR,
+           NMQ, NMK, NMR (utils/ncaa_registry.py Category A "N-Methyl Backbone").
+    """
+    parent = getattr(ncaa_def, "parent_residue", None)
+    if parent not in _NMETHYL_PARENT_QN_TABLE:
+        return False
+    for entry in getattr(ncaa_def, "extension_atoms", ()) or ():
+        try:
+            atom_name, element, anchor, _bond = entry
+        except (TypeError, ValueError):
+            continue
+        if atom_name == "CM" and element == "C" and anchor == "N":
+            return True
+    return False
+
+
+def _apply_nmethyl_amber14_charge_patch(xml_path: str, ncaa_def) -> bool:
+    """[v0.7.1 T2 / PR-6] Anchor N-methyl class backbone-N to parent amber14SB q_N.
+
+    Fixes the GAFF2 terminal-amine charge bias on the Nα of N-methylated canonical
+    residues. Pre-patch MLE Σq = +0.165 e residual; post-patch Σq = formal_charge
+    (± OXT/HXT carboxylate contribution for C-terminal variants).
+
+    Algorithm:
+      1. Set N → parent amber14SB q_N, H → parent amber14SB q_H.
+      2. Compute Σq_target = formal_charge + carboxylate_contribution
+         (where carboxylate_contribution = q_OXT + q_HXT for C-terminal variants,
+         0 otherwise).
+      3. Δ = Σq_target − Σq_post_NH_patch.
+      4. Redistribute Δ across {CM, HM1, HM2, HM3} with C:H = 1:2 ratio
+         (CM gets Δ/7; each HM gets 2Δ/7). This mirrors the MTR HE1
+         redistribution arithmetic in _MTR_AMBER14_CHARGES (CM=+0.0487,
+         HM=+0.0975 each) and respects Maier 2015 ff14SB methyl-group HC vs
+         CT_methyl asymmetry while preserving Bayly 1993 RESP charge
+         equivalence among the three HMs (C3v symmetry).
+      5. Assert |Σq_final − Σq_target| < 1×10⁻⁵.
+
+    References:
+      - Maier et al. 2015 ff14SB (doi:10.1021/acs.jctc.5b00255) — internal q_N SSOT.
+      - Park et al. 2005 (doi:10.1002/jcc.20301) — PRO/HYP parent-anchor precedent.
+      - Bayly et al. 1993 (doi:10.1021/j100142a004) — RESP charge equivalence.
+      - Khoury et al. 2014 (doi:10.1021/sb400168u) — Forcefield_PTM N-methyl RESP-A2.
+
+    Args:
+        xml_path: <ncAA>_gaff2.xml path (in-place modification).
+        ncaa_def: NCAADef object with parent_residue, xml_resname, formal_charge,
+                  extension_atoms.
+
+    Returns:
+        bool: True if any residue was patched.
+    """
+    if not os.path.exists(xml_path):
+        return False
+    parent = getattr(ncaa_def, "parent_residue", None)
+    if parent not in _NMETHYL_PARENT_QN_TABLE:
+        return False
+    qN_target, qH_target = _NMETHYL_PARENT_QN_TABLE[parent]
+    xml_resname = getattr(ncaa_def, "xml_resname", None) or ncaa_def.code
+    variant_names = {xml_resname, "N" + xml_resname, "C" + xml_resname}
+    formal_charge = float(getattr(ncaa_def, "formal_charge", 0))
+
+    tree = ET.parse(xml_path)
+    root = tree.getroot()
+    modified = False
+
+    for res in root.iter("Residue"):
+        rname = res.get("name")
+        if rname not in variant_names:
+            continue
+        atoms = {a.get("name"): a for a in res.findall("Atom")}
+        required = ["N", "H", "CM", "HM1", "HM2", "HM3"]
+        missing = [k for k in required if atoms.get(k) is None]
+        if missing:
+            log.warning(
+                f"[N-methyl patch] {rname}: missing required atoms {missing}; skip"
+            )
+            continue
+
+        # 1. Apply target N, H charges.
+        atoms["N"].set("charge", f"{qN_target:.6f}")
+        atoms["H"].set("charge", f"{qH_target:.6f}")
+        sigma_post_NH = sum(float(a.get("charge", 0)) for a in atoms.values())
+
+        # 2. Compute Σq_target accounting for C-terminal carboxylate (OXT + HXT).
+        oxt = atoms.get("OXT")
+        hxt = atoms.get("HXT")
+        carboxylate = (
+            (float(oxt.get("charge")) if oxt is not None else 0.0)
+            + (float(hxt.get("charge")) if hxt is not None else 0.0)
+        )
+        sigma_target = formal_charge + carboxylate
+
+        # 3. ΔQ to absorb across {CM, HM1, HM2, HM3} with C:H = 1:2.
+        delta_absorb = sigma_target - sigma_post_NH
+        weights = {"CM": 1.0 / 7.0, "HM1": 2.0 / 7.0, "HM2": 2.0 / 7.0, "HM3": 2.0 / 7.0}
+        for name, w in weights.items():
+            atom = atoms[name]
+            new_q = float(atom.get("charge")) + delta_absorb * w
+            atom.set("charge", f"{new_q:.6f}")
+
+        # 4. Verify Σq matches target within 1e-5 tolerance.
+        sigma_final = sum(float(a.get("charge", 0)) for a in atoms.values())
+        err = abs(sigma_final - sigma_target)
+        if err > 1e-5:
+            log.warning(
+                f"[N-methyl patch] {rname}: Σq drift {err:.2e} "
+                f"(target {sigma_target:+.6f}, actual {sigma_final:+.6f})"
+            )
+        else:
+            log.info(
+                f"[N-methyl patch] {rname}: Σq={sigma_final:+.6f} "
+                f"(target {sigma_target:+.6f}, parent {parent})"
+            )
+        modified = True
+
+    if modified:
         tree.write(xml_path)
     return modified
 
@@ -1485,13 +1629,17 @@ def main():
     # methodology) — corrected 2026-04-28; see acquisition log
     # outputs/analysis/capece_2012_acquisition_log_20260428.md.
     parent_residue = getattr(ncaa_def, "parent_residue", None)
-    # [v0.6.6 Strategy A; comment refresh 2026-05-11] amber14 type+charge patch is gated by
-    # UPDD_MTR_AMBER14_PATCH; default value is "1" (patch ON), so the Trp-derived MTR class
-    # XMLs (24/24 production set) ship with q_N = -0.4157 e (amber14SB Trp reference) and
-    # |Σq| ≤ 1×10⁻⁶ e by default. Setting UPDD_MTR_AMBER14_PATCH=0 falls back to pure GAFF2
-    # backbone-N (q_N = -0.8938 e, residual Σq = -0.187 e), retained as the audit baseline
-    # in outputs/_archive/pre_amb14_patch_20260427/.
-    if parent_residue == "TRP" and os.environ.get("UPDD_MTR_AMBER14_PATCH", "1") != "0":
+    # [v0.6.6 / v0.7.1 T2] amber14 type+charge patch gated by UPDD_NCAA_AMBER14_PATCH
+    # (alias: UPDD_MTR_AMBER14_PATCH preserved for v0.7.1 Paper 1 v1 freeze). Default
+    # "1" (ON). TRP-parent → MTR/NMTR/CMTR amber14SB Trp overlay. N-methyl class
+    # (parent ∈ _NMETHYL_PARENT_QN_TABLE with extension ("CM","C","N",~1.47)) →
+    # parent-anchored overlay (q_N/q_H to parent amber14SB internal; ΔQ across
+    # CM+HM₁₋₃ with C:H = 1:2 mirroring MTR HE1 redistribution).
+    patch_enabled = os.environ.get(
+        "UPDD_NCAA_AMBER14_PATCH",
+        os.environ.get("UPDD_MTR_AMBER14_PATCH", "1"),
+    ) != "0"
+    if patch_enabled and parent_residue == "TRP":
         patched = _apply_mtr_amber14_charge_patch(xml_out)
         if patched:
             log.info(f"[amber14 patch] {res_name}: amber14SB TRP type+charge overlay applied (opt-in)")
@@ -1508,6 +1656,13 @@ def main():
             if removed:
                 hyd_tree.write(hyd_out, xml_declaration=True, encoding="utf-8")
                 log.info(f"[amber14 patch] {res_name}_hydrogens.xml: HX1 × {removed} 제거")
+    elif patch_enabled and _is_nmethyl_class(ncaa_def):
+        patched = _apply_nmethyl_amber14_charge_patch(xml_out, ncaa_def)
+        if patched:
+            log.info(
+                f"[amber14 patch] {res_name}: amber14SB N-methyl overlay applied "
+                f"(parent {parent_residue}, C:H=1:2 ΔQ redistribution)"
+            )
 
     write_manifest(
         args.outputdir, args, ncaa_def, xml_out,

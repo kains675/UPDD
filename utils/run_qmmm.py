@@ -1429,6 +1429,22 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
     # [#40 v0.2] max_memory 를 환경 변수 UPDD_QM_MAX_MEMORY(MB) 로 주입 (기본 16000 = 16GB).
     _max_mem = int(os.environ.get("UPDD_QM_MAX_MEMORY", "16000"))
 
+    # [chkfile-archive] Capture pre-existing files in PYSCF scratch so that
+    # the post-SCF archive step only moves chkfiles created BY THIS SNAP
+    # (multi-process concurrent SCFs from sibling snaps are isolated).
+    # R-7 preservation: chkfile retains analytical value (HOMO-LUMO, MO
+    # coefficients for Mulliken/RESP, JoltQC Axis 3 comparison, reviewer
+    # defense). Auto-archive moves them to slow cold storage so SSD scratch
+    # stays free for the next SCF without losing the binary checkpoint.
+    try:
+        from pyscf import lib as _lib_for_chkfile
+        from scratch_setup import snapshot_dir_files as _snap_dir_files
+        _chkfile_scratch_dir = _lib_for_chkfile.param.TMPDIR
+        _chkfiles_pre = _snap_dir_files(_chkfile_scratch_dir)
+    except Exception:
+        _chkfile_scratch_dir = None
+        _chkfiles_pre = None
+
     # Target card 로드 (topology mode 활성화 조건)
     target_card = None
     if target_id is not None:
@@ -2591,6 +2607,33 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
         json.dump(result, f, indent=2)
 
     print(f"  결과 저장: {out_json}")
+
+    # [chkfile-archive] R-7 preservation. Move SCF chkfiles created during
+    # this snap from SSD scratch to HDD cold storage. Skipped on non-converged
+    # snaps (kept on SSD for debugging) and gracefully no-ops if HDD absent
+    # / opt-out flag set / mkdir fails.
+    if _chkfile_scratch_dir and result.get("converged"):
+        try:
+            from scratch_setup import archive_chkfiles_to_hdd
+            _arch = archive_chkfiles_to_hdd(
+                _chkfile_scratch_dir,
+                basename,
+                pre_existing=_chkfiles_pre,
+                verbose=False,
+            )
+            if _arch.get("archived"):
+                print(
+                    f"  [chkfile-archive] {len(_arch['archived'])} 파일 → "
+                    f"HDD ({_arch.get('reason', '')})"
+                )
+            elif _arch.get("reason") not in ("ok", "opt-out flag", "autodetect disabled"):
+                print(f"  [chkfile-archive] skip: {_arch.get('reason')}")
+        except Exception as _arch_exc:
+            print(
+                f"  [chkfile-archive] skip "
+                f"({type(_arch_exc).__name__}: {str(_arch_exc)[:120]})"
+            )
+
     return result
 
 

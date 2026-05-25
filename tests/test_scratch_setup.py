@@ -20,6 +20,8 @@ from scratch_setup import (  # noqa: E402
     configure_pyscf_scratch,
     configure_updd_tmpdir,
     resolve_mmpbsa_workdir,
+    archive_chkfiles_to_hdd,
+    snapshot_dir_files,
     _probe_writable,
 )
 
@@ -402,6 +404,149 @@ def test_orchestrator_order_separates_tmpdir_from_pyscf_tmpdir(clean_env, tmp_pa
     assert clean_env["TMPDIR"] == str(generic), \
         "TMPDIR shadowed by configure_pyscf_scratch — order bug regression"
     assert clean_env["PYSCF_TMPDIR"] == str(pyscf)
+
+
+# ---------------------------------------------------------------------------
+# archive_chkfiles_to_hdd — chkfile HDD cold-storage relocation (R-7 raw preserve)
+# ---------------------------------------------------------------------------
+
+
+def _make_chkfile(scratch: "Path", name: str, payload: bytes = b"\x00fake_hdf5") -> str:
+    p = scratch / name
+    p.write_bytes(payload)
+    return str(p)
+
+
+def test_archive_disable_flag_short_circuits(clean_env, tmp_path):
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    archive = tmp_path / "hdd_archive"
+    archive.mkdir()
+    _make_chkfile(scratch, "tmpAAA.h5")
+    clean_env["UPDD_DISABLE_SCRATCH_AUTODETECT"] = "1"
+    result = archive_chkfiles_to_hdd(
+        str(scratch), "snap00", pre_existing=set(),
+        archive_root=str(archive), env=clean_env, verbose=False,
+    )
+    assert result["archived"] == []
+    assert "autodetect disabled" in result["reason"]
+    assert (scratch / "tmpAAA.h5").exists(), "file must stay on SSD when disabled"
+
+
+def test_archive_opt_out_flag(clean_env, tmp_path):
+    scratch = tmp_path / "scratch"; scratch.mkdir()
+    archive = tmp_path / "hdd"; archive.mkdir()
+    _make_chkfile(scratch, "tmpBBB.h5")
+    clean_env["UPDD_CHKFILE_ARCHIVE_TO_HDD"] = "0"
+    result = archive_chkfiles_to_hdd(
+        str(scratch), "snap01", pre_existing=set(),
+        archive_root=str(archive), env=clean_env, verbose=False,
+    )
+    assert result["archived"] == []
+    assert "opt-out" in result["reason"]
+    assert (scratch / "tmpBBB.h5").exists()
+
+
+def test_archive_moves_new_chkfile_to_hdd(clean_env, tmp_path):
+    scratch = tmp_path / "scratch"; scratch.mkdir()
+    archive = tmp_path / "hdd"; archive.mkdir()
+    pre_path = _make_chkfile(scratch, "tmpPRE.h5", payload=b"older_chkfile")
+    pre_existing = {pre_path}
+    new_path = _make_chkfile(scratch, "tmpNEW.h5", payload=b"this_snap_chkfile")
+    result = archive_chkfiles_to_hdd(
+        str(scratch), "snap02", pre_existing=pre_existing,
+        archive_root=str(archive), env=clean_env, verbose=False,
+    )
+    assert len(result["archived"]) == 1
+    assert result["reason"] == "ok"
+    assert not (scratch / "tmpNEW.h5").exists(), "new file should be moved off SSD"
+    assert (scratch / "tmpPRE.h5").exists(), "pre-existing must stay on SSD (other process's chkfile)"
+    dst = archive / "snap02" / "tmpNEW.h5"
+    assert dst.exists()
+    assert dst.read_bytes() == b"this_snap_chkfile"
+
+
+def test_archive_hdd_mount_missing_keeps_ssd(clean_env, tmp_path):
+    scratch = tmp_path / "scratch"; scratch.mkdir()
+    _make_chkfile(scratch, "tmpCCC.h5")
+    result = archive_chkfiles_to_hdd(
+        str(scratch), "snap03", pre_existing=set(),
+        archive_root="/no_such_mount_xyz/chkfile_archive",
+        env=clean_env, verbose=False,
+    )
+    assert result["archived"] == []
+    assert "not present" in result["reason"]
+    assert (scratch / "tmpCCC.h5").exists()
+
+
+def test_archive_skips_probe_sentinels(clean_env, tmp_path):
+    scratch = tmp_path / "scratch"; scratch.mkdir()
+    archive = tmp_path / "hdd"; archive.mkdir()
+    _make_chkfile(scratch, ".updd_probe_XYZ")  # sentinel
+    _make_chkfile(scratch, "tmpREAL.h5")        # real chkfile
+    result = archive_chkfiles_to_hdd(
+        str(scratch), "snap04", pre_existing=set(),
+        archive_root=str(archive), env=clean_env, verbose=False,
+    )
+    assert len(result["archived"]) == 1
+    assert os.path.basename(result["archived"][0]) == "tmpREAL.h5"
+    assert (scratch / ".updd_probe_XYZ").exists(), "probe sentinel untouched"
+
+
+def test_archive_env_var_override(clean_env, tmp_path):
+    scratch = tmp_path / "scratch"; scratch.mkdir()
+    custom_archive = tmp_path / "custom_hdd_dir"; custom_archive.mkdir()
+    _make_chkfile(scratch, "tmpDDD.h5")
+    clean_env["UPDD_CHKFILE_ARCHIVE_DIR"] = str(custom_archive)
+    result = archive_chkfiles_to_hdd(
+        str(scratch), "snap05", pre_existing=set(),
+        env=clean_env, verbose=False,
+    )
+    assert len(result["archived"]) == 1
+    assert (custom_archive / "snap05" / "tmpDDD.h5").exists()
+
+
+def test_archive_skips_directories(clean_env, tmp_path):
+    """Subdirectories in scratch_dir must not be moved (only regular files)."""
+    scratch = tmp_path / "scratch"; scratch.mkdir()
+    archive = tmp_path / "hdd"; archive.mkdir()
+    (scratch / "some_subdir").mkdir()
+    _make_chkfile(scratch, "tmpEEE.h5")
+    result = archive_chkfiles_to_hdd(
+        str(scratch), "snap06", pre_existing=set(),
+        archive_root=str(archive), env=clean_env, verbose=False,
+    )
+    assert len(result["archived"]) == 1
+    assert (scratch / "some_subdir").is_dir()
+
+
+def test_archive_left_behind_on_dest_collision(clean_env, tmp_path, monkeypatch):
+    """Simulate shutil.move failure → file stays on SSD (R-7 never deletes)."""
+    scratch = tmp_path / "scratch"; scratch.mkdir()
+    archive = tmp_path / "hdd"; archive.mkdir()
+    src = _make_chkfile(scratch, "tmpFFF.h5")
+    import scratch_setup
+    def _fake_move(src_, dst_):
+        raise OSError("simulated move failure")
+    monkeypatch.setattr(scratch_setup.shutil, "move", _fake_move)
+    result = archive_chkfiles_to_hdd(
+        str(scratch), "snap07", pre_existing=set(),
+        archive_root=str(archive), env=clean_env, verbose=False,
+    )
+    assert result["archived"] == []
+    assert len(result["left_behind"]) == 1
+    assert (scratch / "tmpFFF.h5").exists(), "R-7: must not delete on move failure"
+
+
+def test_snapshot_dir_files_helper(tmp_path):
+    """snapshot_dir_files returns set of regular file paths."""
+    sub = tmp_path / "indir"; sub.mkdir()
+    (sub / "a.txt").write_text("a")
+    (sub / "b.txt").write_text("b")
+    (sub / "subdir").mkdir()
+    snap = snapshot_dir_files(str(sub))
+    assert snap == {str(sub / "a.txt"), str(sub / "b.txt")}
+    assert snapshot_dir_files("/no_such_path") == set()
 
 
 def test_reversed_order_shadows_tmpdir(clean_env, tmp_path):

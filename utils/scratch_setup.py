@@ -24,14 +24,16 @@ can verify the decision path.
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 import tempfile
-from typing import Dict, Optional
+from typing import Dict, Optional, Set
 
 
 DEFAULT_PREFERRED_SCRATCH = "/media/san/San/pyscf_scratch"
 DEFAULT_PREFERRED_TMPDIR = "/media/san/San/tmp"
 DEFAULT_PREFERRED_MMPBSA_ROOT = "/media/san/San/mmpbsa_scratch"
+DEFAULT_CHKFILE_ARCHIVE_ROOT = "/media/san/ExpDATA/UPDD_proj_Backup/chkfile_archive"
 
 
 def _probe_writable(path: str) -> bool:
@@ -254,6 +256,144 @@ def configure_updd_tmpdir(
     if verbose:
         _log_decision(result)
     return result
+
+
+def snapshot_dir_files(scratch_dir: str) -> Set[str]:
+    """Return absolute paths of regular files in ``scratch_dir`` (snapshot
+    used as the ``pre_existing`` baseline for ``archive_chkfiles_to_hdd``)."""
+    if not os.path.isdir(scratch_dir):
+        return set()
+    out = set()
+    try:
+        for entry in os.listdir(scratch_dir):
+            full = os.path.join(scratch_dir, entry)
+            if os.path.isfile(full):
+                out.add(full)
+    except (OSError, PermissionError):
+        pass
+    return out
+
+
+def archive_chkfiles_to_hdd(
+    scratch_dir: str,
+    snap_basename: str,
+    pre_existing: Optional[Set[str]] = None,
+    *,
+    archive_root: Optional[str] = None,
+    env: Optional[Dict[str, str]] = None,
+    verbose: bool = False,
+) -> Dict[str, object]:
+    """Move chkfiles created since ``pre_existing`` baseline to HDD archive.
+
+    Implements **R-7 preservation** (never delete raw data, only move) and the
+    user-requested policy: chkfile retains analytical value (HOMO-LUMO
+    diagnostics, Mulliken/RESP fits, JoltQC Axis 3 comparison, reviewer
+    defense). Auto-archive to slow cold storage frees the SSD scratch for the
+    next SCF without losing the binary checkpoint.
+
+    Selection rules:
+    - Operates on all regular files under ``scratch_dir`` that are NOT in
+      ``pre_existing`` (so concurrent SCFs from other processes are isolated).
+    - Skips files whose basename starts with ``.updd_probe_`` (write-test
+      sentinels left by configure_*).
+
+    Failure semantics:
+    - Disabled by ``UPDD_DISABLE_SCRATCH_AUTODETECT=1`` (one switch turns off
+      every SSD-routing helper in this module).
+    - Disabled by ``UPDD_CHKFILE_ARCHIVE_TO_HDD=0`` (per-helper opt-out).
+    - HDD parent missing / mkdir fails / individual ``shutil.move`` fails →
+      that file stays on SSD (returned in ``left_behind``). Never raises.
+
+    Args:
+        scratch_dir: SSD scratch root (typically ``lib.param.TMPDIR``).
+        snap_basename: snap identifier for archive subdir (e.g. ``"snap03"``).
+        pre_existing: set returned by ``snapshot_dir_files`` BEFORE the SCF.
+            None means "move every candidate" (unsafe under multi-process).
+        archive_root: HDD archive root. None resolves via
+            ``UPDD_CHKFILE_ARCHIVE_DIR`` env then
+            ``DEFAULT_CHKFILE_ARCHIVE_ROOT``.
+        env: process env. Defaults to ``os.environ``.
+        verbose: emit one-line log per archive op.
+
+    Returns:
+        ``{"archived": [hdd_paths], "left_behind": [ssd_paths], "reason": str}``.
+    """
+    if env is None:
+        env = os.environ
+
+    if env.get("UPDD_DISABLE_SCRATCH_AUTODETECT", "").strip() == "1":
+        return {"archived": [], "left_behind": [], "reason": "autodetect disabled"}
+    if env.get("UPDD_CHKFILE_ARCHIVE_TO_HDD", "1").strip() == "0":
+        return {"archived": [], "left_behind": [], "reason": "opt-out flag"}
+    if not os.path.isdir(scratch_dir):
+        return {
+            "archived": [],
+            "left_behind": [],
+            "reason": f"scratch_dir {scratch_dir!r} not present",
+        }
+
+    if archive_root is None:
+        archive_root = (
+            env.get("UPDD_CHKFILE_ARCHIVE_DIR", "").strip()
+            or DEFAULT_CHKFILE_ARCHIVE_ROOT
+        )
+
+    parent = os.path.dirname(archive_root.rstrip("/")) or "/"
+    if not os.path.isdir(parent):
+        return {
+            "archived": [],
+            "left_behind": [],
+            "reason": f"HDD parent {parent!r} not present (mount missing?)",
+        }
+
+    target_dir = os.path.join(archive_root, snap_basename)
+    try:
+        os.makedirs(target_dir, exist_ok=True)
+    except (OSError, PermissionError) as exc:
+        return {
+            "archived": [],
+            "left_behind": [],
+            "reason": f"mkdir {target_dir!r} failed: {exc}",
+        }
+
+    pre = pre_existing if pre_existing is not None else set()
+    candidates = []
+    try:
+        for entry in os.listdir(scratch_dir):
+            if entry.startswith(".updd_probe_"):
+                continue
+            full = os.path.join(scratch_dir, entry)
+            if not os.path.isfile(full):
+                continue
+            if full in pre:
+                continue
+            candidates.append(full)
+    except (OSError, PermissionError) as exc:
+        return {
+            "archived": [],
+            "left_behind": [],
+            "reason": f"listdir {scratch_dir!r} failed: {exc}",
+        }
+
+    archived = []
+    left_behind = []
+    for src in candidates:
+        dst = os.path.join(target_dir, os.path.basename(src))
+        try:
+            shutil.move(src, dst)
+            archived.append(dst)
+            if verbose:
+                print(f"[chkfile-archive] {src} -> {dst}", flush=True)
+        except (OSError, PermissionError) as exc:
+            left_behind.append(src)
+            if verbose:
+                print(f"[chkfile-archive] skip {src} ({exc})", flush=True)
+
+    return {
+        "archived": archived,
+        "left_behind": left_behind,
+        "reason": "ok",
+    }
 
 
 def resolve_mmpbsa_workdir(

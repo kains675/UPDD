@@ -56,6 +56,22 @@ _UPDD_DEFAULT_ENV = {
     "UPDD_SCF_DIRECT_TOL":     "1e-12", # B5: direct-SCF tolerance
     "UPDD_SCF_CONV_TOL":       "1e-7",  # B3: ranking-safe convergence
     "UPDD_SCF_INIT_GUESS":     "minao", # B6: closed-shell safe init
+    # --- chkfile archive (2026-05-26) ---
+    # SCF success 시 PySCF chkfile 을 HDD cold storage 로 자동 mv (R-7 raw
+    # data 보존 정신). HDD mount 부재 / opt-out flag (=0) / 비-converged
+    # snap 시 SSD scratch 에 보존. 분석 가치 (HOMO-LUMO, Mulliken/RESP,
+    # JoltQC Axis 3 비교, reviewer defense) 유지 + SSD scratch 압박 해소.
+    "UPDD_CHKFILE_ARCHIVE_TO_HDD": "1",  # 0 으로 두면 SSD 그대로 (디버깅용)
+    # --- BLAS thread pinning (2026-05-26) ---
+    # PySCF calls lib.num_threads(os.cpu_count() or 8) at module init so it
+    # picks the right OpenMP pool regardless. Pin the underlying BLAS libraries
+    # (numpy/scipy/mdtraj internals) to single-thread to prevent oversubscription:
+    # 8 OpenMP × N BLAS thread per nested call = effective ≫ 16 hardware threads.
+    "OMP_NUM_THREADS":         "8",     # PySCF + AmberTools (Ryzen 9800X3D 8C/16T)
+    "OPENBLAS_NUM_THREADS":    "1",     # numpy / scipy BLAS — prevent oversubscription
+    "MKL_NUM_THREADS":         "1",     # Intel MKL BLAS (numpy on conda-forge sometimes uses MKL)
+    "NUMEXPR_NUM_THREADS":     "1",     # numexpr (pandas dependency)
+    "VECLIB_MAXIMUM_THREADS":  "1",     # Apple Accelerate (no-op on Linux but defensive)
 }
 for _k, _v in _UPDD_DEFAULT_ENV.items():
     os.environ.setdefault(_k, _v)

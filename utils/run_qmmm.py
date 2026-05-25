@@ -18,6 +18,20 @@ import re
 import numpy as np
 
 # ==========================================
+# [SCRATCH] PySCF scratch directory — must precede the pyscf import below
+# ==========================================
+# PySCF reads PYSCF_TMPDIR / TMPDIR at import time into ``lib.param.TMPDIR``.
+# ``configure_pyscf_scratch()`` prefers /media/san/San/pyscf_scratch (256GB
+# SATA SSD dedicated for scratch) but falls back silently to PySCF's default
+# (/tmp) when the SSD is unmounted, read-only, or absent — so the pipeline
+# stays functional on machines that don't have the dedicated mount.
+# Override knobs: UPDD_SCRATCH_DIR (custom path), UPDD_DISABLE_SCRATCH_AUTODETECT=1
+# (force PySCF default), or PYSCF_TMPDIR (full user takeover).
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from scratch_setup import configure_pyscf_scratch  # noqa: E402
+configure_pyscf_scratch()
+
+# ==========================================
 # [B8] GPU4PySCF 16GB VRAM boundary config — SciVal-approved (2026-04-18)
 # ==========================================
 # RTX 5070 Ti 16GB 등 16GB VRAM 경계에서 gpu4pyscf 의 기본 ``min_ao_blksize`` (보통

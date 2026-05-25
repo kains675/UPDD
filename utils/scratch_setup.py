@@ -30,10 +30,15 @@ import tempfile
 from typing import Dict, Optional, Set
 
 
-DEFAULT_PREFERRED_SCRATCH = "/media/san/San/pyscf_scratch"
-DEFAULT_PREFERRED_TMPDIR = "/media/san/San/tmp"
-DEFAULT_PREFERRED_MMPBSA_ROOT = "/media/san/San/mmpbsa_scratch"
-DEFAULT_CHKFILE_ARCHIVE_ROOT = "/media/san/ExpDATA/UPDD_proj_Backup/chkfile_archive"
+# Single-source-of-truth roots. Override for cross-host deploy by editing
+# these two constants; per-helper paths derive automatically.
+DEFAULT_SSD_ROOT = "/media/san/San"
+DEFAULT_HDD_BACKUP_ROOT = "/media/san/ExpDATA/UPDD_proj_Backup"
+
+DEFAULT_PREFERRED_SCRATCH = os.path.join(DEFAULT_SSD_ROOT, "pyscf_scratch")
+DEFAULT_PREFERRED_TMPDIR = os.path.join(DEFAULT_SSD_ROOT, "tmp")
+DEFAULT_PREFERRED_MMPBSA_ROOT = os.path.join(DEFAULT_SSD_ROOT, "mmpbsa_scratch")
+DEFAULT_CHKFILE_ARCHIVE_ROOT = os.path.join(DEFAULT_HDD_BACKUP_ROOT, "chkfile_archive")
 
 
 def _probe_writable(path: str) -> bool:
@@ -83,7 +88,7 @@ def configure_pyscf_scratch(
             "reason": "UPDD_DISABLE_SCRATCH_AUTODETECT=1",
         }
         if verbose:
-            _log_decision(result)
+            _log_decision(result, "SCRATCH-PYSCF")
         return result
 
     existing = env.get("PYSCF_TMPDIR", "").strip()
@@ -94,7 +99,7 @@ def configure_pyscf_scratch(
             "reason": f"PYSCF_TMPDIR already set to {existing!r}",
         }
         if verbose:
-            _log_decision(result)
+            _log_decision(result, "SCRATCH-PYSCF")
         return result
 
     if preferred is None:
@@ -108,7 +113,7 @@ def configure_pyscf_scratch(
             "reason": f"parent {parent!r} not present (mount missing?)",
         }
         if verbose:
-            _log_decision(result)
+            _log_decision(result, "SCRATCH-PYSCF")
         return result
 
     try:
@@ -120,7 +125,7 @@ def configure_pyscf_scratch(
             "reason": f"mkdir {preferred!r} failed: {exc}",
         }
         if verbose:
-            _log_decision(result)
+            _log_decision(result, "SCRATCH-PYSCF")
         return result
 
     if not _probe_writable(preferred):
@@ -130,7 +135,7 @@ def configure_pyscf_scratch(
             "reason": f"write probe failed at {preferred!r}",
         }
         if verbose:
-            _log_decision(result)
+            _log_decision(result, "SCRATCH-PYSCF")
         return result
 
     env.setdefault("PYSCF_TMPDIR", preferred)
@@ -141,14 +146,20 @@ def configure_pyscf_scratch(
         "reason": f"PYSCF_TMPDIR + TMPDIR set to {preferred!r}",
     }
     if verbose:
-        _log_decision(result)
+        _log_decision(result, "SCRATCH-PYSCF")
     return result
 
 
-def _log_decision(result: Dict[str, object]) -> None:
-    """Emit a one-line stdout note (mirrors run_qmmm.py [DIAG] style)."""
+def _log_decision(result: Dict[str, object], tag: str = "SCRATCH") -> None:
+    """Emit a one-line stdout note (mirrors run_qmmm.py [DIAG] style).
+
+    Args:
+        result: dict with action / scratch_dir / reason keys.
+        tag: bracketed log prefix. Use ``SCRATCH-PYSCF`` / ``SCRATCH-TMPDIR``
+            etc. so different helpers are distinguishable in shared logs.
+    """
     print(
-        f"[SCRATCH] action={result['action']} "
+        f"[{tag}] action={result['action']} "
         f"scratch_dir={result['scratch_dir']!r} reason={result['reason']}",
         file=sys.stdout,
         flush=True,
@@ -197,7 +208,7 @@ def configure_updd_tmpdir(
             "reason": "UPDD_DISABLE_SCRATCH_AUTODETECT=1",
         }
         if verbose:
-            _log_decision(result)
+            _log_decision(result, "SCRATCH-TMPDIR")
         return result
 
     existing = env.get("TMPDIR", "").strip()
@@ -208,7 +219,7 @@ def configure_updd_tmpdir(
             "reason": f"TMPDIR already set to {existing!r}",
         }
         if verbose:
-            _log_decision(result)
+            _log_decision(result, "SCRATCH-TMPDIR")
         return result
 
     if preferred is None:
@@ -222,7 +233,7 @@ def configure_updd_tmpdir(
             "reason": f"parent {parent!r} not present (mount missing?)",
         }
         if verbose:
-            _log_decision(result)
+            _log_decision(result, "SCRATCH-TMPDIR")
         return result
 
     try:
@@ -234,7 +245,7 @@ def configure_updd_tmpdir(
             "reason": f"mkdir {preferred!r} failed: {exc}",
         }
         if verbose:
-            _log_decision(result)
+            _log_decision(result, "SCRATCH-TMPDIR")
         return result
 
     if not _probe_writable(preferred):
@@ -244,7 +255,7 @@ def configure_updd_tmpdir(
             "reason": f"write probe failed at {preferred!r}",
         }
         if verbose:
-            _log_decision(result)
+            _log_decision(result, "SCRATCH-TMPDIR")
         return result
 
     env.setdefault("TMPDIR", preferred)
@@ -254,7 +265,7 @@ def configure_updd_tmpdir(
         "reason": f"TMPDIR set to {preferred!r}",
     }
     if verbose:
-        _log_decision(result)
+        _log_decision(result, "SCRATCH-TMPDIR")
     return result
 
 

@@ -477,19 +477,10 @@ def calc_mmpbsa_1traj(pdb_path: str, output_dir: str, ff: ForceField,
     _vacuum_ncaa_xmls = list(ncaa_xmls or [])
 
     basename = os.path.basename(pdb_path).replace(".pdb", "")
-    # [SCRATCH] SSD-rooted work_dir (silent fallback to output_dir/tmp_pbsa/basename).
-    # MMPBSA.py uses cwd as scratch — keep the SSD path collision-safe via
-    # basename subdir.
-    try:
-        from scratch_setup import resolve_mmpbsa_workdir
-        tmp_dir = resolve_mmpbsa_workdir(
-            fallback_dir=os.path.join(output_dir, "tmp_pbsa"),
-            subdir=basename,
-            verbose=False,
-        )
-    except ImportError:
-        tmp_dir = os.path.join(output_dir, "tmp_pbsa", basename)
-        os.makedirs(tmp_dir, exist_ok=True)
+    # Reuse helper from sister run_mmgbsa module (sub="tmp_pbsa" picks
+    # the existing layout convention for the PBSA solvent-model branch).
+    from run_mmgbsa import _resolve_workdir
+    tmp_dir = _resolve_workdir(output_dir, basename, sub="tmp_pbsa")
 
     print(f"\n  계산 [PBSA 1-traj]: {basename}")
 

@@ -1980,6 +1980,13 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
 
     # ── 4. DFT 계산 (QM/MM 임베딩) ──────────────────────────
     mf = dft.RKS(mol)
+    # [chkfile-archive] role-tagged path so HDD archive 후 분석 시
+    # 어떤 SCF (complex / qm_only / binder_iso / target_iso) 의
+    # checkpoint 인지 파일명으로 식별 가능. complex SCF 의 3 fallback
+    # variant (GPU primary / CPU fallback / CPU final) 는 같은 path 를
+    # overwrite — 마지막 성공한 시도의 chkfile 만 보존된다.
+    if _chkfile_scratch_dir:
+        mf.chkfile = os.path.join(_chkfile_scratch_dir, f"{basename}_complex.chk")
     mf.xc = qm_xc
     # [v0.3.3] verbose=4: v0.1 롤백
     mf.verbose = 4
@@ -2060,6 +2067,8 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
         print(f"  [i] GPU 가속 실패 (사유: {e}). CPU 멀티코어로 우회합니다.")
         # GPU 변신이 실패하면 CPU 장갑차(QMMMRKS)로 우회 탑재
         mf = dft.RKS(mol)
+        if _chkfile_scratch_dir:
+            mf.chkfile = os.path.join(_chkfile_scratch_dir, f"{basename}_complex.chk")
         mf.xc = qm_xc
         # [v0.3.3] verbose=4: v0.1 롤백
         mf.verbose = 4
@@ -2278,6 +2287,8 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
                 _diag("compute_backend", snapshot=basename, backend="CPU_direct_final_fallback",
                       df_mode=False, df_auxbasis=None)
                 mf_cpu = dft.RKS(mol)
+                if _chkfile_scratch_dir:
+                    mf_cpu.chkfile = os.path.join(_chkfile_scratch_dir, f"{basename}_complex.chk")
                 mf_cpu.xc         = qm_xc
                 mf_cpu.verbose    = 4
                 mf_cpu.max_memory = _max_mem
@@ -2351,6 +2362,8 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
     e_qm_only = None
     if energy_total is not None and len(mm_coords_charges) > 0:
         mf_qm = dft.RKS(mol)
+        if _chkfile_scratch_dir:
+            mf_qm.chkfile = os.path.join(_chkfile_scratch_dir, f"{basename}_qm_only.chk")
         mf_qm.xc = qm_xc
         # [v0.3.3] verbose=4: v0.1 롤백
         mf_qm.verbose = 4
@@ -2464,6 +2477,8 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
                 mol_binder = build_qm_mol(binder_qm, charge=binder_charge,
                                            spin=0, basis=qm_basis)
                 mf_binder = _make_dft_mf(mol_binder, qm_xc, _max_mem, use_df, df_auxbasis)
+                if _chkfile_scratch_dir:
+                    mf_binder.chkfile = os.path.join(_chkfile_scratch_dir, f"{basename}_binder_iso.chk")
                 if gpu_success:
                     try:
                         mf_binder = mf_binder.to_gpu()
@@ -2482,6 +2497,8 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
                                            charge=target_iso_net_charge, spin=0,
                                            basis=qm_basis)
                 mf_target = _make_dft_mf(mol_target, qm_xc, _max_mem, use_df, df_auxbasis)
+                if _chkfile_scratch_dir:
+                    mf_target.chkfile = os.path.join(_chkfile_scratch_dir, f"{basename}_target_iso.chk")
                 if gpu_success:
                     try:
                         mf_target = mf_target.to_gpu()

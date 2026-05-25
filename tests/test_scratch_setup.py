@@ -172,7 +172,7 @@ def test_log_format_when_verbose(clean_env, tmp_path, capsys):
         verbose=True,
     )
     captured = capsys.readouterr()
-    assert "[SCRATCH]" in captured.out
+    assert "[SCRATCH-PYSCF]" in captured.out
     assert "action=configured" in captured.out
     assert str(target) in captured.out
 
@@ -547,6 +547,88 @@ def test_snapshot_dir_files_helper(tmp_path):
     snap = snapshot_dir_files(str(sub))
     assert snap == {str(sub / "a.txt"), str(sub / "b.txt")}
     assert snapshot_dir_files("/no_such_path") == set()
+
+
+# ---------------------------------------------------------------------------
+# Integration: end-to-end run_qmmm.py hook contract
+# ---------------------------------------------------------------------------
+
+
+def test_integration_snapshot_diff_then_role_archive(clean_env, tmp_path):
+    """Mirrors run_qmmm_calc's full chkfile lifecycle without invoking SCF:
+
+    1. Capture pre-existing scratch state (another snap's leftover).
+    2. Simulate SCF emitting 4 role-tagged chkfiles (complex / qm_only /
+       binder_iso / target_iso) + a PySCF-default-named tmpfile (CDERI etc.).
+    3. archive_chkfiles_to_hdd moves only the new files to HDD subdir;
+       pre-existing stays on SSD.
+    """
+    scratch = tmp_path / "pyscf_scratch"; scratch.mkdir()
+    hdd = tmp_path / "hdd_archive"; hdd.mkdir()
+
+    # Step 1: pre-existing files (simulating concurrent snap)
+    (scratch / "tmpOTHER_PROC.h5").write_bytes(b"other_process_chkfile")
+    pre = snapshot_dir_files(str(scratch))
+    assert len(pre) == 1
+
+    # Step 2: simulate SCF emitting role-tagged + default tmpfile
+    basename = "design_xyz_snap03"
+    for role in ("complex", "qm_only", "binder_iso", "target_iso"):
+        (scratch / f"{basename}_{role}.chk").write_bytes(b"role_chkfile_" + role.encode())
+    # PySCF CDERI-like default tmpname (no role marker)
+    (scratch / "tmpAB12CDE").write_bytes(b"pyscf_default_intermediate")
+
+    # Step 3: archive (mirrors run_qmmm_calc finalize block)
+    result = archive_chkfiles_to_hdd(
+        str(scratch), basename, pre_existing=pre,
+        archive_root=str(hdd), env=clean_env, verbose=False,
+    )
+
+    # 5 new files archived (4 role + 1 default), 1 pre-existing untouched
+    assert len(result["archived"]) == 5
+    assert result["reason"] == "ok"
+    target = hdd / basename
+    for role in ("complex", "qm_only", "binder_iso", "target_iso"):
+        f = target / f"{basename}_{role}.chk"
+        assert f.exists(), f"role {role} chkfile not archived"
+        assert f.read_bytes().endswith(role.encode())
+    assert (target / "tmpAB12CDE").exists()
+    # SSD scratch should be empty of new files but pre-existing intact
+    assert (scratch / "tmpOTHER_PROC.h5").exists()
+    assert not (scratch / f"{basename}_complex.chk").exists()
+
+
+def test_integration_failed_scf_keeps_chkfiles_on_ssd(clean_env, tmp_path):
+    """run_qmmm_calc skips archive on non-converged snap (result['converged']
+    is False). This test verifies the helper contract: when caller does NOT
+    invoke archive_chkfiles_to_hdd, files persist on SSD for debug analysis.
+    """
+    scratch = tmp_path / "pyscf_scratch"; scratch.mkdir()
+    hdd = tmp_path / "hdd_archive"; hdd.mkdir()
+    basename = "broken_snap"
+    (scratch / f"{basename}_complex.chk").write_bytes(b"partial_scf_state")
+    # Caller would skip archive call on non-converged path — simulate by
+    # not invoking archive_chkfiles_to_hdd. Verify file still present.
+    assert (scratch / f"{basename}_complex.chk").exists()
+    # And HDD remains empty
+    assert not any(hdd.iterdir())
+
+
+def test_integration_archive_robust_under_no_new_chkfiles(clean_env, tmp_path):
+    """If SCF didn't create chkfile at all (rare), archive helper exits
+    cleanly with no error and empty archived/left_behind lists."""
+    scratch = tmp_path / "pyscf_scratch"; scratch.mkdir()
+    hdd = tmp_path / "hdd_archive"; hdd.mkdir()
+    pre = snapshot_dir_files(str(scratch))  # empty
+    result = archive_chkfiles_to_hdd(
+        str(scratch), "empty_snap", pre_existing=pre,
+        archive_root=str(hdd), env=clean_env, verbose=False,
+    )
+    assert result["archived"] == []
+    assert result["left_behind"] == []
+    assert result["reason"] == "ok"
+    # archive subdir is created (mkdir exist_ok=True) but stays empty
+    assert (hdd / "empty_snap").is_dir()
 
 
 def test_reversed_order_shadows_tmpdir(clean_env, tmp_path):

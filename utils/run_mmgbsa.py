@@ -24,6 +24,15 @@ from openmm.app import HBonds  # [v39 FIX — Bug 2] GBn2 enum 더 이상 create
 
 # [v3 6-2] 보조인자 식별자(SSoT) 를 utils_common 에서 임포트
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+# [SCRATCH] Route TMPDIR + MMPBSA work_dir to dedicated SSD when available.
+# Hook propagates to subprocess children (e.g. AmberTools MMPBSA.py via env).
+try:
+    from scratch_setup import configure_updd_tmpdir  # noqa: E402
+    configure_updd_tmpdir()
+except ImportError:
+    pass
+
 from utils_common import KNOWN_COFACTORS, parse_pdb_atom_line  # noqa: E402
 
 # [R-17 G6 FIX 2026-04-20] MM-GBSA implicit-solvent createSystem 은 GNP/ATP
@@ -593,8 +602,19 @@ def calc_mmgbsa(pdb_path, output_dir, ff, ncaa_elem, si_radius, receptor_chain="
     """단일 스냅샷에 대한 ΔG_bind 계산"""
 
     basename = os.path.basename(pdb_path).replace(".pdb", "")
-    tmp_dir  = os.path.join(output_dir, "tmp")
-    os.makedirs(tmp_dir, exist_ok=True)
+    # [SCRATCH] SSD-rooted work_dir (silent fallback to output_dir/tmp/basename
+    # when SSD missing). subdir=basename isolates 4-lane parallel cwd's so
+    # MMPBSA.py _MMPBSA_*.mdin/.mdcrd burst-writes never race.
+    try:
+        from scratch_setup import resolve_mmpbsa_workdir
+        tmp_dir = resolve_mmpbsa_workdir(
+            fallback_dir=os.path.join(output_dir, "tmp"),
+            subdir=basename,
+            verbose=False,
+        )
+    except ImportError:
+        tmp_dir = os.path.join(output_dir, "tmp", basename)
+        os.makedirs(tmp_dir, exist_ok=True)
 
     print(f"\n  계산: {basename}")
 
@@ -858,8 +878,18 @@ def calc_mmgbsa_1traj(pdb_path, output_dir, ff, ncaa_elem, si_radius,
         platform.
     """
     basename = os.path.basename(pdb_path).replace(".pdb", "")
-    tmp_dir  = os.path.join(output_dir, "tmp")
-    os.makedirs(tmp_dir, exist_ok=True)
+    # [SCRATCH] SSD-rooted work_dir for 1-traj path (silent fallback).
+    try:
+        from scratch_setup import resolve_mmpbsa_workdir
+        tmp_dir = resolve_mmpbsa_workdir(
+            fallback_dir=os.path.join(output_dir, "tmp"),
+            subdir=basename,
+            verbose=False,
+        )
+    except ImportError:
+        tmp_dir = os.path.join(output_dir, "tmp", basename)
+        os.makedirs(tmp_dir, exist_ok=True)
+
 
     print(f"\n  계산 [1-traj]: {basename}")
 

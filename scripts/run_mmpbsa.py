@@ -93,6 +93,15 @@ from openmm.app import PDBFile, ForceField, Simulation, HBonds
 # cyclic-bond injection, STRIP / CAP filters) so the solvent-model swap
 # is the only axis of difference between the two scripts.
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir, "utils"))
+
+# [SCRATCH] Route TMPDIR + MMPBSA work_dir to dedicated SSD when available.
+# Hook propagates to MMPBSA.py subprocess (env inherited).
+try:
+    from scratch_setup import configure_updd_tmpdir  # noqa: E402
+    configure_updd_tmpdir()
+except ImportError:
+    pass
+
 from utils_common import KNOWN_COFACTORS  # noqa: E402
 from run_mmgbsa import (  # noqa: E402
     split_complex,
@@ -468,8 +477,19 @@ def calc_mmpbsa_1traj(pdb_path: str, output_dir: str, ff: ForceField,
     _vacuum_ncaa_xmls = list(ncaa_xmls or [])
 
     basename = os.path.basename(pdb_path).replace(".pdb", "")
-    tmp_dir = os.path.join(output_dir, "tmp_pbsa", basename)
-    os.makedirs(tmp_dir, exist_ok=True)
+    # [SCRATCH] SSD-rooted work_dir (silent fallback to output_dir/tmp_pbsa/basename).
+    # MMPBSA.py uses cwd as scratch — keep the SSD path collision-safe via
+    # basename subdir.
+    try:
+        from scratch_setup import resolve_mmpbsa_workdir
+        tmp_dir = resolve_mmpbsa_workdir(
+            fallback_dir=os.path.join(output_dir, "tmp_pbsa"),
+            subdir=basename,
+            verbose=False,
+        )
+    except ImportError:
+        tmp_dir = os.path.join(output_dir, "tmp_pbsa", basename)
+        os.makedirs(tmp_dir, exist_ok=True)
 
     print(f"\n  계산 [PBSA 1-traj]: {basename}")
 

@@ -46,6 +46,21 @@ from openmm.app import (
 )
 from pdbfixer import PDBFixer
 
+# ==========================================
+# [SCRATCH] Route TMPDIR to dedicated SSD when available
+# ==========================================
+# Direct `python utils/run_restrained_md.py ...` invocations (bypassing UPDD.py
+# orchestrator) still get SSD-backed scratch via this hook. Falls back silently
+# to /tmp when the SSD mount is absent / read-only / disabled.
+_UTILS_DIR = os.path.dirname(os.path.abspath(__file__))
+if _UTILS_DIR not in sys.path:
+    sys.path.insert(0, _UTILS_DIR)
+try:
+    from scratch_setup import configure_updd_tmpdir  # noqa: E402
+    configure_updd_tmpdir()
+except ImportError:
+    pass
+
 
 # ==========================================
 # [DIAG] 구조화 로그 헬퍼 — Path 에이전트 자동 진단용

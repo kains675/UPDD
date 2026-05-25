@@ -67,6 +67,27 @@ os.environ.pop("UPDD_COFACTOR_INJECT_DIAGNOSTIC", None)
 
 # Registry Import (단일 계약)
 sys.path.append(UTILS_DIR)
+
+# ==========================================
+# Scratch / TMPDIR routing — SATA SSD preferred, silent /tmp fallback
+# ==========================================
+# Subprocess children (run_qmmm.py, run_restrained_md.py, MMPBSA.py, antechamber,
+# etc.) inherit os.environ, so setting TMPDIR here propagates to the entire
+# pipeline tree. Each entry script also installs its own hook for ad-hoc
+# direct invocation. configure_pyscf_scratch() additionally sets PYSCF_TMPDIR
+# for any in-process pyscf import (currently UPDD.py orchestrator does not
+# import pyscf directly, but the env var still propagates to child run_qmmm.py).
+try:
+    from scratch_setup import configure_pyscf_scratch, configure_updd_tmpdir  # noqa: E402
+    # Order matters: TMPDIR generic first (so PYSCF doesn't shadow it via its
+    # own TMPDIR setdefault), then PYSCF_TMPDIR. This keeps non-pyscf tempfiles
+    # (mdtraj, AmberTools antechamber, MMPBSA.py work_dir parents, etc.) on
+    # /media/san/San/tmp while PySCF chkfile/HDF5 stay in pyscf_scratch.
+    configure_updd_tmpdir()
+    configure_pyscf_scratch()
+except ImportError:
+    # utils/scratch_setup.py absent → fall through to PySCF/system /tmp defaults
+    pass
 try:
     from ncaa_registry import resolve_ncaa_definition, NCAA_REGISTRY_DATA
 except ImportError:

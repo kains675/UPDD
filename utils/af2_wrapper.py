@@ -34,6 +34,19 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 
+# [SCRATCH] Route TMPDIR to dedicated SSD when available — AF2 prediction
+# emits hundreds of MB of intermediate (MSA, recycle PDB) per run via
+# tempfile.mkdtemp(prefix="af2_"). Silent fallback to /tmp when SSD absent.
+_UTILS_DIR = os.path.dirname(os.path.abspath(__file__))
+if _UTILS_DIR not in sys.path:
+    sys.path.insert(0, _UTILS_DIR)
+try:
+    from scratch_setup import configure_updd_tmpdir
+    configure_updd_tmpdir()
+except ImportError:
+    pass
+
+
 SCHEMA_VERSION = "stage12_pipeline/0.1"
 TOOL_NAME = "utils.af2_wrapper"
 

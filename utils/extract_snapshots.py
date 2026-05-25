@@ -65,6 +65,15 @@ except ImportError:
 # [Refactor] 공통 chain 해석 helper 위임 (utils_common). 본 모듈의 wrapper는
 # 하위 호환성을 위해 유지된다.
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+# [SCRATCH] Route TMPDIR to dedicated SSD when available (mdtraj scratch /
+# tempfile.NamedTemporaryFile) — silent fallback to /tmp.
+try:
+    from scratch_setup import configure_updd_tmpdir  # noqa: E402
+    configure_updd_tmpdir()
+except ImportError:
+    pass
+
 from utils_common import resolve_chainid_by_letter as _resolve_chainid_common  # noqa: E402
 from utils_common import load_md_status  # noqa: E402
 from cofactor_errors import CofactorMissingError  # noqa: E402

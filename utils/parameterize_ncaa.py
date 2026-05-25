@@ -19,6 +19,15 @@ import numpy as np
 
 # utils 디렉토리 내부에서 직접 registry 참조
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+# [SCRATCH] Route TMPDIR to dedicated SSD when available — antechamber /
+# tleap / parmchk2 honor TMPDIR for their temp files. Silent fallback to /tmp.
+try:
+    from scratch_setup import configure_updd_tmpdir  # noqa: E402
+    configure_updd_tmpdir()
+except ImportError:
+    pass
+
 try:
     from ncaa_registry import resolve_ncaa_definition
 except ImportError:

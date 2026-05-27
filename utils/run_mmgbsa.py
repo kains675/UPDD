@@ -33,6 +33,33 @@ try:
 except ImportError:
     pass
 
+# [DISPATCH] OpenMM platform 선택 helper (v0.9 dual-GPU).
+# UPDD_MMGBSA_CUDA_DEVICE 환경변수로 DeviceIndex 외부화 (default 0).
+try:
+    from dispatch import select_openmm_platform, UPDD_MMGBSA_CUDA_DEVICE  # noqa: E402
+except ImportError:
+    select_openmm_platform = None  # type: ignore
+    UPDD_MMGBSA_CUDA_DEVICE = 0
+
+
+def _mmgbsa_platform():
+    """UPDD_MMGBSA_PLATFORM env + DeviceIndex 명시 — 3 사이트 공유 helper.
+    dispatch 미사용 시 legacy fallback (CUDA→OpenCL→CPU)."""
+    pref = os.environ.get("UPDD_MMGBSA_PLATFORM", "CUDA")
+    if select_openmm_platform is not None:
+        return select_openmm_platform(preferred=pref, device_id=UPDD_MMGBSA_CUDA_DEVICE)
+    # legacy fallback (dispatch 미가용 환경)
+    platform = None
+    for name in (pref, "CUDA", "OpenCL", "CPU"):
+        try:
+            platform = mm.Platform.getPlatformByName(name)
+            break
+        except Exception:
+            continue
+    if platform is None:
+        platform = mm.Platform.getPlatformByName("CPU")
+    return platform, {}
+
 
 def _resolve_workdir(output_dir: str, basename: str, sub: str = "tmp") -> str:
     """Resolve MMPBSA-style cwd: SSD-preferred via scratch_setup helper,
@@ -521,20 +548,10 @@ def calc_energy(pdb_path, ff, ncaa_elem, si_radius, binder_chain: str = ""):
     system = apply_gb_radius_override(system, modeller.topology, ncaa_elem, si_radius)
 
     integrator = mm.VerletIntegrator(1.0 * unit.femtoseconds)
-    # [2026-04-20] Platform 선택: UPDD_MMGBSA_PLATFORM 환경변수 우선,
-    # 기본값은 CUDA fallback CPU. CPU 만 쓰려면 UPDD_MMGBSA_PLATFORM=CPU
-    # 로 명시. 대형 복합체 (2QKI ~10k 원자) 에서 CPU 는 실용적이지 않음.
-    _pref = os.environ.get("UPDD_MMGBSA_PLATFORM", "CUDA")
-    platform = None
-    for name in (_pref, "CUDA", "OpenCL", "CPU"):
-        try:
-            platform = mm.Platform.getPlatformByName(name)
-            break
-        except Exception:
-            continue
-    if platform is None:
-        platform = mm.Platform.getPlatformByName("CPU")
-    sim = Simulation(modeller.topology, system, integrator, platform)
+    # [v0.9 dual-GPU] Platform 선택 + DeviceIndex 명시. UPDD_MMGBSA_PLATFORM env +
+    # UPDD_MMGBSA_CUDA_DEVICE env (default 0). _mmgbsa_platform() helper 통합.
+    platform, _plat_props = _mmgbsa_platform()
+    sim = Simulation(modeller.topology, system, integrator, platform, platformProperties=_plat_props)
     sim.context.setPositions(modeller.positions)
 
     # [P1 ultrareview 2026-04-20] 500 iter / tol=10 은 large protein
@@ -840,17 +857,9 @@ def calc_energy_static(pdb_path, ff, ncaa_elem, si_radius,
     system = apply_gb_radius_override(system, modeller.topology, ncaa_elem, si_radius)
 
     integrator = mm.VerletIntegrator(1.0 * unit.femtoseconds)
-    _pref = os.environ.get("UPDD_MMGBSA_PLATFORM", "CUDA")
-    platform = None
-    for name in (_pref, "CUDA", "OpenCL", "CPU"):
-        try:
-            platform = mm.Platform.getPlatformByName(name)
-            break
-        except Exception:
-            continue
-    if platform is None:
-        platform = mm.Platform.getPlatformByName("CPU")
-    sim = Simulation(modeller.topology, system, integrator, platform)
+    # [v0.9 dual-GPU] _mmgbsa_platform() — UPDD_MMGBSA_CUDA_DEVICE 외부화
+    platform, _plat_props = _mmgbsa_platform()
+    sim = Simulation(modeller.topology, system, integrator, platform, platformProperties=_plat_props)
 
     # Optional position injection (for 1-traj bound-state positions). Fallback
     # to modeller.positions when no override is provided.
@@ -979,19 +988,11 @@ def calc_mmgbsa_1traj(pdb_path, output_dir, ff, ncaa_elem, si_radius,
             cplx_system, cplx_modeller.topology, ncaa_elem, si_radius,
         )
 
-        _pref = os.environ.get("UPDD_MMGBSA_PLATFORM", "CUDA")
-        platform = None
-        for name in (_pref, "CUDA", "OpenCL", "CPU"):
-            try:
-                platform = mm.Platform.getPlatformByName(name)
-                break
-            except Exception:
-                continue
-        if platform is None:
-            platform = mm.Platform.getPlatformByName("CPU")
+        # [v0.9 dual-GPU] _mmgbsa_platform() — UPDD_MMGBSA_CUDA_DEVICE 외부화
+        platform, _plat_props = _mmgbsa_platform()
 
         integrator = mm.VerletIntegrator(1.0 * unit.femtoseconds)
-        sim = Simulation(cplx_modeller.topology, cplx_system, integrator, platform)
+        sim = Simulation(cplx_modeller.topology, cplx_system, integrator, platform, platformProperties=_plat_props)
         sim.context.setPositions(cplx_modeller.positions)
 
         print(f"  [1-traj] Complex 최소화 중 ({_min_iter} iter, tol={_min_tol})...")

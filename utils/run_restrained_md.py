@@ -447,11 +447,12 @@ def get_best_platform(preferred: str = "CUDA"):
 
 
 def get_platform_properties(platform_name):
-    """[v4 H-1] 플랫폼별 properties. CUDA 는 mixed precision + DeviceIndex 0 기본."""
-    if platform_name == "CUDA":
-        return {"DeviceIndex": "0", "Precision": "mixed"}
-    elif platform_name == "OpenCL":
-        return {"DeviceIndex": "0", "Precision": "mixed"}
+    """[v4 H-1, v0.9 dual-GPU] 플랫폼별 properties. CUDA / OpenCL DeviceIndex 는
+    UPDD_MD_CUDA_DEVICE 환경변수로 외부화 (default 0). VM dispatch 모드에서
+    V100 의 device id 가 0 단독 visible (passthrough) 이라 기본값으로도 작동."""
+    if platform_name in ("CUDA", "OpenCL"):
+        dev = os.environ.get("UPDD_MD_CUDA_DEVICE", "0")
+        return {"DeviceIndex": str(dev), "Precision": "mixed"}
     return {}
 
 def is_peptide_like_atomset(atom_names):

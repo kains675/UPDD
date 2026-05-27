@@ -106,7 +106,7 @@ def _decide_df_auto():
     threshold_gb = float(os.environ.get("UPDD_DF_AUTO_VRAM_THRESHOLD_GB", "20"))
     try:
         import cupy as _cp
-        props = _cp.cuda.runtime.getDeviceProperties(0)
+        props = _cp.cuda.runtime.getDeviceProperties(UPDD_CUDA_DEVICE)
         total_bytes = props["totalGlobalMem"]
         total_gib = total_bytes / (1024 ** 3)
         if total_gib >= threshold_gb:
@@ -149,6 +149,9 @@ UPDD_SCF_CONV_TOL = float(os.environ.get("UPDD_SCF_CONV_TOL", "1e-7"))
 UPDD_SCF_DIRECT_TOL = float(os.environ.get("UPDD_SCF_DIRECT_TOL", "1e-12"))
 UPDD_SCF_INIT_GUESS = os.environ.get("UPDD_SCF_INIT_GUESS", "minao")
 UPDD_VRAM_POOL_FRACTION = float(os.environ.get("UPDD_VRAM_POOL_FRACTION", "0.65"))
+# CUDA device index (host: 5070 Ti=0, VM passthrough: V100=0 단독 visible).
+# 듀얼 GPU 통합 (v0.9 dual-GPU): VMExecutor 가 VM context 안에서 본 변수를 set.
+UPDD_CUDA_DEVICE = int(os.environ.get("UPDD_CUDA_DEVICE", "0"))
 
 
 # ==========================================
@@ -2033,7 +2036,8 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
             import cupy as _cp_pre
             _cp_pre.get_default_memory_pool().free_all_blocks()
             _cp_pre.get_default_pinned_memory_pool().free_all_blocks()
-            _vram_free, _vram_total = _cp_pre.cuda.Device(0).mem_info
+            _cp_pre.cuda.Device(UPDD_CUDA_DEVICE).use()
+            _vram_free, _vram_total = _cp_pre.cuda.Device(UPDD_CUDA_DEVICE).mem_info
             # B9: VRAM pool 상한 (default 0.65 = 65%). 환경변수
             # UPDD_VRAM_POOL_FRACTION 으로 override — 0.875 등 상향 시 디스플레이
             # / pinned memory 공간 축소 주의.
@@ -2118,7 +2122,7 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
                 _gc.collect()
                 _cp_gc.get_default_memory_pool().free_all_blocks()
                 _cp_gc.get_default_pinned_memory_pool().free_all_blocks()
-                _free_after, _total_after = _cp_gc.cuda.Device(0).mem_info
+                _free_after, _total_after = _cp_gc.cuda.Device(UPDD_CUDA_DEVICE).mem_info
                 print(f"  [VRAM] mf 해제 후: used={(_total_after-_free_after)//1024**2}MB "
                       f"free={_free_after//1024**2}MB")
             except Exception:
@@ -2139,7 +2143,7 @@ def run_qmmm_calc(pdb_path, output_dir, qm_basis, qm_xc, ncaa_elem, qm_cutoff=5.
                 # VRAM이 부족해질 때만 LRU 페이지가 RAM으로 축출됨 (on-demand eviction).
                 # 힌트 없는 순수 malloc_managed 는 첫 접근 시점에 마이그레이션하므로
                 # 초기 page-fault overhead 가 크다.
-                _GPU_DEVICE = 0
+                _GPU_DEVICE = UPDD_CUDA_DEVICE
                 class _VRAMFirstAllocator:
                     def __init__(self):
                         self._pool = _cp.cuda.MemoryPool(_cp.cuda.malloc_managed)

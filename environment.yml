@@ -58,6 +58,14 @@ dependencies:
   - psutil=7.2
   - tqdm=4.67
 
+  # Build toolchain (for pip-installed source packages, e.g. pyscf-dftd3 needs gfortran)
+  # 명시적으로 conda-forge 의 toolchain 을 적시 → 모든 host (clean VM 포함) 에서
+  # env create 가 sudo 없이 build 가능. Host 에 시스템-wide gfortran 이 있으면
+  # 중복 무해 (conda 의 toolchain 이 우선 사용됨).
+  - gfortran
+  - gcc
+  - gxx
+
   # pip packages (not all available via conda channels)
   - pip:
     - pyscf==2.12.1

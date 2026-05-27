@@ -72,6 +72,18 @@ _UPDD_DEFAULT_ENV = {
     "MKL_NUM_THREADS":         "1",     # Intel MKL BLAS (numpy on conda-forge sometimes uses MKL)
     "NUMEXPR_NUM_THREADS":     "1",     # numexpr (pandas dependency)
     "VECLIB_MAXIMUM_THREADS":  "1",     # Apple Accelerate (no-op on Linux but defensive)
+    # --- v0.9 dual-GPU dispatch (2026-05-28, ADR-0007) ---
+    # Opt-in default off — Phase 2 numerical rigor validation 통과 후 default-on
+    # 검토 ([[ADR-0007]] + rigor-priority 원칙). 자세한 routing/fallback 은
+    # utils/dispatch.py 의 GPULocation + VMExecutor + with_fallback() 참조.
+    "UPDD_VM_ENABLE":           "0",                    # "1" 일 때 Stage 9-12 가 VM V100
+    "UPDD_VM_SSH_TARGET":       "san@192.168.122.155",  # libvirt default NAT
+    "UPDD_VM_PROJECT_ROOT":     "/home/san/UPDD_proj",
+    "UPDD_VM_SCRATCH_ROOT":     "/var/scratch",
+    "UPDD_VM_SYNC_METHOD":      "rsync",
+    "UPDD_CUDA_DEVICE":         "0",                    # cupy/gpu4pyscf device idx
+    "UPDD_MMGBSA_CUDA_DEVICE":  "0",                    # OpenMM MM-GBSA DeviceIndex
+    "UPDD_MD_CUDA_DEVICE":      "0",                    # OpenMM MD DeviceIndex
 }
 for _k, _v in _UPDD_DEFAULT_ENV.items():
     os.environ.setdefault(_k, _v)

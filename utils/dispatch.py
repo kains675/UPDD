@@ -47,7 +47,7 @@ UPDD_MD_CUDA_DEVICE = int(os.environ.get("UPDD_MD_CUDA_DEVICE", "0"))
 UPDD_VM_ENABLE = os.environ.get("UPDD_VM_ENABLE", "0") == "1"
 UPDD_VM_SSH_TARGET = os.environ.get("UPDD_VM_SSH_TARGET", "san@192.168.122.155")
 UPDD_VM_PROJECT_ROOT = os.environ.get("UPDD_VM_PROJECT_ROOT", "/home/san/UPDD_proj")
-UPDD_VM_SCRATCH_ROOT = os.environ.get("UPDD_VM_SCRATCH_ROOT", "/var/scratch")
+UPDD_VM_SCRATCH_ROOT = os.environ.get("UPDD_VM_SCRATCH_ROOT", "/home/san/scratch")
 UPDD_VM_SYNC_METHOD = os.environ.get("UPDD_VM_SYNC_METHOD", "rsync")
 
 

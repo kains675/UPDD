@@ -79,7 +79,7 @@ _UPDD_DEFAULT_ENV = {
     "UPDD_VM_ENABLE":           "0",                    # "1" 일 때 Stage 9-12 가 VM V100
     "UPDD_VM_SSH_TARGET":       "san@192.168.122.155",  # libvirt default NAT
     "UPDD_VM_PROJECT_ROOT":     "/home/san/UPDD_proj",
-    "UPDD_VM_SCRATCH_ROOT":     "/var/scratch",
+    "UPDD_VM_SCRATCH_ROOT":     "/home/san/scratch",
     "UPDD_VM_SYNC_METHOD":      "rsync",
     "UPDD_CUDA_DEVICE":         "0",                    # cupy/gpu4pyscf device idx
     "UPDD_MMGBSA_CUDA_DEVICE":  "0",                    # OpenMM MM-GBSA DeviceIndex

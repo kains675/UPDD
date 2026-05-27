@@ -4,7 +4,7 @@
 # Tier-1 packages (load-bearing; pinned to current production versions):
 #   - python 3.10                 # CLAUDE.md canonical interpreter
 #   - openmm 8.4                  # MD engine + CustomGBForce GBn2 (run_mmgbsa.py:337-348)
-#   - pyscf 2.12 + gpu4pyscf 1.6  # QM/MM SCF (run_qmmm.py wB97X-D3 / def2-SVP)
+#   - pyscf 2.12 + gpu4pyscf 1.6  # QM/MM SCF (run_qmmm.py wB97X-D / 6-31G*, UPDD.py:2108,2273)
 #   - mdtraj 1.10                 # Snapshot extraction + PBC unwrap (extract_snapshots.py)
 #   - parmed 4.3                  # AmberTools prmtop / mbondi2 radius override
 #   - pdbfixer 1.12               # Target preprocessing

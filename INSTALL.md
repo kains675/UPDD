@@ -68,7 +68,7 @@ This installs the Tier-1 packages pinned to the production versions documented i
 
 - `python 3.10` (the canonical interpreter for the codebase)
 - `openmm 8.4` (MD engine, `CustomGBForce` GBn2 in `utils/run_mmgbsa.py`)
-- `pyscf 2.12` + `gpu4pyscf 1.6` (QM/MM SCF, `utils/run_qmmm.py` with ωB97X-D3 / def2-SVP)
+- `pyscf 2.12` + `gpu4pyscf 1.6` (QM/MM SCF, `utils/run_qmmm.py` with ωB97X-D / 6-31G*, gpu4pyscf XC string `wb97xd`)
 - `mdtraj 1.10` (snapshot extraction + PBC unwrap, `utils/extract_snapshots.py`)
 - `parmed 4.3` (AmberTools prmtop / mbondi2 radius override)
 - `pdbfixer 1.12` (target preprocessing)
@@ -213,7 +213,7 @@ UPDD/
 ├── .github/workflows/ci.yml     # GitHub Actions CI
 ├── utils/                       # Stage-4 evaluation code (read-only protected files)
 │   ├── parameterize_ncaa.py     # ncAA FF parameterisation + amb14SB Trp overlay
-│   ├── run_qmmm.py              # QM/MM SCF (gpu4pyscf, wB97X-D3 / def2-SVP)
+│   ├── run_qmmm.py              # QM/MM SCF (gpu4pyscf, wB97X-D / 6-31G*, XC string "wb97xd")
 │   ├── run_mmgbsa.py            # MM-GBSA (1-traj, GBn2)
 │   ├── run_restrained_md.py     # Restrained MD (OpenMM, ff14SB on protein)
 │   ├── ncaa_registry.py         # 25-entry ncAA registry (MTR, NML, MLE, OMW, …)

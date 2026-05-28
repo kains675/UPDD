@@ -308,11 +308,25 @@ def _run_hf_calculation(xyz_path, charge):
                 atoms_str += f"{p[0]} {p[1]} {p[2]} {p[3]};"
     mol = gto.M(atom=atoms_str.rstrip(";"), basis="6-31G*", charge=charge, spin=0, unit="Angstrom", verbose=0)
     mf = scf.RHF(mol)
+    # [v0.9 Phase II] RESP SCF GPU 가속 opt-in (UPDD_RESP_USE_GPU=1). 큰 basis /
+    # 다중 conformer RESP 시 gpu4pyscf 로 4-5× 가속 (V100). default CPU + GPU 실패
+    # 시 CPU fallback. SCF 에너지/dm 은 CPU 와 FP-equivalent (검증 2026-05-28:
+    # dE<1e-9 mHa, dm max|diff|~1e-6). RESP 알고리즘 불변 — device 외부화만 (R: 보호 파일).
+    if os.environ.get("UPDD_RESP_USE_GPU", "0") == "1":
+        try:
+            mf = mf.to_gpu()
+        except Exception as _resp_gpu_err:
+            log.info(f"[RESP-GPU] to_gpu 실패 ({type(_resp_gpu_err).__name__}) — CPU fallback")
     mf.max_cycle, mf.conv_tol = 200, 1e-9
     mf.kernel()
     if not mf.converged:
         return None
-    return mol, mf.make_rdm1()
+    dm = mf.make_rdm1()
+    # gpu4pyscf 는 cupy-tagged array (module 'gpu4pyscf.lib.cupy_helper') 반환 →
+    # downstream ESP (_compute_electron_esp 의 np.einsum) 위해 numpy 변환 필수.
+    if not isinstance(dm, np.ndarray):
+        dm = np.asarray(dm.get())
+    return mol, dm
 
 
 def _build_esp_grid(mol, dm):

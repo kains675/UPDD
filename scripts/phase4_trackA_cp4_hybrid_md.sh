@@ -825,6 +825,17 @@ run_one_pbsa () {
     local seed_log="${LOGDIR}/mmpbsa_${seed}.log"
     local start; start=$(date +%s)
     printf '[%s START %s]\n' "$(date +%H:%M:%S)" "$seed" >> "$PBSA_LOG"
+    # AMBERHOME + AmberTools bins (tleap/sander/MMPBSA.py/ante-MMPBSA.py) come from
+    # the qmmm conda env. The absolute "$PY" interpreter imports openmm/mdtraj fine
+    # but does NOT put those AmberTools BINARIES on PATH or set $AMBERHOME, so
+    # run_mmpbsa.py::_find_amberhome() raises immediately. Activate qmmm here so the
+    # PATH/AMBERHOME are present for the run_mmpbsa.py subshell-outs. This runs inside
+    # the backgrounded `run_one_pbsa &` subshell, so the activation is isolated (does
+    # not leak to the parent) and idempotent — harmless when qmmm is already active
+    # (e.g. the VM lane, SSH-launched via `conda run -n qmmm`). Baseline
+    # t1_phase1_5_fresh.sh keeps qmmm active through Stage D (no deactivate after
+    # Stage C); our lane deactivates after Stage C, so we re-establish it per worker.
+    conda activate qmmm
     CUDA_VISIBLE_DEVICES="" UPDD_MMGBSA_PLATFORM=CPU $MMPBSA_PREFIX "$PY" scripts/run_mmpbsa.py \
         --md_dir "$snap_dir" --outputdir "$out_dir" \
         --ncaa_elem "$MMPBSA_NCAA_ELEM" --receptor_chain "$MMPBSA_RECEPTOR_CHAIN" \
@@ -834,6 +845,7 @@ run_one_pbsa () {
     local rc=$?
     local end; end=$(date +%s)
     printf '[%s DONE  %s] rc=%d elapsed=%ds\n' "$(date +%H:%M:%S)" "$seed" "$rc" "$((end-start))" >> "$PBSA_LOG"
+    return "$rc"
 }
 
 # ============================================================================
@@ -914,20 +926,64 @@ print(f\"{rec['tag']}: {rec['status']} n_saved={rec.get('n_saved')} {rec.get('sk
     log "${lane_label} Stage C complete."
 
     # ----- Stage D — 1-traj MM-PBSA scoring (median-Δg ranking; 4-lane parallel) -
+    # 4-lane parallel: launch run_one_pbsa "$seed" & in the background, capping at
+    # 4 concurrent (wait -n). Each worker's rc is harvested by its PID (a PID→seed
+    # map) so an all-fail Stage D terminates with a COUNTED non-zero failure rather
+    # than hanging or silently passing. The PRESENCE of mmpbsa_summary.json is the
+    # ground-truth success signal (run_one_pbsa rc backs it up), checked in the
+    # summary section. Note: Stage D no longer mirrors via a process-substitution
+    # `tee` at the lane-dispatch layer (that lingering pipe was the deadlock source);
+    # the lane writes straight to its log file, so backgrounded workers cannot keep a
+    # pipe write-fd open past `wait`.
     log "----------------------------------------------------------------"
     log "${lane_label} Stage D: MM-PBSA (${MMPBSA_PROTOCOL}, 4 lanes)"
     log "----------------------------------------------------------------"
     local running=0
+    local -A PBSA_PID_SEED=()
+    local -a PBSA_FAILED_SEEDS=()
+    local pid
+    # Reap a finished worker by PID and record a failure on non-zero rc.
+    reap_one_pbsa () {
+        local done_pid done_rc
+        # `wait -n -p` (bash >= 5.1) returns the finished job's PID; fall back to a
+        # plain `wait -n` (rc only) on older bash. Either way we never block forever:
+        # workers fast-fail (AMBERHOME error → run_mmpbsa.py exits in ms) and `wait`
+        # returns as each finishes.
+        if wait -n -p done_pid 2>/dev/null; then
+            done_rc=0
+        else
+            done_rc=$?
+            # done_pid may be empty on the fallback path; rc is still authoritative.
+            : "${done_pid:=}"
+        fi
+        if [ "$done_rc" -ne 0 ]; then
+            local s="${PBSA_PID_SEED[${done_pid:-}]:-?}"
+            PBSA_FAILED_SEEDS+=("$s")
+            log "  ${lane_label} Stage D: seed ${s} MM-PBSA FAILED (rc=${done_rc}) — see mmpbsa_${s}.log"
+        fi
+        [ -n "${done_pid:-}" ] && unset 'PBSA_PID_SEED[$done_pid]'
+    }
     for seed in "${HOST_SEEDS[@]}"; do
         run_one_pbsa "$seed" &
+        pid=$!
+        PBSA_PID_SEED[$pid]="$seed"
         running=$((running + 1))
         if [ "$running" -ge 4 ]; then
-            wait -n
+            reap_one_pbsa
             running=$((running - 1))
         fi
     done
-    wait
-    log "${lane_label} Stage D complete."
+    # Drain the remaining (< 4) workers, harvesting each rc.
+    while [ "$running" -gt 0 ]; do
+        reap_one_pbsa
+        running=$((running - 1))
+    done
+    if [ "${#PBSA_FAILED_SEEDS[@]}" -gt 0 ]; then
+        log "${lane_label} Stage D complete — ${#PBSA_FAILED_SEEDS[@]} seed(s) FAILED MM-PBSA: ${PBSA_FAILED_SEEDS[*]}"
+        return 1
+    fi
+    log "${lane_label} Stage D complete (all MM-PBSA seeds scored)."
+    return 0
 }
 
 # ============================================================================
@@ -945,12 +1001,20 @@ else
     HOST_LANE_LOG="${LOGDIR}/host_lane.log"
     VM_LANE_LOG="${LOGDIR}/vm_lane.log"
 
-    # Host lane (backgrounded). Its own log; dispatch.log still aggregates.
-    ( run_host_lane "host-lane" ) > >(tee -a "$HOST_LANE_LOG") 2>&1 &
+    # Each lane is backgrounded with a PLAIN append redirect to its own log file —
+    # NOT a process-substitution `tee` ( `> >(tee -a ...)` ). The process-sub form
+    # spawns a long-lived `tee` whose pipe write-fd is inherited by the lane's own
+    # backgrounded Stage D workers AND lingers in this parent shell; on an all-fail
+    # Stage D the workers exit fast but `tee` never sees EOF, so the outer
+    # `wait "$HOST_PID"` blocks forever (observed: both bash procs in do_wait, idle
+    # `tee` child, ~1.5h no progress). A plain `>> file` redirect has no such pipe,
+    # so the lane subshell closes its fds on return and `wait` joins cleanly. The
+    # per-line log() tee → dispatch.log (short-lived, one line) still aggregates.
+    ( run_host_lane "host-lane" ) >> "$HOST_LANE_LOG" 2>&1 &
     HOST_PID=$!
 
     # VM lane (backgrounded). Skipped cleanly if no VM seeds.
-    ( run_vm_lane ) > >(tee -a "$VM_LANE_LOG") 2>&1 &
+    ( run_vm_lane ) >> "$VM_LANE_LOG" 2>&1 &
     VM_PID=$!
 
     HOST_RC=0; VM_RC=0

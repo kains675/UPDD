@@ -940,7 +940,7 @@ run_one_pbsa () {
     # spawning a core-sized thread pool; $pbsa_prefix pins it to a DISJOINT core
     # slice. The science args below (md_dir/protocol/ncaa_elem/chains/target_id)
     # are byte-identical to the baseline — thread count ≠ MM-PBSA result.
-    CUDA_VISIBLE_DEVICES="" UPDD_MMGBSA_PLATFORM=CPU $MMPBSA_THREAD_PIN \
+    CUDA_VISIBLE_DEVICES="" UPDD_MMGBSA_PLATFORM=CPU env $MMPBSA_THREAD_PIN \
         $pbsa_prefix "$PY" scripts/run_mmpbsa.py \
         --md_dir "$snap_dir" --outputdir "$out_dir" \
         --ncaa_elem "$MMPBSA_NCAA_ELEM" --receptor_chain "$MMPBSA_RECEPTOR_CHAIN" \

@@ -350,11 +350,53 @@ with open(mf, 'w') as f: json.dump(m, f, indent=2)
 "
 }
 
+# ----- explosion marker detection (run_restrained_md.py:2191-2204) -----
+# run_restrained_md writes a `${SYSTEM_BASE}_EXPLODED_dt<X>fs.log` marker on a
+# NaN/explosion AND — when ≥ _MIN_COMPLETION_RATIO (20%) of steps completed — ALSO
+# writes the recovery {basename}_final.pdb and returns "PARTIAL_SUCCESS" with
+# process exit code 0 (utils/run_restrained_md.py:2197-2204, 2314-2323; main()
+# at :2344 has no sys.exit() so the rc is 0 regardless of FAIL/PARTIAL). Hence a
+# `final.pdb`-or-rc-based success check silently accepts an exploded, truncated
+# trajectory. The marker is the only reliable explosion signal at the launcher
+# layer, so every pass is judged by it (not by rc, not by final.pdb alone).
+#
+# Markers are glob-matched as ${SYSTEM_BASE}_EXPLODED_*.log inside the LIVE
+# mdresult/ (archive_exploded relocates prior markers into mdresult/_archive/
+# before each rescue rung, so any marker in the live dir belongs to the pass that
+# just ran — a "fresh" marker).
+md_explosion_marker () {
+    # echoes the path of the freshest live EXPLODED marker, or nothing.
+    local seedir="$1"
+    local mdr="${seedir}/mdresult"
+    local latest="" f
+    for f in "${mdr}/${SYSTEM_BASE}"_EXPLODED_*.log; do
+        [ -e "$f" ] || continue
+        if [ -z "$latest" ] || [ "$f" -nt "$latest" ]; then
+            latest="$f"
+        fi
+    done
+    [ -n "$latest" ] && printf '%s' "$latest"
+}
+
+# A pass COMPLETED only when the recovery/final structure exists AND no fresh
+# explosion marker is present. (final.pdb alone is insufficient: the ≥20%-recovery
+# path writes final.pdb together with the marker.)
+md_pass_completed () {
+    local seedir="$1"
+    [ -f "${seedir}/mdresult/${SYSTEM_BASE}_final.pdb" ] || return 1
+    [ -n "$(md_explosion_marker "$seedir")" ] && return 1
+    return 0
+}
+
 # ----- R-7 archive of exploded artifacts (v09_gamma_rescue.sh lines 66-82) -----
+# Relocates (never deletes/overwrites) the exploded pass's marker + md.log + DCD +
+# partial/recovery PDBs into mdresult/_archive/<ts>_explosion_pass<N>_dt<X>fs/ so a
+# reader can later reconstruct which seed/pass/dt/step blew and whether rescue
+# saved it. Echoes the archive dir (project-relative) for the caller to log.
 archive_exploded () {
     local seedir="$1"; local tag="$2"
     local mdr="${seedir}/mdresult"
-    local adir="${mdr}/_archive/$(date +%Y%m%d_%H%M%S)_pre_${tag}"
+    local adir="${mdr}/_archive/$(date +%Y%m%d_%H%M%S)_${tag}"
     mkdir -p "$adir"
     for pat in _EXPLODED_dt2fs.log _EXPLODED_dt1fs.log _EXPLODED_MD.log \
                _EXPLODED_NVT.log _EXPLODED_COLD_NVT.log _EXPLODED_MIN.log \
@@ -364,7 +406,8 @@ archive_exploded () {
             [ -e "$f" ] && mv "$f" "$adir/" 2>/dev/null
         done
     done
-    log "    archived exploded artifacts → ${adir#$PROJ/}"
+    log "    R-7 archived exploded artifacts → ${adir#$PROJ/}"
+    printf '%s' "${adir#$PROJ/}"
 }
 
 # ----- single MD invocation (baseline t1_phase1_5_fresh.sh Stage A3, verbatim
@@ -396,18 +439,45 @@ run_md () {
 }
 
 # ----- per-seed MD with rescue ladder (v09_gamma_rescue.sh lines 126-146) -----
+# Detection is MARKER-based, not rc-based: run_restrained_md exits 0 even on a
+# ≥20%-recovery explosion (writing final.pdb + the EXPLODED marker). Each pass is
+# judged COMPLETE only by md_pass_completed (final.pdb present AND no fresh
+# marker); otherwise the existing validated ladder fires
+# (Pass 1b reseed=seed+13 @2fs → Pass 2 reseed=seed+13 @1fs — the 1fs rung is the
+# one that cures dt=2fs integrator NaN). On ladder exhaustion the seed returns
+# rc≠0, drops a loud _FAILED_EXPLOSION sentinel, and Stage C/D skip it.
+md_pass_outcome_log () {
+    # logs COMPLETE or the marker's "NaN at step .../dt=..." line for the pass.
+    local seed="$1"; local seedir="$2"; local pass="$3"
+    if md_pass_completed "$seedir"; then
+        log "  $seed: Pass ${pass} → COMPLETE (final.pdb present, no explosion marker)"
+        return 0
+    fi
+    local marker; marker="$(md_explosion_marker "$seedir")"
+    if [ -n "$marker" ]; then
+        local line; line="$(head -n1 "$marker" 2>/dev/null)"
+        log "  $seed: Pass ${pass} → EXPLODED [$(basename "$marker")]: ${line}"
+    else
+        log "  $seed: Pass ${pass} → INCOMPLETE (no final.pdb, no marker — MD did not finish; see md log)"
+    fi
+    return 1
+}
+
 md_with_rescue () {
     local seed="$1"
     local seed_int="${SEED_INT[$seed]:-}"
     [ -z "$seed_int" ] && { log "  $seed: unknown seed label, skip"; return 1; }
     local seedir="${PROJ}/outputs/${SYSTEM_TAG}_calib_${seed}"
 
-    if [ -f "${seedir}/mdresult/${SYSTEM_BASE}_final.pdb" ]; then
-        log "  $seed: SKIP MD (final.pdb exists)"
+    # Idempotent skip ONLY for a clean prior completion (final.pdb + no live
+    # marker). A leftover marker means a previous exploded pass — do NOT skip.
+    if md_pass_completed "$seedir"; then
+        log "  $seed: SKIP MD (clean final.pdb exists, no explosion marker)"
         return 0
     fi
 
     setup_seed_dir "$seed"
+    rm -f "${seedir}/mdresult/_FAILED_EXPLOSION" 2>/dev/null  # clear any stale sentinel before a fresh attempt
 
     # GATE: confirm the local MD XML is the hybrid model (q_N=−0.4157, Σq=0)
     local qN qNE1
@@ -417,30 +487,52 @@ md_with_rescue () {
 
     # Pass 1: baseline protocol (2 fs, original seed integer)
     run_md "$seedir" "$seed_int" "$MD_DT" "$seed" "1"
-    if [ -f "${seedir}/mdresult/${SYSTEM_BASE}_final.pdb" ]; then
+    if md_pass_outcome_log "$seed" "$seedir" "1 (seed=${seed_int}, ${MD_DT}fs)"; then
         log "  $seed: ✓ Pass 1 (seed=${seed_int}, ${MD_DT}fs) DONE"
         return 0
     fi
-    log "  $seed: Pass 1 explosion/incomplete — engage rescue ladder"
 
-    # Pass 1b: reseed (seed+13 prime offset) at 2 fs
-    archive_exploded "$seedir" "reseed"
+    # Pass 1b: reseed (seed+13 prime offset) at 2 fs.
+    # Rationale: a dt=2fs NaN can be a seed-specific velocity draw; reseeding at
+    # the same timestep is the cheap first rescue rung before paying the 2× wall
+    # cost of dt=1fs.
     local new_seed=$((seed_int + 13))
+    log "  $seed: Pass 1 not complete — RESCUE rung 1b: reseed ${seed_int}→${new_seed} @${MD_DT}fs (cheap same-dt retry)"
+    archive_exploded "$seedir" "explosion_pass1_dt${MD_DT%.*}fs" >/dev/null
     run_md "$seedir" "$new_seed" "$MD_DT" "$seed" "1b-reseed"
-    if [ -f "${seedir}/mdresult/${SYSTEM_BASE}_final.pdb" ]; then
+    if md_pass_outcome_log "$seed" "$seedir" "1b-reseed (seed=${new_seed}, ${MD_DT}fs)"; then
         log "  $seed: ✓ Pass 1b reseed (seed=${new_seed}, ${MD_DT}fs) DONE"
         return 0
     fi
-    log "  $seed: Pass 1b reseed failed — 1 fs last resort"
 
-    # Pass 2: dt=1 fs last resort
-    archive_exploded "$seedir" "dt1fs"
+    # Pass 2: dt=1 fs last resort.
+    # Rationale: the s199 (and historical s73) crashes are dt=2fs integrator
+    # instability — stable PE then a sudden single-step NaN. Halving the timestep
+    # is the validated cure for that failure mode.
+    log "  $seed: Pass 1b not complete — RESCUE rung 2: reseed ${new_seed} @1.0fs (dt halved — cures 2fs integrator NaN)"
+    archive_exploded "$seedir" "explosion_pass1b_dt${MD_DT%.*}fs" >/dev/null
     run_md "$seedir" "$new_seed" "1.0" "$seed" "2-dt1fs"
-    if [ -f "${seedir}/mdresult/${SYSTEM_BASE}_final.pdb" ]; then
+    if md_pass_outcome_log "$seed" "$seedir" "2-dt1fs (seed=${new_seed}, 1.0fs)"; then
         log "  $seed: ✓ Pass 2 (seed=${new_seed}, 1fs) DONE"
         return 0
     fi
-    log "  $seed: ✗ rescue FINAL FAIL (2fs reseed + 1fs both exploded) — permanent-exclusion candidate"
+
+    # Rescue ladder EXHAUSTED — archive the final exploded attempt, drop a loud
+    # sentinel so Stage C/D skip this seed, and FAIL the seed (rc≠0). No reextract
+    # / MM-PBSA on a truncated DCD; no silent rc=0.
+    local final_marker_line=""
+    local fm; fm="$(md_explosion_marker "$seedir")"
+    [ -n "$fm" ] && final_marker_line="$(head -n1 "$fm" 2>/dev/null)"
+    local adir; adir="$(archive_exploded "$seedir" "explosion_pass2_dt1fs")"
+    {
+        printf 'SEED %s FAILED — explosion survived rescue ladder (Pass1 2fs, Pass1b reseed 2fs, Pass2 1fs)\n' "$seed"
+        printf 'last explosion marker: %s\n' "${final_marker_line:-<none — incomplete without marker>}"
+        printf 'final exploded attempt archived under mdresult/_archive/: %s\n' "$adir"
+        printf 'timestamp: %s\n' "$(date '+%Y-%m-%d %H:%M:%S')"
+    } > "${seedir}/mdresult/_FAILED_EXPLOSION"
+    log "  $seed: ✗✗✗ SEED ${seed}: FAILED — explosion survived rescue ladder (dt=1fs)"
+    log "  $seed:       last marker: ${final_marker_line:-<incomplete, no marker>} | sentinel: mdresult/_FAILED_EXPLOSION"
+    log "  $seed:       Stage C/D will SKIP this seed (no reextract/MM-PBSA on a truncated DCD)"
     return 1
 }
 
@@ -624,8 +716,13 @@ print_host_seed_plan () {
     printf '                  --target_id %s --dt_fs %s --platform %s --seed %s \\\n' "$MD_TARGET_ID" "$MD_DT" "$MD_PLATFORM" "$seed_int" | tee -a "$DISPATCH_LOG"
     printf '                  --ncaa_label %s --ncaa_code %s\n' "$MD_NCAA_LABEL" "$MD_NCAA_CODE" | tee -a "$DISPATCH_LOG"
     printf '    CHARGE    : local params/MTR_gaff2.xml <- %s (hybrid)\n' "${HYBRID_XML#$PROJ/}" | tee -a "$DISPATCH_LOG"
-    printf '    RESCUE    : Pass1b seed=%s @2fs -> Pass2 seed=%s @1fs (R-7 archive)\n' "$((seed_int + 13))" "$((seed_int + 13))" | tee -a "$DISPATCH_LOG"
-    printf '    REEXTRACT : reextract_one(system="%s", seed="%s") -> %s/\n' "$REEXTRACT_SYSTEM" "$seed" "$SNAP_SUBDIR" | tee -a "$DISPATCH_LOG"
+    printf '    DETECT    : MARKER-based (run_restrained_md exits 0 + writes final.pdb even on ≥20%% explosion);\n' | tee -a "$DISPATCH_LOG"
+    printf '                pass COMPLETE iff final.pdb present AND no fresh %s_EXPLODED_*.log marker.\n' "$SYSTEM_BASE" | tee -a "$DISPATCH_LOG"
+    printf '    RESCUE    : on marker → archive (R-7 mdresult/_archive/<ts>_explosion_pass<N>_dt<X>fs/) →\n' | tee -a "$DISPATCH_LOG"
+    printf '                rung 1b reseed=%s @%sfs → rung 2 reseed=%s @1fs (1fs cures dt=2fs NaN).\n' "$((seed_int + 13))" "$MD_DT" "$((seed_int + 13))" | tee -a "$DISPATCH_LOG"
+    printf '    LOUD-FAIL : ladder exhausted → write mdresult/_FAILED_EXPLOSION + "SEED %s: FAILED — explosion\n' "$seed" | tee -a "$DISPATCH_LOG"
+    printf '                survived rescue ladder (dt=1fs)" + return rc≠0; Stage C/D SKIP (no reextract on truncated DCD).\n' | tee -a "$DISPATCH_LOG"
+    printf '    REEXTRACT : reextract_one(system="%s", seed="%s") -> %s/  (only if pass COMPLETE)\n' "$REEXTRACT_SYSTEM" "$seed" "$SNAP_SUBDIR" | tee -a "$DISPATCH_LOG"
     printf '    MM-PBSA   : run_mmpbsa.py --md_dir .../%s --protocol %s --ncaa_elem %s\n' "$SNAP_SUBDIR" "$MMPBSA_PROTOCOL" "$MMPBSA_NCAA_ELEM" | tee -a "$DISPATCH_LOG"
 }
 
@@ -730,13 +827,22 @@ run_host_lane () {
     log "${lane_label} Stage A: ${SYSTEM_TAG} MD ${#HOST_SEEDS[@]} seeds (sequential, GPU ${MD_GPU})"
     log "----------------------------------------------------------------"
     local seed
+    local -a MD_FAILED_SEEDS=()
     for seed in "${HOST_SEEDS[@]}"; do
-        md_with_rescue "$seed"
+        if ! md_with_rescue "$seed"; then
+            MD_FAILED_SEEDS+=("$seed")
+        fi
     done
-    log "${lane_label} Stage A complete."
+    if [ "${#MD_FAILED_SEEDS[@]}" -gt 0 ]; then
+        log "${lane_label} Stage A complete — ${#MD_FAILED_SEEDS[@]} seed(s) FAILED MD (explosion survived rescue): ${MD_FAILED_SEEDS[*]}"
+    else
+        log "${lane_label} Stage A complete (all ${#HOST_SEEDS[@]} seeds reached completion)."
+    fi
 
     if [ "$MD_ONLY" -eq 1 ]; then
         log "${lane_label} --md-only: skipping Stage C/D."
+        # Surface MD failures as a non-zero lane rc so cohort loss is never silent.
+        [ "${#MD_FAILED_SEEDS[@]}" -gt 0 ] && return 1
         return 0
     fi
 
@@ -754,8 +860,21 @@ run_host_lane () {
             log "  ${seed}: reextract SKIP (≥25 pdb already present)"
             continue
         fi
+        # Skip seeds whose MD did not cleanly complete. A recovered explosion
+        # leaves a final.pdb together with the EXPLODED marker (and the rescue
+        # ladder drops a _FAILED_EXPLOSION sentinel on exhaustion) — reextracting a
+        # truncated DCD would inject a corrupted snapshot set into MM-PBSA, so both
+        # conditions force a LOUD skip rather than scoring junk.
+        if [ -f "${seedir}/mdresult/_FAILED_EXPLOSION" ]; then
+            log "  ${seed}: reextract SKIP — _FAILED_EXPLOSION sentinel (explosion survived rescue; no MM-PBSA on truncated DCD)"
+            continue
+        fi
         if [ ! -f "${seedir}/mdresult/${SYSTEM_BASE}_final.pdb" ]; then
             log "  ${seed}: reextract SKIP (no final.pdb — MD did not complete)"
+            continue
+        fi
+        if ! md_pass_completed "$seedir"; then
+            log "  ${seed}: reextract SKIP — fresh EXPLODED marker present (recovered-but-truncated trajectory; no MM-PBSA on truncated DCD)"
             continue
         fi
         log "  ${seed}: reextract (affinity=[${MMPBSA_AFFINITY:-free}])"

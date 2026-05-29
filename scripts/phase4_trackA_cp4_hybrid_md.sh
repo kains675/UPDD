@@ -170,6 +170,86 @@ if [ "$USE_AFFINITY" -eq 1 ]; then
     MMPBSA_PREFIX="taskset -c ${MMPBSA_AFFINITY}"
 fi
 
+# ============================================================================
+# Stage-D MM-PBSA oversubscription guard (scheduling/perf only — no science).
+# ----------------------------------------------------------------------------
+# Each Stage-D worker invokes scripts/run_mmpbsa.py DIRECTLY (not via UPDD.py),
+# so it does NOT inherit UPDD.py::_UPDD_DEFAULT_ENV's BLAS/OMP single-thread
+# pinning. Without it, each worker's python (numpy/parmed BLAS + the OpenMM CPU
+# Fix-4 minimize) spawns a full thread pool sized to the visible cores; 4 lanes
+# × ~14 threads ≫ 16 hardware threads → thrash + thermal runaway. Two fixes:
+#
+#   (1) PER-WORKER THREAD PIN — mirror UPDD.py::_UPDD_DEFAULT_ENV (hardware_opt.md
+#       "BLAS thread pinning"): OMP/OPENBLAS/MKL/NUMEXPR/VECLIB = 1. ADD
+#       OPENMM_CPU_THREADS=1 — run_mmpbsa.py's Fix-4 minimize uses the OpenMM CPU
+#       platform, whose Threads property defaults to OPENMM_CPU_THREADS (else all
+#       cores). MMPBSA.py/sander are serial single-process (use_sander=1, no MPI),
+#       so per worker ≈ 1 compute thread once these are pinned.
+#   (2) DISJOINT PER-LANE CORES — even pinned to 1, 4 lanes sharing the SAME
+#       14-core mask let the kernel migrate all 4 onto a few cores. Partition the
+#       MM-PBSA logical-core POOL (the cores MMPBSA_AFFINITY already owns) into
+#       NON-OVERLAPPING per-lane slices (≥1 core each), and CAP the lane count to
+#       the pool size so total Stage-D compute threads ≤ pool cores. Expanding the
+#       pool to an explicit ID list (not "a-b,c-d" arithmetic) sidesteps the
+#       reversed-range / no-SMT pitfalls already handled in the MD affinity block.
+# ============================================================================
+# Single-thread env pin applied to every run_mmpbsa.py worker (names mirror
+# UPDD.py::_UPDD_DEFAULT_ENV exactly; OPENMM_CPU_THREADS added for the CPU minimize).
+MMPBSA_THREAD_PIN="OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 OPENMM_CPU_THREADS=1"
+
+# Expand MMPBSA_AFFINITY ("1-7,9-15" or "1-3" or "1") into an explicit logical-CPU
+# id list, then partition into disjoint per-lane slices. Falls back to a single
+# unpinned lane when affinity is off (USE_AFFINITY=0) or the pool is empty.
+PBSA_CORE_POOL=()
+if [ "$USE_AFFINITY" -eq 1 ] && [ -n "$MMPBSA_AFFINITY" ]; then
+    IFS=',' read -ra _pbsa_groups <<< "$MMPBSA_AFFINITY"
+    for _g in "${_pbsa_groups[@]}"; do
+        if [[ "$_g" == *-* ]]; then
+            _lo="${_g%-*}"; _hi="${_g#*-}"
+            if [ "$_lo" -le "$_hi" ] 2>/dev/null; then
+                for ((_c = _lo; _c <= _hi; _c++)); do PBSA_CORE_POOL+=("$_c"); done
+            fi
+        else
+            PBSA_CORE_POOL+=("$_g")
+        fi
+    done
+fi
+# Desired concurrency, capped so each lane gets ≥1 disjoint core (and never >
+# pool size). Default 4 lanes (baseline intent), but the cap is the safety net:
+# host pool=14 → 4 lanes (3-4 cores each); VM pool=3 → 3 lanes (1 core each);
+# VM pool=1 → 1 lane. Override via UPDD_TRACKA_PBSA_LANES (still capped).
+PBSA_LANES_DESIRED="${UPDD_TRACKA_PBSA_LANES:-4}"
+PBSA_POOL_SIZE="${#PBSA_CORE_POOL[@]}"
+if [ "$PBSA_POOL_SIZE" -ge 1 ]; then
+    PBSA_LANES=$(( PBSA_LANES_DESIRED < PBSA_POOL_SIZE ? PBSA_LANES_DESIRED : PBSA_POOL_SIZE ))
+else
+    PBSA_LANES=1   # no affinity pool → single unpinned worker (no oversubscription)
+fi
+[ "$PBSA_LANES" -lt 1 ] && PBSA_LANES=1
+
+# Build PBSA_LANE_PREFIX[0..PBSA_LANES-1]: each a disjoint `taskset -c <ids>` (or
+# empty when affinity is off). Cores are dealt round-robin so the slices are
+# balanced and non-overlapping; with PBSA_LANES == PBSA_POOL_SIZE each lane gets
+# exactly one core.
+declare -a PBSA_LANE_PREFIX=()
+if [ "$PBSA_POOL_SIZE" -ge 1 ]; then
+    declare -a _lane_cores=()
+    for ((_i = 0; _i < PBSA_LANES; _i++)); do _lane_cores[$_i]=""; done
+    for ((_i = 0; _i < PBSA_POOL_SIZE; _i++)); do
+        _lane=$(( _i % PBSA_LANES ))
+        if [ -z "${_lane_cores[$_lane]}" ]; then
+            _lane_cores[$_lane]="${PBSA_CORE_POOL[$_i]}"
+        else
+            _lane_cores[$_lane]="${_lane_cores[$_lane]},${PBSA_CORE_POOL[$_i]}"
+        fi
+    done
+    for ((_i = 0; _i < PBSA_LANES; _i++)); do
+        PBSA_LANE_PREFIX[$_i]="taskset -c ${_lane_cores[$_i]}"
+    done
+else
+    PBSA_LANE_PREFIX[0]=""   # affinity off → no taskset, single lane
+fi
+
 LAUNCH_TS=$(date +%s)
 TS_TAG=$(date +%Y%m%d_%H%M%S)
 LOGDIR="${PROJ}/outputs/analysis/phase4_trackA_cp4_hybrid_${TS_TAG}"
@@ -289,6 +369,8 @@ log "Phase IV Track A — ${SYSTEM_TAG} production MD (2-lane dispatch)"
 log "host=$(hostname)  vm_worker=${VM_WORKER}"
 log "logdir=$LOGDIR  dry_run=${DRY_RUN}  md_only=${MD_ONLY}"
 log "phys_cores=$PHYS_CORES logical=$LOGICAL_CORES affinity=${USE_AFFINITY} (MD=[${MD_AFFINITY:-free}])"
+log "Stage-D MM-PBSA: ${PBSA_LANES} lane(s) over ${PBSA_POOL_SIZE}-core pool [${MMPBSA_AFFINITY:-free}], 1 thread/lane (${MMPBSA_THREAD_PIN})"
+for ((_li = 0; _li < PBSA_LANES; _li++)); do log "  pbsa lane ${_li}: ${PBSA_LANE_PREFIX[$_li]:-free}"; done
 log "charge model: $HYBRID_XML (Option-β/regime-2 hybrid, Σq=0, NE1 −0.3418)"
 log "system_tag=${SYSTEM_TAG}  ref_seed=${REF_SEED}  reextract_system=${REEXTRACT_SYSTEM}"
 if [ "$VM_WORKER" -eq 1 ]; then
@@ -747,7 +829,18 @@ print_host_seed_plan () {
     printf '    LOUD-FAIL : ladder exhausted → write mdresult/_FAILED_EXPLOSION + "SEED %s: FAILED — explosion\n' "$seed" | tee -a "$DISPATCH_LOG"
     printf '                survived rescue ladder (dt=1fs)" + return rc≠0; Stage C/D SKIP (no reextract on truncated DCD).\n' | tee -a "$DISPATCH_LOG"
     printf '    REEXTRACT : reextract_one(system="%s", seed="%s") -> %s/  (only if pass COMPLETE)\n' "$REEXTRACT_SYSTEM" "$seed" "$SNAP_SUBDIR" | tee -a "$DISPATCH_LOG"
-    printf '    MM-PBSA   : run_mmpbsa.py --md_dir .../%s --protocol %s --ncaa_elem %s\n' "$SNAP_SUBDIR" "$MMPBSA_PROTOCOL" "$MMPBSA_NCAA_ELEM" | tee -a "$DISPATCH_LOG"
+    printf '    MM-PBSA   : %s [lane taskset] run_mmpbsa.py --md_dir .../%s --protocol %s --ncaa_elem %s\n' "$MMPBSA_THREAD_PIN" "$SNAP_SUBDIR" "$MMPBSA_PROTOCOL" "$MMPBSA_NCAA_ELEM" | tee -a "$DISPATCH_LOG"
+    printf '                (Stage D = %s lanes; per-lane disjoint cores: %s)\n' "$PBSA_LANES" "$(_pbsa_lane_summary)" | tee -a "$DISPATCH_LOG"
+}
+
+# Compact one-line summary of the per-lane core slices (for dry-run + logs).
+_pbsa_lane_summary () {
+    local i out=""
+    for ((i = 0; i < PBSA_LANES; i++)); do
+        local p="${PBSA_LANE_PREFIX[$i]:-}"
+        out="${out}${out:+ | }lane${i}:${p:-free}"
+    done
+    printf '%s' "$out"
 }
 
 print_vm_seed_plan () {
@@ -807,9 +900,16 @@ fi
 
 PBSA_LOG="${LOGDIR}/mmpbsa.log"
 
-# ----- Stage D worker (one MM-PBSA per seed; 4-lane parallel within the lane) --
+# ----- Stage D worker (one MM-PBSA per seed; PBSA_LANES-way parallel) ----------
+# $2 = lane index (0..PBSA_LANES-1) → picks this worker's DISJOINT core slice
+# PBSA_LANE_PREFIX[lane]. Each worker also exports MMPBSA_THREAD_PIN so its python
+# (numpy/parmed BLAS + OpenMM CPU minimize) stays single-thread (inherited by the
+# run_mmpbsa.py → MMPBSA.py/sander subprocesses). Runs inside the backgrounded
+# `run_one_pbsa &` subshell so the exports are isolated to this worker.
 run_one_pbsa () {
     local seed="$1"
+    local lane="${2:-0}"
+    local pbsa_prefix="${PBSA_LANE_PREFIX[$lane]:-}"
     local seedir="${PROJ}/outputs/${SYSTEM_TAG}_calib_${seed}"
     local snap_dir="${seedir}/${SNAP_SUBDIR}"
     local out_dir="${seedir}/${MMPBSA_SUBDIR}"
@@ -836,7 +936,12 @@ run_one_pbsa () {
     # t1_phase1_5_fresh.sh keeps qmmm active through Stage D (no deactivate after
     # Stage C); our lane deactivates after Stage C, so we re-establish it per worker.
     conda activate qmmm
-    CUDA_VISIBLE_DEVICES="" UPDD_MMGBSA_PLATFORM=CPU $MMPBSA_PREFIX "$PY" scripts/run_mmpbsa.py \
+    # MMPBSA_THREAD_PIN (BLAS/OMP/OpenMM = 1) prevents this lane's python from
+    # spawning a core-sized thread pool; $pbsa_prefix pins it to a DISJOINT core
+    # slice. The science args below (md_dir/protocol/ncaa_elem/chains/target_id)
+    # are byte-identical to the baseline — thread count ≠ MM-PBSA result.
+    CUDA_VISIBLE_DEVICES="" UPDD_MMGBSA_PLATFORM=CPU $MMPBSA_THREAD_PIN \
+        $pbsa_prefix "$PY" scripts/run_mmpbsa.py \
         --md_dir "$snap_dir" --outputdir "$out_dir" \
         --ncaa_elem "$MMPBSA_NCAA_ELEM" --receptor_chain "$MMPBSA_RECEPTOR_CHAIN" \
         --binder_chain "$MMPBSA_BINDER_CHAIN" \
@@ -925,24 +1030,34 @@ print(f\"{rec['tag']}: {rec['status']} n_saved={rec.get('n_saved')} {rec.get('sk
     conda deactivate
     log "${lane_label} Stage C complete."
 
-    # ----- Stage D — 1-traj MM-PBSA scoring (median-Δg ranking; 4-lane parallel) -
-    # 4-lane parallel: launch run_one_pbsa "$seed" & in the background, capping at
-    # 4 concurrent (wait -n). Each worker's rc is harvested by its PID (a PID→seed
-    # map) so an all-fail Stage D terminates with a COUNTED non-zero failure rather
-    # than hanging or silently passing. The PRESENCE of mmpbsa_summary.json is the
-    # ground-truth success signal (run_one_pbsa rc backs it up), checked in the
-    # summary section. Note: Stage D no longer mirrors via a process-substitution
+    # ----- Stage D — 1-traj MM-PBSA scoring (median-Δg ranking; PBSA_LANES parallel) -
+    # PBSA_LANES-way parallel (capped to the disjoint-core partition, see the
+    # oversubscription guard above): launch run_one_pbsa "$seed" "$lane" & in the
+    # background, capping at PBSA_LANES concurrent (wait -n). Each worker gets a
+    # DISJOINT core slice (PBSA_LANE_PREFIX[lane]) + single-thread BLAS/OMP/OpenMM
+    # pin (MMPBSA_THREAD_PIN) so total Stage-D compute threads ≤ pool cores (no
+    # thrash / thermal runaway). Each worker's rc is harvested by its PID (a
+    # PID→seed map) so an all-fail Stage D terminates with a COUNTED non-zero
+    # failure rather than hanging or silently passing. A freed lane slot is
+    # recycled to the next seed (PID→lane map). The PRESENCE of mmpbsa_summary.json
+    # is the ground-truth success signal (run_one_pbsa rc backs it up), checked in
+    # the summary section. Note: Stage D no longer mirrors via a process-substitution
     # `tee` at the lane-dispatch layer (that lingering pipe was the deadlock source);
     # the lane writes straight to its log file, so backgrounded workers cannot keep a
     # pipe write-fd open past `wait`.
     log "----------------------------------------------------------------"
-    log "${lane_label} Stage D: MM-PBSA (${MMPBSA_PROTOCOL}, 4 lanes)"
+    log "${lane_label} Stage D: MM-PBSA (${MMPBSA_PROTOCOL}, ${PBSA_LANES} lanes, pinned 1 thread/lane on disjoint cores)"
     log "----------------------------------------------------------------"
     local running=0
     local -A PBSA_PID_SEED=()
+    local -A PBSA_PID_LANE=()
     local -a PBSA_FAILED_SEEDS=()
-    local pid
-    # Reap a finished worker by PID and record a failure on non-zero rc.
+    local -a PBSA_FREE_LANES=()
+    local pid lane
+    # Seed the free-lane pool with every lane index.
+    for ((lane = 0; lane < PBSA_LANES; lane++)); do PBSA_FREE_LANES+=("$lane"); done
+    # Reap a finished worker by PID, record a failure on non-zero rc, and RETURN its
+    # lane index to the free pool so the next seed reuses that disjoint core slice.
     reap_one_pbsa () {
         local done_pid done_rc
         # `wait -n -p` (bash >= 5.1) returns the finished job's PID; fall back to a
@@ -961,19 +1076,31 @@ print(f\"{rec['tag']}: {rec['status']} n_saved={rec.get('n_saved')} {rec.get('sk
             PBSA_FAILED_SEEDS+=("$s")
             log "  ${lane_label} Stage D: seed ${s} MM-PBSA FAILED (rc=${done_rc}) — see mmpbsa_${s}.log"
         fi
-        [ -n "${done_pid:-}" ] && unset 'PBSA_PID_SEED[$done_pid]'
+        if [ -n "${done_pid:-}" ]; then
+            # Recycle the lane index (fallback path may not know the PID → recycle
+            # lane 0, still valid: a free lane is a free lane).
+            PBSA_FREE_LANES+=("${PBSA_PID_LANE[${done_pid}]:-0}")
+            unset 'PBSA_PID_SEED[$done_pid]' 'PBSA_PID_LANE[$done_pid]'
+        else
+            PBSA_FREE_LANES+=("0")
+        fi
     }
     for seed in "${HOST_SEEDS[@]}"; do
-        run_one_pbsa "$seed" &
+        # Take a free lane (its disjoint core slice). The pool always has ≥1 entry
+        # here because we reap before exceeding PBSA_LANES concurrent.
+        lane="${PBSA_FREE_LANES[0]}"
+        PBSA_FREE_LANES=("${PBSA_FREE_LANES[@]:1}")
+        run_one_pbsa "$seed" "$lane" &
         pid=$!
         PBSA_PID_SEED[$pid]="$seed"
+        PBSA_PID_LANE[$pid]="$lane"
         running=$((running + 1))
-        if [ "$running" -ge 4 ]; then
+        if [ "$running" -ge "$PBSA_LANES" ]; then
             reap_one_pbsa
             running=$((running - 1))
         fi
     done
-    # Drain the remaining (< 4) workers, harvesting each rc.
+    # Drain the remaining (< PBSA_LANES) workers, harvesting each rc.
     while [ "$running" -gt 0 ]; do
         reap_one_pbsa
         running=$((running - 1))

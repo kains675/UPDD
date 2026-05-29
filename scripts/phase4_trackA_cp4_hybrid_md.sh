@@ -128,22 +128,46 @@ while [ "$#" -gt 0 ]; do
 done
 
 # ============================================================================
-# CPU affinity 자동 분배 (baseline t1_phase1_5_fresh.sh lines 62-74, verbatim)
-# 9800X3D 8C/16T: 1 physical core → MD, 나머지 (N-1) → MM-PBSA. 8 phys 초과 시
-# free scheduling fallback.
+# CPU affinity 자동 분배 (topology-aware; hardware/scheduling only, no science impact)
+# taskset 은 어느 core 에서 도느냐만 정하며 MD/MM-PBSA 수치 결과에는 영향 없음.
+#
+# SMT layout   (LOGICAL >= 2*PHYS, 예: 9800X3D 8C/16T):
+#   MD    -> core 0 + 그 SMT sibling (PHYS)      => "0,${PHYS}"
+#   MMPBSA-> 나머지 physical + 나머지 sibling     => "1-(PHYS-1),(PHYS+1)-(LOGICAL-1)"
+#   (baseline t1_phase1_5_fresh.sh lines 62-74 와 byte-identical, host Keeper-🟢 보존)
+# No-SMT layout (LOGICAL == PHYS, 예: V100 VM 4C/4T):
+#   MD    -> core 0,  MMPBSA -> core 1..(LOGICAL-1) (flat split, reversed range 불가)
+#   MMPBSA core 가 부족하면 (LOGICAL < 2) pinning 해제 → OS scheduler.
+# Unknown / partial-SMT topology: 안전하게 pinning 해제 (invalid taskset arg 방지).
 # ============================================================================
 PHYS_CORES=$(lscpu -p 2>/dev/null | grep -v "^#" | awk -F, '{print $2}' | sort -nu | wc -l)
 LOGICAL_CORES=$(nproc)
-if [ "${PHYS_CORES:-0}" -ge 4 ] && [ "${PHYS_CORES:-0}" -le 8 ]; then
+USE_AFFINITY=0
+MD_AFFINITY=""
+MMPBSA_AFFINITY=""
+MD_PREFIX=""
+MMPBSA_PREFIX=""
+if [ "${PHYS_CORES:-0}" -ge 4 ] && [ "${PHYS_CORES:-0}" -le 8 ] \
+        && [ "${LOGICAL_CORES:-0}" -ge $((PHYS_CORES * 2)) ]; then
+    # --- SMT layout (host): preserve baseline behavior exactly ---
     MD_AFFINITY="0,${PHYS_CORES}"
     MMPBSA_AFFINITY="1-$((PHYS_CORES - 1)),$((PHYS_CORES + 1))-$((LOGICAL_CORES - 1))"
     USE_AFFINITY=1
+elif [ "${PHYS_CORES:-0}" -ge 2 ] && [ "${LOGICAL_CORES:-0}" -eq "${PHYS_CORES:-0}" ]; then
+    # --- No-SMT layout (VM): flat split within 0..(LOGICAL-1) ---
+    MD_AFFINITY="0"
+    if [ "$LOGICAL_CORES" -ge 3 ]; then
+        MMPBSA_AFFINITY="1-$((LOGICAL_CORES - 1))"   # cores 1..n-1 (n>=3 → non-reversed)
+        USE_AFFINITY=1
+    elif [ "$LOGICAL_CORES" -eq 2 ]; then
+        MMPBSA_AFFINITY="1"                           # single core, valid
+        USE_AFFINITY=1
+    fi
+    # LOGICAL < 2 → MMPBSA 에 줄 core 없음 → USE_AFFINITY 0 유지 (no pinning)
+fi
+if [ "$USE_AFFINITY" -eq 1 ]; then
     MD_PREFIX="taskset -c ${MD_AFFINITY}"
     MMPBSA_PREFIX="taskset -c ${MMPBSA_AFFINITY}"
-else
-    USE_AFFINITY=0
-    MD_PREFIX=""
-    MMPBSA_PREFIX=""
 fi
 
 LAUNCH_TS=$(date +%s)

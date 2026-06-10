@@ -3,9 +3,8 @@
 """Track B — ATS (Alchemical Transfer with coordinate Swapping) system setup.
 
 Builds the Cp4<->WT single-point relative-binding alchemical system for the
-2QKI compstatin complex, per SciVal verdict
-``verdict_trackAB_qm1traj_fep_prevalidation_20260529.md`` (conditions
-B-C1 .. B-C7). INFRASTRUCTURE / SMOKE-TEST scope only — the production FEP
+2QKI compstatin complex (conditions B-C1 .. B-C7). INFRASTRUCTURE /
+SMOKE-TEST scope only — the production FEP
 (>=11 lambda x >=5 ns x >=3 replicas) is gated on Track A's read-out and is
 NOT launched here.
 
@@ -16,8 +15,11 @@ Both legs retain the compstatin ``cyclic_ss`` disulfide (CYS2-CYS12 SG-SG).
 Charge axis (B-C1): Option-beta / regime-2 hybrid MTR
 (``params/MTR_gaff2_hybrid.xml``): amber14SB-frozen backbone, NE1 frozen at
 -0.3418, Khoury 2014 OMW sidechain. Formal charge 0 at both endpoints
-(charge-conserving perturbation). See ``open_issues`` re: the -0.176 e partial
-residual (Keeper PATCH-01 / SciVal gate before production).
+(charge-conserving perturbation). 2026-05-30 Q1 fix: per-residue Σq driven
+to |Σq| ≤ 5e-4 e via uniform per-atom rescale on sidechain heavy+H scope
+(MTR/NMTR already integer; CMTR rescaled, per-atom Δ ≈ +0.0088 e within
+Khoury ±0.02 e tolerance). Audit log:
+``params/_archive/mtr_rescale_audit_20260530.json``.
 
 Alchemical region (B-C5), residue 4:
     WT  (TRP4): indole donor NE1-HE1.
@@ -131,15 +133,158 @@ def commit_bond_if_missing(topology, atom1, atom2):
 
 
 # ---------------------------------------------------------------------------
-# Charge-axis verification (B-C1, Keeper PATCH-01 surface)
+# Peptide-bond completion for HETATM ncAA junctions.
+#
+# Verbatim copy of run_restrained_md.add_missing_peptide_bonds_safe (+ helpers
+# is_peptide_like_atomset, is_carbonyl_carbon), inlined for the same isolation
+# reason as the disulfide helpers: run_restrained_md pulls networkx + pdbfixer
+# at module load, which are intentionally absent from the ``atm`` env. These
+# helpers depend only on openmm + numpy. If the run_restrained_md logic
+# changes, this copy must track it.
+#
+# Necessary because OpenMM's PDBFile parser does NOT auto-infer ATOM↔HETATM
+# peptide bonds (the MTR ncAA is HETATM in the prepared PDBs), so the
+# free-peptide leg loses VAL3.C-MTR4.N and MTR4.C-GLN5.N at extraction time
+# unless we re-add them by C-N distance threshold (0.20 nm).
 # ---------------------------------------------------------------------------
-def verify_charge_axis(xml_path: str = HYBRID_MTR_XML) -> Dict[str, Any]:
+def is_peptide_like_atomset(atom_names):
+    return {"N", "CA", "C"}.issubset(atom_names)
+
+
+def is_carbonyl_carbon(residue, c_atom, positions_nm, max_co_nm: float = 0.14):
+    if c_atom.element is None or c_atom.element.symbol != "C":
+        return False
+    c_pos = np.array(positions_nm[c_atom.index].value_in_unit(unit.nanometers))
+    for a in residue.atoms():
+        if a.index == c_atom.index:
+            continue
+        if a.element and a.element.symbol == "O":
+            o_pos = np.array(positions_nm[a.index].value_in_unit(unit.nanometers))
+            if np.linalg.norm(c_pos - o_pos) <= max_co_nm:
+                return True
+    return False
+
+
+def inject_xml_internal_bonds(topology, xml_paths: List[str],
+                              xml_res_name: str = "MTR") -> int:
+    """Inject ncAA internal bonds from the residue's XML <Bond> records.
+
+    Verbatim port of run_restrained_md.inject_xml_bonds (v38 multi-site).
+    OpenMM's PDBFile parser treats ncAA residues as HETATM without inferring
+    internal bonds — the free-leg extraction therefore yields an MTR with no
+    intra-residue connectivity, breaking the amber14 template graph match
+    ("residue has no bonds between its atoms"). This helper re-adds them by
+    looking up the XML <Bond atomName1=.. atomName2=..> records and matching
+    atom-name to the topology atoms. Idempotent.
+
+    Returns the total number of bonds added across every residue instance.
+    """
+    if not xml_paths or not xml_res_name:
+        return 0
+    import xml.etree.ElementTree as ET
+
+    target_residues = [r for r in topology.residues() if r.name == xml_res_name]
+    if not target_residues:
+        return 0
+
+    # Search every XML for the residue (use the first that contains it).
+    xml_bond_pairs: List[Tuple[str, str]] = []
+    for xml_path in xml_paths:
+        try:
+            tree = ET.parse(xml_path)
+        except (OSError, ET.ParseError):
+            continue
+        node = next((r for r in tree.getroot().iter("Residue")
+                     if r.get("name") == xml_res_name), None)
+        if node is None:
+            continue
+        xml_bond_pairs = [
+            (b.get("atomName1", "").strip(), b.get("atomName2", "").strip())
+            for b in node.findall("Bond")
+        ]
+        if xml_bond_pairs:
+            break
+    if not xml_bond_pairs:
+        return 0
+
+    existing = {frozenset([b.atom1.index, b.atom2.index])
+                for b in topology.bonds()}
+    added = 0
+    for res in target_residues:
+        atom_by_name = {a.name: a for a in res.atoms()}
+        for a1, a2 in xml_bond_pairs:
+            if a1 in atom_by_name and a2 in atom_by_name:
+                oa1, oa2 = atom_by_name[a1], atom_by_name[a2]
+                pair = frozenset([oa1.index, oa2.index])
+                if pair not in existing:
+                    topology.addBond(oa1, oa2)
+                    existing.add(pair)
+                    added += 1
+    return added
+
+
+def add_missing_peptide_bonds_safe(modeller, binder_chain: str = "B",
+                                   max_cn_distance_nm: float = 0.20) -> int:
+    """Add missing C(i)-N(i+1) peptide bonds inside the binder chain.
+
+    Targets HETATM/ATOM junctions where OpenMM's PDBFile reader did not
+    auto-infer the inter-residue peptide bond (e.g. ncAA boundaries). Only
+    pairs that look like canonical peptide residues (N/CA/C set) and whose C
+    is a true carbonyl (C=O within 0.14 nm) are joined; the C-N pair must
+    also be within 0.20 nm to avoid spurious bonds.
+    """
+    pos = list(modeller.positions)
+    added = 0
+    existing = {frozenset([b.atom1.index, b.atom2.index])
+                for b in modeller.topology.bonds()}
+
+    for chain in modeller.topology.chains():
+        if chain.id != binder_chain:
+            continue
+        residues = list(chain.residues())
+        for r1, r2 in zip(residues[:-1], residues[1:]):
+            r1_names = {a.name for a in r1.atoms()}
+            r2_names = {a.name for a in r2.atoms()}
+            if not (is_peptide_like_atomset(r1_names)
+                    and is_peptide_like_atomset(r2_names)):
+                continue
+            c_atom = next((a for a in r1.atoms() if a.name == "C"), None)
+            n_atom = next((a for a in r2.atoms() if a.name == "N"), None)
+            if c_atom is None or n_atom is None:
+                continue
+            if not is_carbonyl_carbon(r1, c_atom, pos):
+                continue
+            pair = frozenset([c_atom.index, n_atom.index])
+            if pair in existing:
+                continue
+            c_pos = np.array(pos[c_atom.index].value_in_unit(unit.nanometers))
+            n_pos = np.array(pos[n_atom.index].value_in_unit(unit.nanometers))
+            dist = np.linalg.norm(c_pos - n_pos)
+            if dist <= max_cn_distance_nm:
+                modeller.topology.addBond(c_atom, n_atom)
+                existing.add(pair)
+                added += 1
+    return added
+
+
+# ---------------------------------------------------------------------------
+# Charge-axis verification (B-C1, PATCH-01 surface)
+# ---------------------------------------------------------------------------
+def verify_charge_axis(xml_path: str = HYBRID_MTR_XML,
+                       integer_tol: float = 5e-4) -> Dict[str, Any]:
     """Read the MTR residue charges from the hybrid XML and report the axis.
 
-    Confirms the B-C1 invariants that are *checkable from the file*: NE1 frozen
-    at -0.3418 and backbone N at amber14SB -0.4157. Returns the partial-charge
-    sum so the caller (and Keeper) can see the -0.176 e residual explicitly
-    rather than trusting the ``sigmaq0`` label.
+    Reports the B-C1 invariants per residue variant (MTR/NMTR/CMTR), and
+    surfaces per-residue Σq so the caller sees integer-parity
+    compliance explicitly. **Scope is per-residue** — this is what OpenMM
+    ``createSystem`` evaluates and what PME sees as the box net charge.
+
+    Historical note (Q1 fix 2026-05-30): the previous implementation flattened
+    ``residues.iter('Atom')`` into a single name-keyed dict, which silently
+    overwrote shared atom names across MTR/NMTR/CMTR and reported a spurious
+    full-XML ``Σq = -0.176 e`` that was actually the last-write CMTR value.
+    Per-residue is the correct scope; the rescale of CMTR (production blocker Q1 a) drove
+    all 3 residue variants to |Σq| ≤ 5e-4 e.
     """
     import xml.etree.ElementTree as ET
 
@@ -147,28 +292,53 @@ def verify_charge_axis(xml_path: str = HYBRID_MTR_XML) -> Dict[str, Any]:
     residues = tree.find(".//Residues")
     if residues is None:
         raise ValueError(f"No <Residues> block in {xml_path}")
-    charges = {}
-    for atom in residues.iter("Atom"):
-        q = atom.get("charge")
-        name = atom.get("name")
-        if q is not None and name is not None:
-            charges[name] = float(q)
 
-    sigma_q = sum(charges.values())
-    ne1 = charges.get(ALCH_COMMON_ATOM)
-    bbn = charges.get("N")
+    per_residue: List[Dict[str, Any]] = []
+    ne1_charge: Optional[float] = None
+    bbn_charge: Optional[float] = None
+
+    for res_el in residues.findall("Residue"):
+        rname = res_el.get("name")
+        atoms = {}
+        for atom in res_el.findall("Atom"):
+            q = atom.get("charge")
+            name = atom.get("name")
+            if q is not None and name is not None:
+                atoms[name] = float(q)
+        sigma = sum(atoms.values())
+        per_residue.append({
+            "residue": rname,
+            "n_atoms": len(atoms),
+            "sigma_q": sigma,
+            "ne1_charge": atoms.get(ALCH_COMMON_ATOM),
+            "backbone_n_charge": atoms.get("N"),
+            "within_integer_tol": abs(sigma) <= integer_tol,
+        })
+        # Internal MTR is the production residue (Cp4 residue-4 is internal).
+        if rname == "MTR":
+            ne1_charge = atoms.get(ALCH_COMMON_ATOM)
+            bbn_charge = atoms.get("N")
+
+    max_abs_sigma = max((abs(r["sigma_q"]) for r in per_residue), default=0.0)
+    all_within_tol = all(r["within_integer_tol"] for r in per_residue)
+
     return {
         "xml_path": xml_path,
-        "n_atoms": len(charges),
-        "sigma_q": sigma_q,
-        "ne1_charge": ne1,
-        "backbone_n_charge": bbn,
-        "ne1_frozen_ok": (ne1 is not None and abs(ne1 - (-0.3418)) < 1e-4),
-        "backbone_n_amber14sb_ok": (bbn is not None and abs(bbn - (-0.4157)) < 1e-4),
-        "charge_regime": "option_beta_regime2_hybrid",
-        # The label is "sigmaq0" (formal charge 0, charge-conserving) but the
-        # partial residual is NOT exactly 0 — surface it for the production gate.
-        "partial_residual_nonzero": abs(sigma_q) > 1e-3,
+        "scope": "per_residue",
+        "integer_tol_e": integer_tol,
+        "per_residue": per_residue,
+        "max_abs_sigma_q_e": max_abs_sigma,
+        "all_residues_within_tol": all_within_tol,
+        "ne1_charge": ne1_charge,
+        "backbone_n_charge": bbn_charge,
+        "ne1_frozen_ok": (ne1_charge is not None
+                          and abs(ne1_charge - (-0.3418)) < 1e-4),
+        "backbone_n_amber14sb_ok": (bbn_charge is not None
+                                    and abs(bbn_charge - (-0.4157)) < 1e-4),
+        "charge_regime": "option_beta_regime2_hybrid_rescaled",
+        "rescale_applied": True,
+        "rescale_audit": "params/_archive/mtr_rescale_audit_20260530.json",
+        "regime": "ranking_only",
     }
 
 
@@ -406,6 +576,24 @@ def build_leg_system(
             Modeller.loadHydrogenDefinitions(hydrogens_xml)
         modeller.addHydrogens(ff)
 
+    # ncAA internal-bond injection: PDBFile reads MTR as HETATM without intra-
+    # residue bonds. Re-add them from the MTR XML <Bond> records (identical to
+    # run_restrained_md.inject_xml_bonds v38 multi-site). MUST happen before
+    # the peptide-bond completion below (the peptide adder reads existing
+    # bonds to skip duplicates).
+    n_internal_added = inject_xml_internal_bonds(
+        modeller.topology, [ncaa_xml], xml_res_name="MTR"
+    )
+
+    # ncAA peptide-bond completion: OpenMM's PDBFile reader does not infer
+    # ATOM↔HETATM peptide bonds, so MTR (HETATM) junctions are missing here.
+    # Add them by C(i)-N(i+1) distance threshold (0.20 nm) before
+    # createSystem so amber14 templates resolve correctly. Identical logic to
+    # run_restrained_md.add_missing_peptide_bonds_safe.
+    n_peptide_added = add_missing_peptide_bonds_safe(
+        modeller, binder_chain=binder_chain, max_cn_distance_nm=0.20
+    )
+
     # cyclic_ss disulfide (B-C3): retained on BOTH legs.
     disulfide = None
     pair = detect_disulfide_pair(modeller, binder_chain=binder_chain,
@@ -450,6 +638,8 @@ def build_leg_system(
         "n_atoms": modeller.topology.getNumAtoms(),
         "alchemical_atoms": alch,
         "disulfide": disulfide,
+        "n_peptide_bonds_added": n_peptide_added,
+        "n_internal_bonds_added": n_internal_added,
         "ff_inputs": ff_inputs,
     }
 

@@ -150,7 +150,7 @@ DENSE34_LAMBDA_FWD_LINEAR = [
     0.00, 0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45,
 ]
 # Anneal ladder windows as (λ1, λ2, W0coeff) — INTERMEDIATE=1, softplus active.
-# Exact reproduction of Path's LADDER (7 windows).
+# Exact reproduction of the reference LADDER (7 windows).
 DENSE34_LADDER = [
     (0.45, 0.46, 0.20),
     (0.45, 0.47, 0.40),
@@ -172,7 +172,7 @@ def _build_densified34_schedule() -> Dict[str, List[Any]]:
     Returns a dict with keys ``lambdas_1`` / ``lambdas_2`` / ``lambdas`` /
     ``directions`` / ``intermd`` / ``w0`` / ``alpha`` / ``u0`` /
     ``n_states``. The ``lambdas`` column tracks λ2 in the ladder (matching
-    Path's LAMBDAS array, which equals λ2 in the soft-core windows).
+    the reference LAMBDAS array, which equals λ2 in the soft-core windows).
     """
     fwd_l1 = list(DENSE34_LAMBDA_FWD_LINEAR) + [t[0] for t in DENSE34_LADDER]
     fwd_l2 = list(DENSE34_LAMBDA_FWD_LINEAR) + [t[1] for t in DENSE34_LADDER]
@@ -263,14 +263,14 @@ assert sum(DENSE34_INTERMD) == 14, "Densified schedule must have 14 INTERMEDIATE
 #   apex decoupled ~0). Escalation if any pair <0.3: (i) add W0/λ window →
 #   (ii) extra α ramp → (iii) extra U0 descent. The LOAD-BEARING fix is the
 #   per-direction free split (backward equilibrates from a dminus base); α/U0
-#   softening is the cushion (Path: "the dminus base IS the fix").
+#   softening is the cushion (the dminus base IS the fix).
 #
 # Free leg ONLY. Selected via ``--free-schedule densified38``. The BOUND leg
 # always uses canonical22 (receptor holds the ligand → no crossover gap).
 # ---------------------------------------------------------------------------
 # Forward 9-window ladder (states 10..18) as per-state tuples
-# (λ1, λ2, W0coeff, ALPHA, U0). Exact reproduction of Path's REVISED arrays
-# (pathology L142-146, ladder slices). Linear forward states 0..9 are
+# (λ1, λ2, W0coeff, ALPHA, U0). Exact reproduction of the REVISED arrays
+# (ladder slices). Linear forward states 0..9 are
 # λ1=λ2=λ, W0=0, ALPHA=0.10, U0=110.0, INTERMEDIATE=0 (same as canonical).
 DENSE38_LAMBDA_FWD_LINEAR = [
     0.00, 0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45,
@@ -309,8 +309,8 @@ def _build_densified38_arrays(linear_lambdas: List[float]) -> Dict[str, List[Any
 
     Returns a dict with keys ``lambdas_1`` / ``lambdas_2`` / ``lambdas`` /
     ``directions`` / ``intermd`` / ``w0`` / ``alpha`` / ``u0`` / ``n_states``.
-    The ``lambdas`` column tracks λ2 in the ladder (matching Path's LAMBDAS
-    array, which equals λ2 in the soft-core windows).
+    The ``lambdas`` column tracks λ2 in the ladder (matching the reference
+    LAMBDAS array, which equals λ2 in the soft-core windows).
     """
     n_linear = len(linear_lambdas)
     fwd_l1 = list(linear_lambdas) + [t[0] for t in DENSE38_LADDER]
@@ -877,6 +877,430 @@ assert sum(1 for w in DENSE38v4_W0[DENSE38v4_N_FWD:] if abs(w - 0.17) < 1e-9) ==
 
 
 # ---------------------------------------------------------------------------
+# densified_bound28 — BOUND-leg per-direction schedule: a 3-window W0-graded
+# soft-core bridge inserted at the 6→7 cliff (λ=0.30→0.35)
+# (bound-leg cp4 dplus 6→7 zero-overlap fix).
+#
+# WHY (the empirical finding — distinct from the FREE-leg ladder pathology):
+#   The bound leg has historically used the canonical 22-state schedule
+#   (11 dplus + 11 dminus, λ1=λ2, W0=0 except the two λ=0.5/W0=1.0 apex
+#   midpoints). The cp4 bound dplus pilot showed a HARD zero-overlap cliff at
+#   the 6→7 pair (state 6 = λ=0.30, state 7 = λ=0.35; both λ1=λ2, W0=0): the
+#   binding-energy perturbation distribution collapses across this single λ
+#   step (Bhattacharyya BC = 0 — the two adjacent states share NO phase space),
+#   so UWHAM cannot bridge them and the bound-leg ΔG is structurally broken at
+#   that segment. Unlike the free leg (whose limiter is the λ=0.45→0.50
+#   decoupling crossover, fixed by the 38-state soft-core ladder), the bound
+#   leg's cliff is at the COUPLED side (λ=0.30→0.35) where the receptor pocket
+#   reorganizes; a plain λ insertion (λ1=λ2, W0=0) lands in the SAME coupled
+#   basin and bridges nothing — the fix is the same W0-graded soft-core
+#   construction that demonstrably worked for the free-leg micro-bridges
+#   (densified38v3/v4): three INTERMEDIATE windows with λ1<λ2 (softplus active)
+#   and a W0 ramp 0.20→0.45→0.70 spanning the cliff.
+#
+# THE FIX (per-direction, minimal, reuses the densified38v3/v4 insert idiom):
+#   * dplus (14 states) = canonical22 dplus (11 states: λ 0.00..0.50) with the
+#     three soft-core bridge windows inserted between the cliff neighbors
+#     (canonical state 6 at λ=0.30 and canonical state 7 at λ=0.35). Result:
+#       - canonical 0..6 (7 states): λ=0.00..0.30, λ1=λ2, W0=0, ALPHA=0.10,
+#         U0=110, INTERMEDIATE=0 (UNCHANGED endpoints + coupled plateau).
+#       - 3 bridge windows (INTERMEDIATE=1, soft-core / W0>0):
+#         (0.300, 0.315, W0=0.20, α=0.12, U0=105),
+#         (0.310, 0.330, W0=0.45, α=0.14, U0=100),
+#         (0.320, 0.345, W0=0.70, α=0.16, U0=97).
+#       - canonical 7..10 (4 states): λ=0.35/0.40/0.45 (λ1=λ2, W0=0, α=0.10,
+#         U0=110, INTERMEDIATE=0) + the λ=0.50/W0=1.0/INTERMEDIATE=1 apex
+#         (canonical state 10, UNCHANGED).
+#   * dminus (14 states) = the whole-tuple reverse of dplus (per-state arrays
+#     reversed; λ1 stays λ1, λ2 stays λ2 — NOT a λ1↔λ2 swap) with DIRECTION=-1.
+#     The dminus cliff location is taken from the ``cliff_center`` PARAMETER
+#     (default = the dplus cliff, 0.30) so a dminus pilot can RELOCATE it once
+#     measured — it is NOT pre-confirmed to mirror dplus. The reverse is the
+#     default seed only; mirror-symmetry is an ASSUMPTION to be validated by the
+#     dminus pilot, not a fact baked into the code.
+#
+# ENDPOINT-INVARIANCE (ΔG-unbias / ranking-safe, Zwanzig 1954 / Kirkwood 1935):
+#   free energy is a state function; both physical endpoints (λ=0.00 coupled,
+#   λ=0.50/W0=1.0 apex) are LEFT INVARIANT in BOTH directions. Inserting
+#   interior soft-core windows changes ONLY the estimator's overlap/variance
+#   path, never E[ΔG]. The endpoints' (λ1==λ2, W0=0/1.0, α=0.10, U0=110) values
+#   are asserted immutable (C2 region-lock, fail-loud) — the α/U0 ramps live
+#   STRICTLY inside the bridge windows.
+#
+# COUNT: dplus 14, dminus 14 (EQUAL here — the 3-window bridge is inserted
+#   symmetrically into both directions). The downstream per-direction code is
+#   nevertheless DIRECTION-derived + count-agnostic (it does not assume 11 or
+#   any fixed count; same 6 sites audited for the 19/20 + 19/21 free schedules),
+#   so an asymmetric dminus (after a dminus pilot relocates its cliff) would
+#   still map correctly. canonical22 / densified38* are NOT overwritten.
+#
+# BOUND leg ONLY. Selected via ``--bound-schedule densified_bound28`` (default
+# ``canonical22`` → byte-equal to the historical bound-leg path). The FREE leg
+# is unaffected (it keeps its ``--free-schedule`` selector).
+# ---------------------------------------------------------------------------
+# 3-window W0-graded soft-core bridge for the bound 6→7 cliff, as per-state
+# tuples (λ1, λ2, W0coeff, ALPHA, U0). INTERMEDIATE=1 for all three. λ1<λ2
+# (softplus active); W0 ramps 0.20→0.45→0.70; α ramps 0.12→0.16 and U0 descends
+# 105→97 (knee below the coupled plateau). These are RELATIVE to a cliff at
+# λ=0.30 (``BOUND28_CLIFF_CENTER_DEFAULT``); the builder shifts them by
+# (cliff_center − default) so a relocated dminus cliff reuses the same shape.
+BOUND28_CLIFF_CENTER_DEFAULT = 0.30
+BOUND28_BRIDGE = [
+    # (lambda1, lambda2, w0coeff, alpha, u0)
+    (0.300, 0.315, 0.20, 0.12, 105.0),
+    (0.310, 0.330, 0.45, 0.14, 100.0),
+    (0.320, 0.345, 0.70, 0.16,  97.0),
+]
+# Canonical endpoint invariants (C2 region-lock — asserted immutable so the
+# α/U0 ramp can only live inside the bridge windows, never at an endpoint).
+BOUND28_CANON_ALPHA = 0.10
+BOUND28_CANON_U0 = 110.0
+
+
+def _build_densified_bound_arrays(
+    cliff_center: float = BOUND28_CLIFF_CENTER_DEFAULT,
+    n_bridge: int = 3,
+    extra_alpha_u0_ramp: Optional[List[Tuple[float, float]]] = None,
+) -> Dict[str, List[Any]]:
+    """Construct the densified_bound28 BOUND-leg per-direction arrays.
+
+    dplus (14 states for the default 3-window bridge) = the canonical 22-state
+    dplus half (11 states: λ=0.00..0.50, λ1=λ2, W0=0 except the λ=0.5/W0=1.0
+    apex) with ``n_bridge`` W0-graded soft-core bridge windows inserted at the
+    6→7 cliff (between canonical state 6 at λ=0.30 and canonical state 7 at
+    λ=0.35). This reuses the SAME ``list.insert`` micro-bridge idiom as the
+    free-leg densified38v3/v4 builders — the bridge windows are the only
+    addition; the canonical coupled plateau + both endpoints are untouched.
+
+    dminus = the WHOLE-TUPLE reverse of dplus (per-state arrays reversed; λ1
+    stays λ1, λ2 stays λ2 — NOT a λ1↔λ2 swap) with DIRECTION=-1.
+
+    ``cliff_center`` (default 0.30 = the dplus cliff) sets where the dminus
+    bridge sits. **dminus cliff is pilot-validated — mirror assumption is NOT
+    baked in.** This parameter exists so a dminus pilot can RELOCATE the bridge
+    once the dminus overlap profile is measured; the default reversed-of-dplus
+    seed is only a starting point, never a confirmed mirror (overlap symmetry
+    does not follow from index reverse-symmetry — see the free-leg densified38v3
+    finding). When ``cliff_center`` differs from the default, the bridge λ
+    windows are shifted by ``cliff_center − BOUND28_CLIFF_CENTER_DEFAULT`` so the
+    same graded shape lands at the relocated cliff, and the insertion neighbor
+    is re-located by canonical-λ signature (fail-loud if absent/non-unique).
+
+    ``n_bridge`` (default 3) is the number of bridge windows; ``extra_alpha_u0_
+    ramp`` optionally overrides per-bridge (α, U0) for escalation. Both are
+    pre-registered escalation hooks (iteration cap = 2): if the 3-window bridge
+    leaves the 6→7 pair under the overlap target, a pilot may widen to 4/5
+    windows or steepen the α/U0 ramp WITHOUT touching the endpoints.
+
+    Returns a dict with the same keys as ``_build_densified38_arrays``
+    (``lambdas_1`` / ``lambdas_2`` / ``lambdas`` / ``directions`` / ``intermd``
+    / ``w0`` / ``alpha`` / ``u0`` / ``n_states``). For the defaults n_states =
+    28 (14 dplus + 14 dminus).
+    """
+    if n_bridge < 1:
+        raise ValueError(f"n_bridge must be >= 1; got {n_bridge}")
+
+    # --- dplus base = canonical22 dplus half (the forward 11 states). ---------
+    # LAMBDA_FWD / DIRECTIONS etc. are the module-level canonical arrays. The
+    # dplus half is the first 11 states (DIRECTION=+1 block).
+    n_canon_fwd = LAMBDA_FWD.index(0.50) + 1  # 11 (λ 0.00..0.50 inclusive)
+    canon = {
+        "lambdas_1": list(LAMBDAS_1[:n_canon_fwd]),
+        "lambdas_2": list(LAMBDAS_2[:n_canon_fwd]),
+        "lambdas": list(LAMBDAS_1[:n_canon_fwd]),  # canonical LAMBDAS == λ1
+        "intermd": list(INTERMD[:n_canon_fwd]),
+        "w0": list(W0[:n_canon_fwd]),
+        "alpha": list(ALPHA[:n_canon_fwd]),
+        "u0": list(U0[:n_canon_fwd]),
+    }
+
+    # --- Build the bridge windows (shifted to the requested cliff_center). ----
+    shift = cliff_center - BOUND28_CLIFF_CENTER_DEFAULT
+    base_bridge = BOUND28_BRIDGE
+    if n_bridge != len(BOUND28_BRIDGE):
+        # Escalation: interpolate ``n_bridge`` windows linearly across the same
+        # (λ1,λ2,W0,α,U0) span as the canonical 3-window bridge (first→last).
+        first = BOUND28_BRIDGE[0]
+        last = BOUND28_BRIDGE[-1]
+        base_bridge = []
+        for i in range(n_bridge):
+            frac = i / (n_bridge - 1) if n_bridge > 1 else 0.0
+            base_bridge.append(tuple(
+                first[c] + frac * (last[c] - first[c]) for c in range(5)
+            ))
+    if extra_alpha_u0_ramp is not None:
+        if len(extra_alpha_u0_ramp) != n_bridge:
+            raise ValueError(
+                f"extra_alpha_u0_ramp must have {n_bridge} (α, U0) pairs; "
+                f"got {len(extra_alpha_u0_ramp)}"
+            )
+
+    bridge_tuples = []
+    for i, (bl1, bl2, bw0, ba, bu0) in enumerate(base_bridge):
+        if extra_alpha_u0_ramp is not None:
+            ba, bu0 = extra_alpha_u0_ramp[i]
+        bridge_tuples.append((bl1 + shift, bl2 + shift, bw0, ba, bu0))
+
+    # --- Locate the cliff neighbor by canonical-λ signature (NOT magic idx). --
+    # The bridge is inserted immediately AFTER the canonical state whose λ1==λ2
+    # == cliff_center (the lower cliff neighbor — λ=0.30 by default). Fail loud
+    # if that state is absent or non-unique (guards a future canonical change
+    # from silently mis-placing the bridge — source-verification posture).
+    cliff_positions = [
+        j for j in range(len(canon["lambdas_1"]))
+        if abs(canon["lambdas_1"][j] - cliff_center) < 1e-9
+        and abs(canon["lambdas_2"][j] - cliff_center) < 1e-9
+        and canon["w0"][j] == 0.0
+    ]
+    if len(cliff_positions) != 1:
+        raise ValueError(
+            "densified_bound28: expected exactly ONE canonical coupled state at "
+            f"the cliff (λ1=λ2={cliff_center}, W0=0); found "
+            f"{len(cliff_positions)} at {cliff_positions!r}. The canonical "
+            "schedule layout changed — re-derive the cliff placement."
+        )
+    insert_idx = cliff_positions[0] + 1  # immediately after the lower neighbor
+
+    # --- Insert the bridge windows into the dplus arrays (v3/v4 idiom). -------
+    for off, (bl1, bl2, bw0, ba, bu0) in enumerate(bridge_tuples):
+        window = {
+            "lambdas_1": bl1,
+            "lambdas_2": bl2,
+            "lambdas": bl2,      # LAMBDAS tracks λ2 in soft-core windows
+            "intermd": 1,        # soft-core / W0>0 → INTERMEDIATE
+            "w0": bw0,
+            "alpha": ba,
+            "u0": bu0,
+        }
+        for key in canon:
+            canon[key].insert(insert_idx + off, window[key])
+
+    fwd = canon
+    n_fwd = len(fwd["lambdas_1"])  # 11 + n_bridge (= 14 for the default)
+
+    # --- dminus = whole-tuple reverse of dplus (DIRECTION=-1). ----------------
+    bwd = {k: list(reversed(fwd[k])) for k in (
+        "lambdas_1", "lambdas_2", "lambdas", "intermd", "w0", "alpha", "u0")}
+    n_bwd = len(bwd["lambdas_1"])
+
+    directions = [1] * n_fwd + [-1] * n_bwd
+    return {
+        "lambdas_1": fwd["lambdas_1"] + bwd["lambdas_1"],
+        "lambdas_2": fwd["lambdas_2"] + bwd["lambdas_2"],
+        "lambdas": fwd["lambdas"] + bwd["lambdas"],
+        "directions": directions,
+        "intermd": fwd["intermd"] + bwd["intermd"],
+        "w0": fwd["w0"] + bwd["w0"],
+        "alpha": fwd["alpha"] + bwd["alpha"],
+        "u0": fwd["u0"] + bwd["u0"],
+        "n_states": len(directions),
+    }
+
+
+def _build_densified_bound28_schedule() -> Dict[str, List[Any]]:
+    """Construct the densified_bound28 (BOUND-leg per-direction) schedule.
+
+    dplus = canonical22 dplus (11) + a 3-window W0-graded soft-core bridge at the
+    6→7 cliff (λ=0.30→0.35) = 14 states; dminus = whole-tuple reverse of dplus
+    (= 14 states, DIRECTION=-1). Total = 28 states (EQUAL per-direction for the
+    default symmetric construction). Delegates to ``_build_densified_bound_
+    arrays`` with the default cliff_center=0.30 + n_bridge=3.
+    """
+    return _build_densified_bound_arrays()
+
+
+def _assert_densified_bound_region_lock(
+    arrays: Dict[str, List[Any]],
+    n_bridge: int,
+    label: str,
+) -> None:
+    """C2 / C10 region-lock verification for ANY densified_bound schedule.
+
+    PARAMETERIZED by ``n_bridge`` (NOT hardcoded to 28/14/14/exactly-3-bridge)
+    so the same fail-loud gate guards both densified_bound28 (n_bridge=3) and
+    densified_bound30 (n_bridge=4) — and any future cap-2 escalation — WITHOUT
+    weakening the scientific content. The endpoint-invariance + bridge-shape
+    checks are derived from ``n_bridge`` and the DIRECTION column, never from a
+    magic state count.
+
+    Raises ``AssertionError`` (fail-loud) on ANY of:
+      * wrong total / per-direction state count for the given n_bridge,
+      * a non-contiguous DIRECTION column,
+      * any λ1==λ2 (endpoint/coupled-plateau) state with biased α≠0.10 or
+        U0≠110 (the α/U0 ramp must live STRICTLY inside the W0>0 bridge),
+      * a non-immutable coupled endpoint or W0=1.0/λ2=0.50 apex (either dir),
+      * the wrong number of W0>0 soft-core bridge windows per direction,
+      * a non-strictly-increasing W0 ramp across the dplus bridge,
+      * a non-strictly-DESCENDING U0 ramp across the dplus bridge (MC-1 guard:
+        the validated free-leg densified38 descends U0; raising U0 above usc is
+        forbidden — softplus caps the favorable LOW-usc tail, not the plateau),
+      * the wrong INTERMEDIATE count (n_bridge soft-core windows + 1 apex/dir).
+    """
+    lambdas_1 = arrays["lambdas_1"]
+    lambdas_2 = arrays["lambdas_2"]
+    directions = arrays["directions"]
+    intermd = arrays["intermd"]
+    w0 = arrays["w0"]
+    alpha = arrays["alpha"]
+    u0 = arrays["u0"]
+    n_states = arrays["n_states"]
+
+    # --- Counts derived from n_bridge (canonical dplus half = 11). ------------
+    n_canon_fwd = LAMBDA_FWD.index(0.50) + 1  # 11 canonical forward states
+    expected_fwd = n_canon_fwd + n_bridge     # 11 + n_bridge
+    expected_total = 2 * expected_fwd         # symmetric dplus + reversed dminus
+    n_fwd = sum(1 for d in directions if d >= 0)
+    n_bwd = n_states - n_fwd
+    assert n_states == expected_total, (
+        f"{label} must be {expected_total} states "
+        f"({expected_fwd} dplus + {expected_fwd} dminus for n_bridge={n_bridge}); "
+        f"got {n_states}"
+    )
+    assert n_fwd == expected_fwd, (
+        f"{label} dplus (forward) must be {expected_fwd} states "
+        f"(11 + {n_bridge} bridge); got {n_fwd}"
+    )
+    assert n_bwd == expected_fwd, (
+        f"{label} dminus (backward) must be {expected_fwd} states; got {n_bwd}"
+    )
+    # DIRECTION column is a contiguous +1 block then -1 block (required by the
+    # per-direction launcher's _derive_state_counts_from_directions gate).
+    assert directions[:n_fwd] == [1] * n_fwd, (
+        f"{label} DIRECTION forward block must be all +1"
+    )
+    assert directions[n_fwd:] == [-1] * n_bwd, (
+        f"{label} DIRECTION backward block must be all -1"
+    )
+
+    # --- ENDPOINT INVARIANCE: λ1==λ2 ⇒ canonical α=0.10 / U0=110. -------------
+    # (ΔG-unbias / ranking-only — the α/U0 ramp lives STRICTLY inside the W0>0
+    # bridge windows where λ1<λ2; the softplus prefactor (λ2−λ1)/α=0 at every
+    # λ1==λ2 state ⇒ endpoint/plateau invariant.)
+    for _i in range(n_states):
+        if abs(lambdas_1[_i] - lambdas_2[_i]) < 1e-12:
+            assert alpha[_i] == BOUND28_CANON_ALPHA, (
+                f"{label} state {_i} has λ1==λ2 but ALPHA "
+                f"{alpha[_i]} != canonical {BOUND28_CANON_ALPHA} "
+                "(C2 region-lock: endpoint/plateau must be unbiased)"
+            )
+            assert u0[_i] == BOUND28_CANON_U0, (
+                f"{label} state {_i} has λ1==λ2 but U0 "
+                f"{u0[_i]} != canonical {BOUND28_CANON_U0} "
+                "(C2 region-lock: endpoint/plateau must be unbiased)"
+            )
+    # The coupled endpoint (λ=0.00) and the apex (λ=0.50, W0=1.0) are immutable
+    # in BOTH directions.
+    assert lambdas_1[0] == 0.00 and w0[0] == 0.0, f"{label} dplus coupled endpoint"
+    assert w0[n_fwd - 1] == 1.0 and lambdas_2[n_fwd - 1] == 0.50, f"{label} dplus apex"
+    assert w0[n_fwd] == 1.0 and lambdas_2[n_fwd] == 0.50, f"{label} dminus apex (first bwd state)"
+    assert lambdas_1[-1] == 0.00 and w0[-1] == 0.0, f"{label} dminus coupled endpoint (last state)"
+
+    # --- BRIDGE SHAPE: exactly n_bridge W0>0 soft-core windows per direction. --
+    dplus_bridge_w0 = [w for w in w0[:n_fwd] if 0.0 < w < 1.0]
+    dminus_bridge_w0 = [w for w in w0[n_fwd:] if 0.0 < w < 1.0]
+    assert len(dplus_bridge_w0) == n_bridge, (
+        f"{label} dplus must carry exactly {n_bridge} soft-core bridge windows "
+        f"(0<W0<1); got {len(dplus_bridge_w0)}"
+    )
+    assert len(dminus_bridge_w0) == n_bridge, (
+        f"{label} dminus must carry exactly {n_bridge} soft-core bridge windows "
+        f"(0<W0<1); got {len(dminus_bridge_w0)}"
+    )
+    # W0 ramp STRICTLY increasing across the dplus bridge (coordinated ascent).
+    assert all(a < b for a, b in zip(dplus_bridge_w0, dplus_bridge_w0[1:])), (
+        f"{label} dplus W0 bridge ramp must be strictly increasing; "
+        f"got {dplus_bridge_w0!r}"
+    )
+    # U0 ramp STRICTLY DESCENDING across the dplus bridge (MC-1 critical guard).
+    dplus_bridge_u0 = [u for w, u in zip(w0[:n_fwd], u0[:n_fwd]) if 0.0 < w < 1.0]
+    assert all(a > b for a, b in zip(dplus_bridge_u0, dplus_bridge_u0[1:])), (
+        f"{label} dplus U0 bridge ramp must be strictly DESCENDING (MC-1: the "
+        f"validated free-leg densified38 descends U0 — softplus caps the "
+        f"favorable LOW-usc tail, raising U0 above usc is forbidden); "
+        f"got {dplus_bridge_u0!r}"
+    )
+    # The n_bridge soft-core windows are the ONLY INTERMEDIATE states besides
+    # the single W0=1.0 apex per direction (n_bridge bridge + 1 apex each).
+    assert sum(int(x) for x in intermd[:n_fwd]) == n_bridge + 1, (
+        f"{label} dplus must have {n_bridge + 1} INTERMEDIATE "
+        f"({n_bridge} bridge + apex)"
+    )
+    assert sum(int(x) for x in intermd[n_fwd:]) == n_bridge + 1, (
+        f"{label} dminus must have {n_bridge + 1} INTERMEDIATE "
+        f"(apex + {n_bridge} bridge)"
+    )
+
+
+_DENSE_BOUND28 = _build_densified_bound28_schedule()
+DENSE_BOUND28_LAMBDAS_1 = _DENSE_BOUND28["lambdas_1"]
+DENSE_BOUND28_LAMBDAS_2 = _DENSE_BOUND28["lambdas_2"]
+DENSE_BOUND28_LAMBDAS = _DENSE_BOUND28["lambdas"]
+DENSE_BOUND28_DIRECTIONS = _DENSE_BOUND28["directions"]
+DENSE_BOUND28_INTERMD = _DENSE_BOUND28["intermd"]
+DENSE_BOUND28_W0 = _DENSE_BOUND28["w0"]
+DENSE_BOUND28_ALPHA = _DENSE_BOUND28["alpha"]
+DENSE_BOUND28_U0 = _DENSE_BOUND28["u0"]
+DENSE_BOUND28_N_STATES = _DENSE_BOUND28["n_states"]
+# Per-direction counts (EQUAL: dplus 14, dminus 14 for the default symmetric
+# bridge; the downstream path is DIRECTION-derived so an asymmetric dminus —
+# after a pilot relocates its cliff — would still map correctly).
+DENSE_BOUND28_N_FWD = sum(1 for d in DENSE_BOUND28_DIRECTIONS if d >= 0)
+DENSE_BOUND28_N_BWD = DENSE_BOUND28_N_STATES - DENSE_BOUND28_N_FWD
+# C2 / C10 region-lock — parameterized verification (n_bridge=3 for bound28).
+_assert_densified_bound_region_lock(_DENSE_BOUND28, n_bridge=3,
+                                    label="densified_bound28")
+
+
+# ---------------------------------------------------------------------------
+# densified_bound30 — 4-window cap-1 escalation of densified_bound28.
+# canonical22 dplus (11) + a 4-window W0-graded soft-core bridge at the SAME
+# 6→7 cliff (λ=0.30→0.345) = 15 dplus states; dminus = whole-tuple reverse of
+# dplus (15 states, DIRECTION=-1). Total = 30 states (EQUAL per-direction).
+#
+# The 4-window bridge is generated DYNAMICALLY by ``_build_densified_bound_
+# arrays(n_bridge=4)`` (NOT a hardcoded tuple) — it linearly interpolates the
+# SAME (λ1,λ2,W0,α,U0) span as the 3-window bridge across one extra window,
+# preserving the validated coordinated COORDINATED ascent/descent direction
+# (MC-1): W0 0.20→0.37→0.53→0.70 (↑), ALPHA 0.12→0.133→0.147→0.16 (↑), U0
+# 105→102.3→99.7→97 (↓ DESCENT). Window COUNT (3→4) is the lever (MC-2) — α/U0
+# are second-order. cap-1 FIRST increment (escalation cap=2: 4→5 max, measured
+# by pilot boundary-crossing, NOT occupancy). Endpoints invariant both
+# directions → rigor-neutral / ranking-safe (C2 region-lock). BOUND leg ONLY;
+# densified_bound28 / canonical22 / densified38* are NOT overwritten (R-7).
+# ---------------------------------------------------------------------------
+def _build_densified_bound30_schedule() -> Dict[str, List[Any]]:
+    """Construct the densified_bound30 (BOUND-leg per-direction) schedule.
+
+    dplus = canonical22 dplus (11) + a 4-window W0-graded soft-core bridge at
+    the 6→7 cliff (λ=0.30→0.345) = 15 states; dminus = whole-tuple reverse of
+    dplus (= 15 states, DIRECTION=-1). Total = 30 states (EQUAL per-direction).
+    Delegates to ``_build_densified_bound_arrays`` with the default
+    cliff_center=0.30 + n_bridge=4 (cap-1 escalation increment).
+    """
+    return _build_densified_bound_arrays(n_bridge=4)
+
+
+_DENSE_BOUND30 = _build_densified_bound30_schedule()
+DENSE_BOUND30_LAMBDAS_1 = _DENSE_BOUND30["lambdas_1"]
+DENSE_BOUND30_LAMBDAS_2 = _DENSE_BOUND30["lambdas_2"]
+DENSE_BOUND30_LAMBDAS = _DENSE_BOUND30["lambdas"]
+DENSE_BOUND30_DIRECTIONS = _DENSE_BOUND30["directions"]
+DENSE_BOUND30_INTERMD = _DENSE_BOUND30["intermd"]
+DENSE_BOUND30_W0 = _DENSE_BOUND30["w0"]
+DENSE_BOUND30_ALPHA = _DENSE_BOUND30["alpha"]
+DENSE_BOUND30_U0 = _DENSE_BOUND30["u0"]
+DENSE_BOUND30_N_STATES = _DENSE_BOUND30["n_states"]
+# Per-direction counts (EQUAL: dplus 15, dminus 15 for the symmetric 4-window
+# bridge; the downstream path is DIRECTION-derived so the 30→15/15 split is
+# count-agnostic — no magic-number break, as verified for the 28→14/14 split).
+DENSE_BOUND30_N_FWD = sum(1 for d in DENSE_BOUND30_DIRECTIONS if d >= 0)
+DENSE_BOUND30_N_BWD = DENSE_BOUND30_N_STATES - DENSE_BOUND30_N_FWD
+# C2 / C10 region-lock — SAME parameterized verification, n_bridge=4.
+_assert_densified_bound_region_lock(_DENSE_BOUND30, n_bridge=4,
+                                    label="densified_bound30")
+
+
+# ---------------------------------------------------------------------------
 # Schedule registry — selectable via ``--free-schedule`` (default canonical22).
 # Each entry is a dict the cntl writer + run_metadata read uniformly. The
 # 22-state default preserves the existing per-direction split path (bound leg
@@ -944,7 +1368,7 @@ DENSIFIED38v3_SCHEDULE = _schedule_dict(
     alpha=DENSE38v3_ALPHA, u0=DENSE38v3_U0, lambdas=DENSE38v3_LAMBDAS,
 )
 # PER-DIRECTION (NON-mirror) free-leg ladder — SECOND dminus bridge
-# whack-a-mole verdict 2026-06-06, Q1/Q3-a). dplus = clean densified38v2/v3
+# (overlap-gap remediation, 2026-06-06, Q1/Q3-a). dplus = clean densified38v2/v3
 # forward (UNCHANGED, byte-equal); dminus = densified38v3 dminus (which already
 # has the 9→10 W0=0.07 bridge) + one MORE W0-graded micro-bridge at the 5→6
 # soft-core-ladder-end → plateau handoff (closes the dminus 5→6 BC=0.18 hole the
@@ -958,10 +1382,42 @@ DENSIFIED38v4_SCHEDULE = _schedule_dict(
     directions=DENSE38v4_DIRECTIONS, intermd=DENSE38v4_INTERMD, w0=DENSE38v4_W0,
     alpha=DENSE38v4_ALPHA, u0=DENSE38v4_U0, lambdas=DENSE38v4_LAMBDAS,
 )
+# BOUND-leg per-direction ladder (bound 6→7 cliff fix). canonical22 dplus (11) +
+# a 3-window W0-graded soft-core bridge at the λ=0.30→0.35 cliff (closes the cp4
+# bound dplus 6→7 BC=0 zero-overlap hole); dminus = whole-tuple reverse (14).
+# EQUAL per-direction counts (14 + 14 = 28). Endpoints invariant both directions
+# → rigor-neutral / ranking-safe (C2 region-lock). BOUND leg ONLY; canonical22 /
+# densified38* are NOT overwritten.
+DENSIFIED_BOUND28_SCHEDULE = _schedule_dict(
+    lambdas_1=DENSE_BOUND28_LAMBDAS_1, lambdas_2=DENSE_BOUND28_LAMBDAS_2,
+    directions=DENSE_BOUND28_DIRECTIONS, intermd=DENSE_BOUND28_INTERMD,
+    w0=DENSE_BOUND28_W0, alpha=DENSE_BOUND28_ALPHA, u0=DENSE_BOUND28_U0,
+    lambdas=DENSE_BOUND28_LAMBDAS,
+)
+# BOUND-leg per-direction ladder — 4-window cap-1 escalation of the bound 6→7
+# cliff bridge (densified_bound28 → 30). canonical22 dplus (11) + a 4-window
+# W0-graded soft-core bridge at the SAME λ=0.30→0.345 cliff (denser λ across the
+# same span — window COUNT is the lever, MC-2); dminus = whole-tuple reverse
+# (15). EQUAL per-direction counts (15 + 15 = 30). U0 DESCENDS 105→97 across the
+# bridge (MC-1 — matches the validated free-leg densified38 U0 110→82). Endpoints
+# invariant both directions → rigor-neutral / ranking-safe (C2 region-lock).
+# BOUND leg ONLY; densified_bound28 / canonical22 / densified38* are NOT
+# overwritten (R-7).
+DENSIFIED_BOUND30_SCHEDULE = _schedule_dict(
+    lambdas_1=DENSE_BOUND30_LAMBDAS_1, lambdas_2=DENSE_BOUND30_LAMBDAS_2,
+    directions=DENSE_BOUND30_DIRECTIONS, intermd=DENSE_BOUND30_INTERMD,
+    w0=DENSE_BOUND30_W0, alpha=DENSE_BOUND30_ALPHA, u0=DENSE_BOUND30_U0,
+    lambdas=DENSE_BOUND30_LAMBDAS,
+)
 
 # Schedules deprecated for production (Factor-B broken) — kept for forensic
 # reproduction but flagged so the launcher can warn if a caller selects one.
 DEPRECATED_SCHEDULES = frozenset({"densified34"})
+
+# Schedules valid for the BOUND leg (selected via ``--bound-schedule``). The
+# free-leg densified38* ladders are NOT bound-valid (they fix the free-leg
+# decoupling crossover, which the receptor-held bound leg does not have).
+BOUND_SCHEDULES = frozenset({"canonical22", "densified_bound28", "densified_bound30"})
 
 SCHEDULES: Dict[str, Dict[str, Any]] = {
     "canonical22": CANONICAL22_SCHEDULE,
@@ -970,8 +1426,11 @@ SCHEDULES: Dict[str, Dict[str, Any]] = {
     "densified38v2": DENSIFIED38v2_SCHEDULE,  # REBALANCED linear-λ (8→9 OVL fix)
     "densified38v3": DENSIFIED38v3_SCHEDULE,  # PER-DIRECTION (dminus bridge, 9→10 fix)
     "densified38v4": DENSIFIED38v4_SCHEDULE,  # PER-DIRECTION (2nd dminus bridge, 5→6 fix)
+    "densified_bound28": DENSIFIED_BOUND28_SCHEDULE,  # BOUND-leg (6→7 cliff, 3-window)
+    "densified_bound30": DENSIFIED_BOUND30_SCHEDULE,  # BOUND-leg (6→7 cliff, 4-window cap-1)
 }
 DEFAULT_FREE_SCHEDULE = "canonical22"
+DEFAULT_BOUND_SCHEDULE = "canonical22"
 
 
 def get_schedule(name: str) -> Dict[str, Any]:
@@ -990,8 +1449,8 @@ def get_schedule(name: str) -> Dict[str, Any]:
     if name in DEPRECATED_SCHEDULES:
         sys.stderr.write(
             f"WARNING: schedule {name!r} is DEPRECATED (Factor-B broken: NaN'd "
-            f"at the backward W0-peak even with full structprep, Path REVISED "
-            f"LADDER FIX 2026-06-05). Use 'densified38' for production. "
+            f"at the backward W0-peak even with full structprep, REVISED "
+            f"LADDER FIX, 2026-06-05). Use 'densified38' for production. "
             f"Retained for forensic reproduction only.\n"
         )
     sched = SCHEDULES[name]
@@ -1154,7 +1613,7 @@ def write_cntl_file(
     and LIGAND_CM_ATOMS are set to the binder chain atoms (ABFE: whole binder
     decoupled).
 
-    ``schedule`` (optional, Path λ-densify spec 2026-06-05) selects the
+    ``schedule`` (optional, λ-densify spec, 2026-06-05) selects the
     per-state λ ladder. When ``None`` (default) the canonical module-level
     22-state schedule is emitted (LAMBDAS == LAMBDA1 == LAMBDA2, INTERMEDIATE
     at the two λ=0.5 midpoints) — backward-compatible with every existing
@@ -1477,6 +1936,7 @@ def setup_one_leg(
     checkpoint_time_s: int = 600,
     smoke: bool = False,
     free_schedule: str = DEFAULT_FREE_SCHEDULE,
+    bound_schedule: str = DEFAULT_BOUND_SCHEDULE,
 ) -> Dict[str, Any]:
     """Prepare one (endpoint, leg) directory for ``abfe_production``.
 
@@ -1490,10 +1950,17 @@ def setup_one_leg(
     end-to-end in minutes.
 
     ``free_schedule`` (default ``"canonical22"``) selects the λ ladder for
-    the FREE leg only (Path λ-densify spec 2026-06-05). ``"densified34"``
-    swaps the free-leg cntl to the 34-state ilogistic anneal ladder. The
-    BOUND leg ALWAYS uses the canonical 22-state schedule regardless of this
-    value (the receptor holds the ligand → no decoupling crossover → no gap).
+    the FREE leg only (λ-densify spec, 2026-06-05). ``"densified34"``
+    swaps the free-leg cntl to the 34-state ilogistic anneal ladder.
+
+    ``bound_schedule`` (default ``"canonical22"``) selects the λ ladder for the
+    BOUND leg only (bound 6→7 cliff fix). The default keeps the historical
+    canonical 22-state bound path BYTE-EQUAL (``schedule=None`` → canonical
+    module globals). ``"densified_bound28"`` swaps the bound-leg cntl to the
+    28-state per-direction ladder with a 3-window soft-core bridge at the
+    λ=0.30→0.35 cliff. The free and bound selectors are independent: each leg
+    only honours its own schedule (a free_schedule never touches the bound cntl
+    and vice versa).
     """
     leg_dir = os.path.join(out_root, endpoint, leg)
     os.makedirs(leg_dir, exist_ok=True)
@@ -1568,14 +2035,27 @@ def setup_one_leg(
                    gpu_indices=(cuda_devices or [0]),
                    platform="CUDA")
 
-    # Resolve the λ schedule. densified34 applies to the FREE leg only; the
-    # bound leg always uses the canonical 22-state schedule (Path: receptor
-    # holds the ligand → no crossover gap → no densification needed).
+    # Resolve the λ schedule per leg. The free and bound selectors are
+    # independent: the free leg honours ``free_schedule`` (densified38* for the
+    # decoupling-crossover fix), the bound leg honours ``bound_schedule``
+    # (densified_bound28 for the 6→7 cliff fix). The default for either leg is
+    # canonical22 → ``schedule_dict=None`` → the canonical module globals are
+    # emitted (BYTE-EQUAL to the historical path; no regression).
     schedule_dict: Optional[Dict[str, Any]] = None
     schedule_name = DEFAULT_FREE_SCHEDULE
     if leg == "free" and free_schedule != DEFAULT_FREE_SCHEDULE:
         schedule_dict = get_schedule(free_schedule)
         schedule_name = free_schedule
+    elif leg == "bound" and bound_schedule != DEFAULT_BOUND_SCHEDULE:
+        if bound_schedule not in BOUND_SCHEDULES:
+            raise ValueError(
+                f"bound_schedule {bound_schedule!r} is not valid for the bound "
+                f"leg; valid bound schedules: {sorted(BOUND_SCHEDULES)}. The "
+                "free-leg densified38* ladders fix the free-leg decoupling "
+                "crossover, which the receptor-held bound leg does not have."
+            )
+        schedule_dict = get_schedule(bound_schedule)
+        schedule_name = bound_schedule
 
     # Write the cntl.
     cntl_path = os.path.join(leg_dir, jobname + "_asyncre.cntl")
@@ -1726,8 +2206,8 @@ def main() -> int:
                         "(host 5070Ti, ~10-15 min)")
     p.add_argument("--free-schedule", default=DEFAULT_FREE_SCHEDULE,
                    choices=sorted(SCHEDULES),
-                   help=("λ ladder for the FREE leg only (Path λ-densify "
-                         "spec 2026-06-05). 'canonical22' (default) = 22-state "
+                   help=("λ ladder for the FREE leg only (λ-densify "
+                         "spec, 2026-06-05). 'canonical22' (default) = 22-state "
                          "symmetric; 'densified38' = REVISED 38-state ilogistic "
                          "anneal ladder (softened backward W0-peak + per-state "
                          "α/U0 ramp) bridging the λ=0.45→0.50 decoupling "
@@ -1747,7 +2227,17 @@ def main() -> int:
                          "(2026-06-06; LAST iteration under "
                          "the hard 2-bridge/leg cap); 'densified34' = "
                          "DEPRECATED (Factor-B broken, forensic only). "
-                         "The bound leg always uses canonical22."))
+                         "The bound leg uses --bound-schedule (independent)."))
+    p.add_argument("--bound-schedule", default=DEFAULT_BOUND_SCHEDULE,
+                   choices=sorted(BOUND_SCHEDULES),
+                   help=("λ ladder for the BOUND leg only (bound 6→7 cliff "
+                         "fix). 'canonical22' (default) = 22-state symmetric "
+                         "(BYTE-EQUAL to the historical bound-leg path); "
+                         "'densified_bound28' = 28-state per-direction ladder "
+                         "with a 3-window W0-graded soft-core bridge at the "
+                         "λ=0.30→0.35 cliff (closes the cp4 bound dplus 6→7 "
+                         "BC=0 zero-overlap hole). Independent of "
+                         "--free-schedule (each leg honours only its own)."))
     p.add_argument("--setup-only", action="store_true",
                    help="prepare cntl/system/structprep but DO NOT launch production")
     p.add_argument("--skip-structprep", action="store_true",
@@ -1850,6 +2340,7 @@ def main() -> int:
                 checkpoint_time_s=args.checkpoint_time_s,
                 smoke=args.smoke,
                 free_schedule=args.free_schedule,
+                bound_schedule=args.bound_schedule,
             )
             setup_results.append(leg_info)
             print(f"    cntl: {leg_info['cntl_path']}")
@@ -1905,14 +2396,19 @@ def main() -> int:
             "u0_kcal": U0,
             "temperature_K": TEMP_K,
         },
-        # Per-leg free-leg schedule selector (Path λ-densify spec 2026-06-05).
-        # The bound leg ALWAYS uses canonical22; free_schedule applies to the
-        # free leg only. When densified34, the full 34-state arrays are
-        # recorded for audit of the free=34/bound=22 asymmetry.
+        # Per-leg schedule selectors (independent). free_schedule applies to the
+        # free leg only (λ-densify spec 2026-06-05); bound_schedule applies
+        # to the bound leg only (bound 6→7 cliff fix). When non-default, the full
+        # schedule arrays are recorded for audit of the free/bound asymmetry.
         "free_schedule": args.free_schedule,
         "free_schedule_detail": (
             None if args.free_schedule == DEFAULT_FREE_SCHEDULE
             else get_schedule(args.free_schedule)
+        ),
+        "bound_schedule": args.bound_schedule,
+        "bound_schedule_detail": (
+            None if args.bound_schedule == DEFAULT_BOUND_SCHEDULE
+            else get_schedule(args.bound_schedule)
         ),
         "production_steps_per_cycle": (
             50 if args.smoke else args.production_steps

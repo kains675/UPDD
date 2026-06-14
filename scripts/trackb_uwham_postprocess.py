@@ -621,8 +621,20 @@ def _compute_mbar_overlap_matrix(neg_pot, n_k):
     ``u_kn = -neg_pot.T``. ``n_k`` is the per-state sample count (len == K,
     sum == N).
 
+    Solver: MBAR is constructed with ``solver_protocol="robust"`` +
+    ``maximum_iterations=20000`` + ``relative_tolerance=1e-8``. The pymbar 4.2
+    DEFAULT first-order solver stalls on the huge-dynamic-range two-copy ATS
+    reduced potential and returns a non-physical overlap matrix (diagonal > 1,
+    row-sum ≠ 1) WITHOUT raising; the robust trust-region path reaches the unique
+    convex minimum (the answer is unchanged — REPORTING-ONLY, numbers-neutral).
+    A convergence guard (diagonal ≤ 1+tol AND |row-sum − 1| ≤ tol) raises
+    ValueError on the non-physical default-solver garbage so the caller's
+    graceful-degrade try/except records it as unavailable rather than reporting a
+    phantom 0.0 overlap.
+
     Returns the K×K overlap matrix (numpy array) or raises — the caller wraps
-    this in the graceful-degrade try/except so an absent pymbar never crashes.
+    this in the graceful-degrade try/except so an absent pymbar (or a
+    non-converged solve) never crashes the run.
     """
     import numpy as np
     from pymbar import MBAR  # local import — graceful-degrade if absent
@@ -643,9 +655,37 @@ def _compute_mbar_overlap_matrix(neg_pot, n_k):
             f"sample counts must partition the neg_pot rows"
         )
     u_kn = -arr.T  # negative reduced potential -> positive reduced potential
-    mbar = MBAR(u_kn, nk)
+    # Robust solver (pymbar 4.2); 3.x lacks these kwargs → TypeError fallback.
+    try:
+        mbar = MBAR(
+            u_kn, nk,
+            maximum_iterations=20000,
+            relative_tolerance=1e-8,
+            solver_protocol="robust",
+        )
+    except TypeError:
+        mbar = MBAR(u_kn, nk)
     overlap = mbar.compute_overlap()
     matrix = np.asarray(overlap["matrix"], dtype=float)
+    # Convergence guard: a converged overlap matrix is (near) doubly stochastic
+    # (every diagonal ≤ 1, every row sums to 1). A stalled default solver emits
+    # garbage (diag ≫ 1, row-sum ≫ 1) WITHOUT raising → raise so the caller's
+    # graceful-degrade records "unavailable" instead of a phantom 0.0 overlap.
+    guard_tol = 1e-3
+    if not np.all(np.isfinite(matrix)):
+        raise ValueError("MBAR overlap matrix non-finite (solver non-convergence)")
+    if float(np.diag(matrix).max()) > 1.0 + guard_tol:
+        raise ValueError(
+            f"MBAR overlap diagonal {float(np.diag(matrix).max()):.4f} > 1 "
+            f"(solver non-convergence: non-physical overlap matrix)"
+        )
+    row_sums = matrix.sum(axis=1)
+    if float(np.max(np.abs(row_sums - 1.0))) > guard_tol:
+        raise ValueError(
+            f"MBAR overlap row-sum deviates from 1 by "
+            f"{float(np.max(np.abs(row_sums - 1.0))):.4f} "
+            f"(solver non-convergence: non-physical overlap matrix)"
+        )
     return matrix
 
 

@@ -99,6 +99,14 @@ RBFE_UBCORE_KCAL = ats.ATS_UBCORE_KCAL  # 100.0  (global, fixed)
 RBFE_ACORE = ats.ATS_ACORE              # 0.0625 (global, fixed)
 RBFE_TEMP_K = 300.0
 
+# Canonical ATS two-copy U0 (Uh) knee. The two-copy box's swap is a REAL
+# coordinate transfer (copy-2 displaced into bulk -> swapped to the site), so its
+# soft-core perturbation magnitude is in the ABFE-cliff band, not the single-
+# shared-core null-op tens-of-kcal. The standard ATS/ABFE Uh = 110 kcal/mol is
+# the matching knee (NOT the RBFE_U0_DEFAULT=30 tuned for the single-shared-core
+# null op). umax/ubcore/acore are the same global canon (NOT re-tuned).
+ATS_TWOCOPY_U0_DEFAULT = 110.0
+
 
 def build_rbfe_ladder(
     n_windows_half: int = 8,
@@ -385,6 +393,194 @@ def build_rbfe_ladder(
     }
 
 
+def build_ats_standard_ladder(
+    n_windows_half: int = 6,
+    single_direction: str = "forward",
+    alpha: float = RBFE_ALPHA_DEFAULT,
+    u0_kcal: float = ATS_TWOCOPY_U0_DEFAULT,
+    w0_apex_kcal: float = 0.0,
+    *,
+    lambda1_rampdown: Optional[List[float]] = None,
+) -> Dict[str, Any]:
+    """Build the CANONICAL single-direction ATS λ-schedule (spec C).
+
+    This is the standard AToM (ATM/ATS) per-leg ladder used with the CANONICAL
+    TWO-COPY box, distinct from :func:`build_rbfe_ladder` (which targets the
+    single-shared-core box with a λ1==λ2 linear ramp + a small apex anneal band).
+    For 11 states (``n_windows_half=6``) it reproduces the the specified
+    schedule exactly:
+
+      λ1 = [0, 0, 0, 0, 0, 0,   0.1, 0.2, 0.3, 0.4, 0.5]
+      λ2 = [0, 0.1, 0.2, 0.3, 0.4, 0.5,   0.5, 0.5, 0.5, 0.5, 0.5]
+
+    i.e. the standard two-phase ATM ramp: the FIRST ``n_windows_half`` states hold
+    λ1=0 while λ2 climbs 0 -> 0.5 (the "leg up" — the soft-core alchemical region
+    where λ2 != λ1 so the ilogistic softplus is active), then the LAST
+    ``n_windows_half - 1`` states hold λ2=0.5 while λ1 climbs 0.1 -> 0.5 to meet it
+    (the "leg down"). The two overlapping λ1=0/λ2=0.5 ... λ1=0.5/λ2=0.5 states are
+    the symmetric λ=0.5 apex of the ATM hybrid. Total states = 2*n_windows_half-1.
+
+    Every state of a single-leg ATS ladder carries the SAME DIRECTION (+1 for the
+    forward/"leg up→down" ladder, -1 for the reverse) — there is NO direction-flip
+    boundary (that lives only in the COMBINED two-direction ladder, which is the
+    single-shared-core artifact this canonical schedule replaces). The two
+    directions are run as SEPARATE asyncre runs (per-direction-separate estimator)
+    and UWHAM-merged at the shared apex, exactly the ABFE geometry.
+
+    ``single_direction`` ("forward" default, or "backward" = the whole-tuple
+    reverse with DIRECTION=-1) selects which standalone direction this ladder is.
+
+    ``lambda1_rampdown`` (keyword-only, default ``None``) lets the caller densify
+    the leg-down (λ2=0.5, λ1 climbing) phase at the leg-switch boundary WITHOUT
+    touching the soft-core canon (C7) or the leg-up λ2 ramp. ``None`` keeps the
+    legacy uniform λ1 ramp (``round(0.5*i/(n-1))`` over the last n-1 states) — so
+    ``n_windows_half=6, lambda1_rampdown=None`` is byte-identical to the historical
+    11-state schedule. When provided it is the EXPLICIT list of leg-down λ1 knots
+    (the apex λ1=0/λ2=0.5 state is already placed by the leg-up phase, so the list
+    starts ABOVE 0): every value must be in (0, 0.5], strictly increasing, and end
+    at exactly 0.5. The leg-down then has ``len(lambda1_rampdown)`` states and the
+    total becomes ``n_windows_half + len(lambda1_rampdown)``. This is an
+    interior-λ reshaping of the leg-switch handoff — ΔG-unbiased (Kirkwood path
+    independence): the endpoints (decoupled / coupled apex) and the soft-core
+    constants are unchanged, so it is a robustness (overlap) lever, not a free
+    energy change (ranking-only, R-11). Example: ``[0.05,0.1,0.2,0.3,0.4,0.5]``
+    inserts a λ1=0.05 bridge window right after the leg-switch apex (12 states for
+    ``n_windows_half=6``).
+
+    ``u0_kcal`` (Uh) defaults to the ATS canon 110 kcal/mol (the two-copy swap is
+    a real ABFE-band transfer, NOT the tens-of-kcal single-shared-core null op).
+    ``alpha`` = 0.10, ``w0_apex_kcal`` = 0.0 (the symmetric two-copy ΔG-unbiased
+    apex — W0=0 means the two endpoints are NOT biased toward each other; the
+    free energy comes out of the unbiased overlap). umax/ubcore/acore are the
+    global canon, NOT re-tuned (C7).
+
+    Returns the schedule dict in the SAME shape ``write_cntl_file`` /
+    ``schedule_io`` / :class:`InplaceRbfeLadder` consume.
+    """
+    if n_windows_half < 2:
+        raise ValueError(
+            "build_ats_standard_ladder: n_windows_half must be >= 2 (need at "
+            "least the λ=0 and λ=0.5 apex states), got %d" % (n_windows_half,))
+    if single_direction not in ("forward", "backward"):
+        raise ValueError(
+            "build_ats_standard_ladder: single_direction must be 'forward' or "
+            "'backward', got %r" % (single_direction,))
+
+    n = n_windows_half
+    lam1: List[float] = []
+    lam2: List[float] = []
+    inter: List[int] = []
+    # Phase 1 ("leg up"): λ1 = 0, λ2 climbs 0 -> 0.5 over n states.
+    for i in range(n):
+        l2 = round(0.5 * i / (n - 1), 6)
+        lam1.append(0.0)
+        lam2.append(l2)
+        # λ2 != λ1 (except the i=0 endpoint) -> the soft-core alchemical region.
+        inter.append(0 if i == 0 else 1)
+    # Phase 2 ("leg down"): λ2 = 0.5, λ1 climbs to 0.5.
+    if lambda1_rampdown is None:
+        # Legacy uniform ramp: λ1 = 0.1 -> 0.5 over the next n-1 states (skip i=0,
+        # which is the apex λ1=0/λ2=0.5 state already placed above). This branch is
+        # byte-identical to the historical 11-state schedule for n=6.
+        for i in range(1, n):
+            l1 = round(0.5 * i / (n - 1), 6)
+            lam1.append(l1)
+            lam2.append(0.5)
+            # λ1 != λ2 until the final λ1=λ2=0.5 state (the symmetric apex endpoint).
+            inter.append(0 if i == n - 1 else 1)
+    else:
+        # Explicit leg-down λ1 knots (densify the leg-switch handoff). The apex
+        # λ1=0/λ2=0.5 state is already placed by the leg-up phase, so the knots
+        # start ABOVE 0; the last must be 0.5 (the symmetric λ1=λ2=0.5 endpoint).
+        knots = [float(x) for x in lambda1_rampdown]
+        if len(knots) < 1:
+            raise ValueError(
+                "build_ats_standard_ladder: lambda1_rampdown must have at least "
+                "one knot (the λ1=0.5 endpoint), got an empty list")
+        for x in knots:
+            if not (0.0 < x <= 0.5):
+                raise ValueError(
+                    "build_ats_standard_ladder: lambda1_rampdown values must be "
+                    "in (0, 0.5] (the apex λ1=0 state is placed by the leg-up "
+                    "phase; the final value must be 0.5), got %r" % (x,))
+        for a, b in zip(knots, knots[1:]):
+            if not (b > a):
+                raise ValueError(
+                    "build_ats_standard_ladder: lambda1_rampdown must be strictly "
+                    "increasing, got %r" % (knots,))
+        if knots[-1] != 0.5:
+            raise ValueError(
+                "build_ats_standard_ladder: lambda1_rampdown must end at exactly "
+                "0.5 (the symmetric λ1=λ2=0.5 apex endpoint), got %r"
+                % (knots[-1],))
+        for x in knots:
+            l1 = round(x, 6)
+            lam1.append(l1)
+            lam2.append(0.5)
+            # λ1 != λ2 until the final λ1=λ2=0.5 state (the symmetric apex endpoint).
+            inter.append(0 if l1 == 0.5 else 1)
+
+    # total == 2*n - 1 for the legacy uniform leg-down; with an explicit
+    # lambda1_rampdown it is n (leg-up) + len(lambda1_rampdown) (leg-down).
+    total = len(lam1)
+    w0 = [w0_apex_kcal] * total
+    alpha_arr = [alpha] * total
+    u0_arr = [u0_kcal] * total
+
+    if single_direction == "forward":
+        sd_dir = 1
+        sd_lam1, sd_lam2, sd_w0 = lam1, lam2, w0
+        sd_inter, sd_alpha, sd_u0 = inter, alpha_arr, u0_arr
+    else:
+        sd_dir = -1
+        sd_lam1 = list(reversed(lam1))
+        sd_lam2 = list(reversed(lam2))
+        sd_w0 = list(reversed(w0))
+        sd_inter = list(reversed(inter))
+        sd_alpha = list(reversed(alpha_arr))
+        sd_u0 = list(reversed(u0_arr))
+    directions = [sd_dir] * total
+
+    return {
+        "lambdas": list(sd_lam1),
+        "lambdas_1": sd_lam1,
+        "lambdas_2": sd_lam2,
+        "directions": directions,
+        "intermd": sd_inter,
+        "alpha": sd_alpha,
+        "u0": sd_u0,
+        "w0": sd_w0,
+        "umax": RBFE_UMAX_KCAL,
+        "ubcore": RBFE_UBCORE_KCAL,
+        "acore": RBFE_ACORE,
+        "n_states": total,
+        "n_windows_half": total,
+        "n_windows_half_linear": n,
+        "softcore_band": n,           # the whole leg-up phase is soft-core
+        "n_apex_bridge": 0,
+        "apex_band": 1.0,
+        "single_direction": single_direction,
+        "schedule_kind": "ats_standard",
+        "lambda1_rampdown": (list(lambda1_rampdown)
+                             if lambda1_rampdown is not None else None),
+        "temperature_K": RBFE_TEMP_K,
+        "schedule_name": (
+            "ats_standard_%s_%dw" % (single_direction, total)
+            if lambda1_rampdown is None
+            else "ats_standard_%s_%dw_bridge%d"
+                 % (single_direction, total, total)),
+        "regime": "ranking_only",
+        "note": ("CANONICAL ATS single-leg %s λ-schedule (spec C): λ1=0 / "
+                 "λ2 climbs 0->0.5 (leg up) then λ2=0.5 / λ1 climbs 0->0.5 (leg "
+                 "down), single DIRECTION=%d, NO direction-flip boundary. Used "
+                 "with the CANONICAL TWO-COPY box (real coordinate transfer); the "
+                 "two directions run SEPARATELY + UWHAM-merge at the shared apex. "
+                 "Soft-core canon umax/ubcore/acore NOT re-tuned (C7); Uh=%g "
+                 "kcal/mol (ATS canon). Window count is a PARAMETER validated by "
+                 "the pilot (R-18)." % (single_direction, sd_dir, u0_kcal)),
+    }
+
+
 # ---------------------------------------------------------------------------
 # System-XML serializer (Task 1).
 #
@@ -395,6 +591,153 @@ def build_rbfe_ladder(
 # so the serialized System is consumed by the in-process adapter below, NOT by
 # OMMSystemABFE.create_system.
 # ---------------------------------------------------------------------------
+def _write_system_and_pdb(system, modeller, sys_xml, pdb_path):
+    """Serialize ``system`` to ``sys_xml`` + write the matching topology PDB.
+
+    Shared by the single-core and two-copy serialize paths so both produce the
+    SAME on-disk contract the loader + ladder consume. Handles the
+    topology/position lockstep: if the System has MORE particles than the topology
+    (the single-core genuine swap adds a MASSLESS dummy NE1 reference particle to
+    the System + positions but not the topology), a matching topology atom is
+    materialised per extra particle in a dedicated "X" chain so PDBFile.writeFile
+    (which requires topology and positions to match) round-trips. This is
+    serialization-only bookkeeping — it does NOT touch the validated build's
+    System/energy (R-7). The two-copy box has NO such extra particle (its
+    topology == System particle count), so n_extra == 0 and no "X" chain is
+    added. Returns the final topology atom count.
+    """
+    import openmm as mm
+    import openmm.unit as unit
+    from openmm.app import PDBFile, element as _app_element
+
+    with open(sys_xml, "w") as fh:
+        fh.write(mm.XmlSerializer.serialize(system))
+
+    topology = modeller.topology
+    positions = modeller.positions   # a unit-wrapped position list (Quantity)
+    n_extra = system.getNumParticles() - topology.getNumAtoms()
+    if n_extra < 0:
+        raise RuntimeError(
+            "_write_system_and_pdb: topology (%d atoms) exceeds System particles "
+            "(%d) — unexpected build state."
+            % (topology.getNumAtoms(), system.getNumParticles()))
+    if n_extra > 0:
+        ref_chain = topology.addChain(id="X")
+        ref_res = topology.addResidue("REFX", ref_chain, id="900")
+        for _ in range(n_extra):
+            topology.addAtom("DUM", _app_element.hydrogen, ref_res)
+
+    # PDBFile.writeFile wants a unit-wrapped position sequence; strip + re-wrap in
+    # nm so the (possibly Python-list) positions become a clean Quantity vector.
+    pos_nm = [p.value_in_unit(unit.nanometer) for p in positions]
+    pos_q = pos_nm * unit.nanometer
+    with open(pdb_path, "w") as fh:
+        PDBFile.writeFile(topology, pos_q, fh, keepIds=True)
+    return topology.getNumAtoms()
+
+
+def _serialize_twocopy_system(
+    *,
+    leg: str,
+    out_dir: str,
+    tag: str,
+    seed: str,
+    binder_chain: str,
+    solvate: bool,
+    harmonize_common_charges: bool,
+    displacement_nm: float,
+    mtr_ncaa_xml: Optional[str],
+    constraints: Any,
+) -> Dict[str, Any]:
+    """Build + serialize the CANONICAL ATS TWO-COPY box for one leg.
+
+    The two-copy builder (``ats.build_inplace_res4_twocopy_system``) already
+    attaches its own swap ATMForce (distinct attach atoms, real coordinate
+    transfer), so this only serializes the merged System + topology onto the SAME
+    on-disk contract the single-core path produces (so the loader + ladder are
+    construction-agnostic). The build dict shape differs from single-core, so the
+    return is mapped explicitly:
+
+      - ``outcome`` must be ``"twocopy_attached"`` (the MC1 charge-discontinuity
+        outcome RAISES — a real finding, resolve via the harmonized RBFE XML);
+      - ``genuine_decouple_dir`` is the UNIT of the copy-2 displacement vector
+        (the bulk copy IS the decoupled partner — its outward direction is the
+        decouple direction the C8 bound-leg gate validates); for the free leg the
+        same finite vector is returned (any bulk direction is valid free).
+    """
+    build = ats.build_inplace_res4_twocopy_system(
+        leg=leg, seed=seed, binder_chain=binder_chain, solvate=solvate,
+        harmonize_common_charges=harmonize_common_charges,
+        displacement_nm=displacement_nm, mtr_ncaa_xml=mtr_ncaa_xml,
+        constraints=constraints,
+    )
+    if build.get("outcome") != "twocopy_attached":
+        raise RuntimeError(
+            "serialize_inplace_rbfe_system(construction='twocopy'): the two-copy "
+            "build did NOT attach (outcome=%r). This is a real finding (MC1 "
+            "charge discontinuity between copy-1 MTR and copy-2 WT common cores, "
+            "or a failed seed), not a serialization step — resolve it before "
+            "serializing. Supply an S0-harmonized RBFE XML (Σ|Δq|=0 common core) "
+            "or pass harmonize_common_charges=True for the diagnostic path."
+            % (build.get("outcome"),))
+
+    fused = build["fused_build"]
+    system = fused["system"]
+    modeller = fused["modeller"]
+    atm_index = build["swap"]["atm_force_index"]
+
+    sys_xml = os.path.join(out_dir, "inplace_rbfe_%s_sys.xml" % (tag,))
+    pdb_path = os.path.join(out_dir, "inplace_rbfe_%s.pdb" % (tag,))
+    n_atoms = _write_system_and_pdb(system, modeller, sys_xml, pdb_path)
+
+    # C8 decouple direction = the UNIT of the copy-2 bulk displacement vector. The
+    # displaced bulk copy IS the decoupled partner, so the vector that carries it
+    # into bulk (NE1-local-outward, finite + non-degenerate by construction) is the
+    # decouple direction. Normalize (the build stores the d-SCALED vector).
+    dvec = fused.get("displacement_vector_nm") or build.get("displacement_vector_nm")
+    decouple_dir = None
+    if dvec is not None:
+        mag = math.sqrt(sum(float(c) ** 2 for c in dvec))
+        if mag > 1e-9:
+            decouple_dir = tuple(float(c) / mag for c in dvec)
+
+    return {
+        "leg": leg,
+        "tag": tag,
+        "seed": seed,
+        "construction": "twocopy",
+        "sys_xml_path": sys_xml,
+        "pdb_path": pdb_path,
+        "atmforce_index": atm_index,
+        "n_atoms": n_atoms,
+        "n_copy1": fused.get("n_copy1"),
+        "solvated": solvate,
+        "swap_mode": "twocopy",
+        "displacement_vector_nm": [float(c) for c in dvec] if dvec else None,
+        "common_charges_harmonized": build.get("common_charges_harmonized"),
+        "mtr_ncaa_xml": build.get("mtr_ncaa_xml"),
+        # C8 SIGN-critical: for the two-copy box the decouple direction is the
+        # copy-2 bulk displacement unit vector (finite for BOTH legs — the bulk
+        # copy is always displaced). The launcher's C8 gate asserts non-None +
+        # finite + unit-magnitude for the bound leg.
+        "genuine_decouple_dir": decouple_dir,
+        "mc1_passed": True,
+        "alchemical_atoms": {
+            "common_attach_ne1": fused["alchemical_atoms"]["copy1_ne1"],
+            "copy1_ne1": fused["alchemical_atoms"]["copy1_ne1"],
+            "copy2_ne1": fused["alchemical_atoms"]["copy2_ne1"],
+            "mtr_var": list(fused["alchemical_atoms"]["mtr_only"]),
+            "wt_var": list(fused["alchemical_atoms"]["wt_only"]),
+        },
+        "separation": build.get("separation"),
+        "swap": build.get("swap"),
+        "regime": "ranking_only",
+        # The build dict is kept so an in-process caller (the smoke) can run the
+        # ladder WITHOUT re-deserializing (deserialize is verified separately).
+        "_build": build,
+    }
+
+
 def serialize_inplace_rbfe_system(
     leg: str = "free",
     out_dir: str = ".",
@@ -407,6 +750,8 @@ def serialize_inplace_rbfe_system(
     mtr_ncaa_xml: Optional[str] = None,
     constraints: Any = None,
     tag: Optional[str] = None,
+    construction: str = "single_core",
+    displacement_nm: float = ats.ATS_TWOCOPY_DISPLACEMENT_NM,
 ) -> Dict[str, Any]:
     """Build + serialize the in-place fused RBFE System for one leg.
 
@@ -414,6 +759,24 @@ def serialize_inplace_rbfe_system(
     XmlSerializer, WITH the genuine ATMForce attached) and
     ``<out_dir>/inplace_rbfe_<tag>.pdb`` (the matching topology + coordinates +
     periodic box). ``tag`` defaults to ``<leg>``.
+
+    ``construction`` selects which in-place box to serialize (DEFAULT
+    ``"single_core"`` — byte-identical to the pre-existing legacy behaviour, the
+    path densify_pilot / the existing ladder use):
+
+      * ``"single_core"`` (default): the SINGLE-SHARED-CORE in-place fused box
+        (``ats.build_inplace_res4_fused_system``) — both var groups attach the
+        SAME NE1. Validated for the λ=0.5 finite frame + per-direction standalone
+        ladders, but its apex Dir-flip is a structural wall and its swap is a
+        soft-core-capped null op (pertE saturated ~150, overlap ~0). UNTOUCHED.
+      * ``"twocopy"`` (opt-in): the CANONICAL ATS TWO-COPY box
+        (``ats.build_inplace_res4_twocopy_system`` already attaches its own swap
+        ATMForce) — copy-1 (MTR) at the site + copy-2 (WT) displaced by
+        ``displacement_nm`` (~40 Å) into bulk, common coordinates swapped with
+        DISTINCT attach atoms, clash avoided by spatial separation (NO inter-copy
+        exclusions). The swap is a REAL coordinate transfer (one-frame |u1-u0|
+        finite + non-saturated, ~few kcal/mol, validated). This is the path that
+        can yield a converged ΔΔG (pilot needed to confirm; R-18).
 
     ``constraints=None`` (the DEFAULT here) matches the Tier-2 R3 requirement
     that the appearing/disappearing alch H carry NO SHAKE (a 1 fs unconstrained
@@ -427,13 +790,32 @@ def serialize_inplace_rbfe_system(
     pass ``harmonize_common_charges=True`` for the mechanical path or supply an
     S0-harmonized RBFE XML so MC1 passes on-disk.
     """
-    import openmm as mm
+    if construction not in ("single_core", "twocopy"):
+        raise ValueError(
+            "serialize_inplace_rbfe_system: construction must be 'single_core' "
+            "or 'twocopy', got %r" % (construction,))
 
     if tag is None:
         tag = leg
     out_dir = os.path.abspath(out_dir)
     os.makedirs(out_dir, exist_ok=True)
 
+    # --- TWO-COPY (opt-in) ------------------------------------------------
+    # The canonical ATS two-copy box already attaches its own swap ATMForce in
+    # build_inplace_res4_twocopy_system; we only serialize the merged System +
+    # topology. The build dict shape differs from single-core (outcome
+    # "twocopy_attached", different alchemical_atoms keys, no genuine_decouple_dir
+    # — the bulk decouple IS the copy-2 displacement vector), so this branch maps
+    # it onto the SAME serialized contract the loader + ladder consume.
+    if construction == "twocopy":
+        return _serialize_twocopy_system(
+            leg=leg, out_dir=out_dir, tag=tag, seed=seed,
+            binder_chain=binder_chain, solvate=solvate,
+            harmonize_common_charges=harmonize_common_charges,
+            displacement_nm=displacement_nm, mtr_ncaa_xml=mtr_ncaa_xml,
+            constraints=constraints)
+
+    # --- SINGLE-CORE (legacy default; byte-identical) ---------------------
     build = ats.build_inplace_res4_fused_system(
         leg=leg, seed=seed, binder_chain=binder_chain, solvate=solvate,
         harmonize_common_charges=harmonize_common_charges, swap_mode=swap_mode,
@@ -456,47 +838,17 @@ def serialize_inplace_rbfe_system(
     sys_xml = os.path.join(out_dir, "inplace_rbfe_%s_sys.xml" % (tag,))
     pdb_path = os.path.join(out_dir, "inplace_rbfe_%s.pdb" % (tag,))
 
-    with open(sys_xml, "w") as fh:
-        fh.write(mm.XmlSerializer.serialize(system))
-
-    # Topology/position lockstep: the genuine swap adds a MASSLESS dummy NE1
-    # reference particle to the System + NonbondedForce + positions (the minimal
-    # in-place stand-in for the two-copy overlay's distinct partner-attach), but
-    # NOT to the topology (it has no chemical identity). So System particle count
-    # == len(positions) == topology atoms + 1. PDBFile.writeFile requires
-    # topology and positions to match, so we materialise a matching topology atom
-    # for each extra (massless) System particle, in a dedicated "X" chain (always
-    # contiguity-legal). This is serialization-only bookkeeping — it does NOT
-    # touch the validated build's System/energy (R-7); the dummy already exists in
-    # the System, we only give it a topology slot so the PDB round-trips.
-    import openmm.unit as unit
-    from openmm.app import PDBFile, element as _app_element
-    topology = modeller.topology
-    positions = modeller.positions   # a unit-wrapped position list (Quantity)
-    n_extra = system.getNumParticles() - topology.getNumAtoms()
-    if n_extra < 0:
-        raise RuntimeError(
-            "serialize_inplace_rbfe_system: topology (%d atoms) exceeds System "
-            "particles (%d) — unexpected build state."
-            % (topology.getNumAtoms(), system.getNumParticles()))
-    if n_extra > 0:
-        ref_chain = topology.addChain(id="X")
-        ref_res = topology.addResidue("REFX", ref_chain, id="900")
-        for _ in range(n_extra):
-            topology.addAtom("DUM", _app_element.hydrogen, ref_res)
-
-    # PDBFile.writeFile wants a unit-wrapped position sequence; strip + re-wrap in
-    # nm so the (possibly Python-list) positions become a clean Quantity vector.
-    pos_nm = [p.value_in_unit(unit.nanometer) for p in positions]
-    pos_q = pos_nm * unit.nanometer
-    with open(pdb_path, "w") as fh:
-        PDBFile.writeFile(topology, pos_q, fh, keepIds=True)
-
-    n_atoms = topology.getNumAtoms()
+    # Serialize the System + write the matching topology PDB (handles the
+    # single-core genuine swap's MASSLESS dummy NE1 reference particle via the
+    # shared lockstep helper — System particle count == topology atoms + 1, so
+    # one "X"-chain placeholder atom is materialised; serialization-only, the
+    # build's System/energy is untouched, R-7).
+    n_atoms = _write_system_and_pdb(system, modeller, sys_xml, pdb_path)
     return {
         "leg": leg,
         "tag": tag,
         "seed": seed,
+        "construction": "single_core",
         "sys_xml_path": sys_xml,
         "pdb_path": pdb_path,
         "atmforce_index": atm_index,
@@ -563,6 +915,82 @@ def load_serialized_system(sys_xml_path: str, pdb_path: str) -> Dict[str, Any]:
         "atmforce_index": atm_index,
         "n_atoms": pdb.topology.getNumAtoms(),
     }
+
+
+class _LoadedBuildAdapter(object):
+    """A minimal build-shaped view over a DESERIALIZED in-place box.
+
+    ``ats.compute_decouple_direction`` consumes a ``build`` dict that exposes
+    ``build["modeller"].topology`` / ``build["modeller"].positions`` and
+    ``build["system"]``. A reused box (from :func:`load_serialized_system`) gives
+    those three objects directly but is not a build dict, so this adapter wraps
+    them with the SAME attribute / key contract — no System rebuild, no
+    re-solvation. It is read-only and dict-like only for the keys
+    ``compute_decouple_direction`` reads (``system``).
+    """
+
+    def __init__(self, loaded: Dict[str, Any]) -> None:
+        self._system = loaded["system"]
+        self.modeller = _ModellerView(loaded["topology"], loaded["positions"])
+
+    def _resolve(self, key):
+        # The keys ``compute_decouple_direction`` reads off a build dict:
+        # ``build["modeller"]`` (subscript) and ``build.get("system")``.
+        if key == "system":
+            return self._system
+        if key == "modeller":
+            return self.modeller
+        raise KeyError(key)
+
+    def get(self, key, default=None):
+        try:
+            return self._resolve(key)
+        except KeyError:
+            return default
+
+    def __getitem__(self, key):
+        return self._resolve(key)
+
+
+class _ModellerView(object):
+    """A read-only ``modeller``-shaped view (topology + positions only)."""
+
+    def __init__(self, topology, positions) -> None:
+        self.topology = topology
+        self.positions = positions
+
+
+def recompute_decouple_direction_from_loaded(
+    loaded: Dict[str, Any],
+    binder_chain: str = "B",
+    resnum: int = ats.ALCH_RESNUM,
+    shell_nm: float = 1.0,
+    decouple_nm: float = 1.2,
+) -> Optional[Tuple[float, float, float]]:
+    """Re-derive the C8 genuine decouple direction from a REUSED (deserialized) box.
+
+    This is the box-reuse counterpart of the ``genuine_decouple_dir`` that
+    ``serialize_inplace_rbfe_system`` returns when it BUILDS a fresh box. When a
+    saved box is reused (``inplace_rbfe_<tag>_sys.xml`` + ``.pdb`` already on
+    disk), the System is not rebuilt, so the decouple direction must be recovered.
+
+    It is recomputed from the saved box's OWN geometry (``NE1 - centroid(local
+    heavy atoms)`` via :func:`ats.compute_decouple_direction`) rather than trusted
+    from a stale value — this RE-VALIDATES C8 against the actual box that will be
+    sampled. The saved ``.pdb`` carries the addSolvent-output coordinates of the
+    original build (the producing direction does not evolve the serialized box's
+    stored coordinates), so the recomputed vector is consistent with that box. The
+    massless dummy reference particle is excluded by the ``mass <= 1.5`` filter
+    inside ``compute_decouple_direction`` (same as the fresh-build path), so the
+    direction is computed over the real heavy-atom neighbourhood only.
+
+    Returns the unit outward vector for the bound box (a finite 3-tuple), or
+    ``None`` for the free box / when NE1 or its local shell cannot be resolved
+    (the caller's C8 gate accepts ``None`` only for the free leg).
+    """
+    return ats.compute_decouple_direction(
+        _LoadedBuildAdapter(loaded), binder_chain=binder_chain, resnum=resnum,
+        shell_nm=shell_nm, decouple_nm=decouple_nm)
 
 
 # ---------------------------------------------------------------------------

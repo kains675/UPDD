@@ -47,9 +47,11 @@ from .overlap import (
     PairOverlap,
     OverlapReport,
     extract_pertE_by_state,
+    extract_samples_by_state,
     bhattacharyya_coefficient,
     histogram_intersection_advisory,
     adjacent_overlaps,
+    build_softcore_neg_pot,
     mbar_overlap_matrix,
     estimate_overlap,
 )
@@ -78,9 +80,11 @@ __all__ = [
     "PairOverlap",
     "OverlapReport",
     "extract_pertE_by_state",
+    "extract_samples_by_state",
     "bhattacharyya_coefficient",
     "histogram_intersection_advisory",
     "adjacent_overlaps",
+    "build_softcore_neg_pot",
     "mbar_overlap_matrix",
     "estimate_overlap",
     # judge

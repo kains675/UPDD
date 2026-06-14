@@ -15,6 +15,7 @@ bridge are openmm-only and the qmmm env has no atom_openmm).
 """
 
 import importlib.util
+import json
 import math
 import os
 import sys
@@ -257,3 +258,153 @@ def test_max_concurrent_units_packs_to_vram(prod):
     assert prod._max_concurrent_units(30.0, 6.5) == 4
     # never below 1.
     assert prod._max_concurrent_units(1.0, 6.5) == 1
+
+
+# --------------------------- box reuse (--reuse-serialized) ----------------
+def test_reuse_serialized_flag_in_parser(prod):
+    p = prod.build_arg_parser()
+    a = p.parse_args(["--reuse-serialized", "--no-archive-existing",
+                      "--leg", "bound", "--directions", "dminus"])
+    assert a.reuse_serialized is True
+    assert a.no_archive_existing is True
+    # default off (legacy behaviour unchanged).
+    b = p.parse_args(["--leg", "bound"])
+    assert b.reuse_serialized is False
+
+
+def test_reuse_serialized_requires_no_archive_existing(prod):
+    # The safety gate: reuse WITHOUT --no-archive-existing exits 2 before any
+    # run (otherwise the existing box_A + producing-direction outputs would be
+    # archived/moved away by run_one_replicate's R-7 archive step).
+    rc = prod.main(["--reuse-serialized", "--leg", "bound",
+                    "--directions", "dminus", "--dry-run"])
+    assert rc == 2
+
+
+def test_reuse_serialized_with_no_archive_dry_run_ok(prod, tmp_path):
+    # With --no-archive-existing the gate passes; --dry-run runs nothing.
+    rc = prod.main(["--reuse-serialized", "--no-archive-existing",
+                    "--leg", "bound", "--endpoints", "cp4",
+                    "--directions", "dminus", "--dry-run",
+                    "--out-root", str(tmp_path)])
+    assert rc == 0
+
+
+# ---------------- loaded-box decouple recompute (box reuse C8) -------------
+def test_loaded_build_adapter_exposes_modeller_and_system(rbfe):
+    # The adapter must answer build["modeller"] (subscript) and build.get(
+    # "system") the way ats.compute_decouple_direction reads a build dict.
+    sentinel_sys = object()
+    sentinel_topo = object()
+    sentinel_pos = object()
+    ad = rbfe._LoadedBuildAdapter({
+        "system": sentinel_sys, "topology": sentinel_topo,
+        "positions": sentinel_pos})
+    assert ad["modeller"].topology is sentinel_topo
+    assert ad["modeller"].positions is sentinel_pos
+    assert ad.get("system") is sentinel_sys
+    assert ad["system"] is sentinel_sys
+    # an unrelated key is absent.
+    assert ad.get("missing") is None
+    with pytest.raises(KeyError):
+        _ = ad["missing"]
+
+
+def test_recompute_decouple_dir_none_when_ne1_absent(rbfe):
+    # If NE1 cannot be resolved (no chain B / no res 4), the recompute returns
+    # None (the caller's C8 gate accepts None ONLY for the free leg).
+    import openmm as mm
+    from openmm.app import Topology, element
+
+    topo = Topology()
+    chain = topo.addChain(id="A")            # not the binder chain "B"
+    res = topo.addResidue("ALA", chain, id="1")
+    topo.addAtom("CA", element.carbon, res)
+    system = mm.System()
+    system.addParticle(12.0)
+    import openmm.unit as unit
+    positions = [mm.Vec3(0.0, 0.0, 0.0)] * 1 * unit.nanometer
+    loaded = {"system": system, "topology": topo, "positions": positions}
+    assert rbfe.recompute_decouple_direction_from_loaded(
+        loaded, binder_chain="B") is None
+
+
+# ---------------- two-copy construction wiring (opt-in) --------------------
+def test_twocopy_flag_in_parser(prod):
+    p = prod.build_arg_parser()
+    a = p.parse_args(["--twocopy", "--displacement-nm", "4.0"])
+    assert a.twocopy is True
+    assert a.displacement_nm == 4.0
+    # default OFF (single_core legacy, byte-identical).
+    b = p.parse_args(["--leg", "free"])
+    assert b.twocopy is False
+    assert b.displacement_nm is None
+
+
+def test_single_direction_schedule_construction_dispatch(prod, rbfe):
+    # single_core -> the validated single-shared-core ladder (2*n states).
+    sc = prod._build_single_direction_schedule(
+        rbfe, construction="single_core", direction="forward",
+        n_windows_half=6, softcore_band=2, n_apex_bridge=0, apex_band=0.5)
+    assert sc.get("schedule_kind", "rbfe_ladder") != "ats_standard"
+    assert sc["n_states"] == 6
+    # twocopy -> the canonical ATS standard schedule (2*n - 1 states, Uh=110).
+    tc = prod._build_single_direction_schedule(
+        rbfe, construction="twocopy", direction="forward",
+        n_windows_half=6, softcore_band=2, n_apex_bridge=0, apex_band=0.5)
+    assert tc["schedule_kind"] == "ats_standard"
+    assert tc["n_states"] == 11
+    assert tc["u0"][0] == 110.0
+    assert set(tc["directions"]) == {1}
+
+
+def test_combined_schedule_twocopy_has_both_directions(prod, rbfe):
+    cs = prod._build_combined_schedule(
+        rbfe, construction="twocopy",
+        n_windows_half=6, softcore_band=2, n_apex_bridge=0, apex_band=0.5)
+    # 11 forward (+1) + 11 backward (-1) = 22 states; both blocks present so the
+    # merge can derive (total=22, fwd=11) from the DIRECTION column.
+    assert cs["n_states"] == 22
+    assert cs["directions"].count(1) == 11
+    assert cs["directions"].count(-1) == 11
+    assert cs["schedule_kind"] == "ats_standard"
+
+
+def test_combined_cntl_twocopy_merge_count_derivation(prod, rbfe, tmp_path):
+    # The combined cntl for the two-copy ATS schedule must let the merge derive
+    # (total, fwd) from its DIRECTION column (22/11).
+    cs = prod._build_combined_schedule(
+        rbfe, construction="twocopy",
+        n_windows_half=6, softcore_band=2, n_apex_bridge=0, apex_band=0.5)
+    cntl = str(tmp_path / "trackb_asyncre.cntl")
+    prod._write_combined_cntl(cntl, cs, "free", 250, 1.0)
+    driver = _load("trackb_per_direction_production",
+                   "scripts/trackb_per_direction_production.py")
+    total, fwd = driver._derive_state_counts_from_cntl(cntl)
+    assert total == 22
+    assert fwd == 11
+
+
+def test_twocopy_dry_run_surfaces_ats_schedule(prod, tmp_path, capsys):
+    rc = prod.main(["--twocopy", "--leg", "free", "--endpoints", "cp4",
+                    "--directions", "dplus", "--seeds", "s7", "--dry-run",
+                    "--out-root", str(tmp_path)])
+    assert rc == 0
+    out = capsys.readouterr().out
+    plan = json.loads(out[out.index("{"):])["plan"]
+    assert plan["construction"] == "twocopy"
+    assert plan["schedule_kind"] == "ats_standard"
+    assert plan["n_lambda_per_leg"] == 11
+    assert plan["u0_kcal"] == 110.0
+
+
+def test_default_dry_run_is_single_core(prod, tmp_path, capsys):
+    rc = prod.main(["--leg", "free", "--endpoints", "cp4",
+                    "--directions", "dplus", "--seeds", "s7", "--dry-run",
+                    "--out-root", str(tmp_path)])
+    assert rc == 0
+    out = capsys.readouterr().out
+    plan = json.loads(out[out.index("{"):])["plan"]
+    assert plan["construction"] == "single_core"
+    # the single-core plan does NOT carry the two-copy ATS extras.
+    assert "schedule_kind" not in plan

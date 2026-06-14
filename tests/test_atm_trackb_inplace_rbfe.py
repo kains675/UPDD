@@ -287,6 +287,149 @@ def test_single_direction_rejects_bad_value(rbfe):
 
 
 # ---------------------------------------------------------------------------
+# Canonical ATS standard schedule (two-copy box; spec C).
+# ---------------------------------------------------------------------------
+def test_ats_standard_spec_c_11_windows(rbfe):
+    """n_windows_half=6 reproduces the spec C exactly (11 λ states)."""
+    sch = rbfe.build_ats_standard_ladder(n_windows_half=6,
+                                         single_direction="forward")
+    assert sch["n_states"] == 11
+    assert sch["lambdas_1"] == [0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                0.1, 0.2, 0.3, 0.4, 0.5]
+    assert sch["lambdas_2"] == [0.0, 0.1, 0.2, 0.3, 0.4, 0.5,
+                                0.5, 0.5, 0.5, 0.5, 0.5]
+    # Single DIRECTION (no flip boundary), Uh=110 (ATS canon, NOT 30).
+    assert set(sch["directions"]) == {1}
+    assert sch["u0"][0] == rbfe.ATS_TWOCOPY_U0_DEFAULT == 110.0
+    assert sch["alpha"][0] == rbfe.RBFE_ALPHA_DEFAULT == 0.10
+    assert sch["schedule_kind"] == "ats_standard"
+
+
+def test_ats_standard_softcore_canon_not_retuned(rbfe):
+    sch = rbfe.build_ats_standard_ladder(n_windows_half=6)
+    assert sch["umax"] == rbfe.ats.ATS_UMAX_KCAL == 200.0
+    assert sch["ubcore"] == rbfe.ats.ATS_UBCORE_KCAL == 100.0
+    assert sch["acore"] == rbfe.ats.ATS_ACORE == 0.0625
+
+
+def test_ats_standard_backward_is_reverse(rbfe):
+    fwd = rbfe.build_ats_standard_ladder(n_windows_half=6,
+                                         single_direction="forward")
+    bwd = rbfe.build_ats_standard_ladder(n_windows_half=6,
+                                         single_direction="backward")
+    assert set(bwd["directions"]) == {-1}
+    assert bwd["lambdas_1"] == list(reversed(fwd["lambdas_1"]))
+    assert bwd["lambdas_2"] == list(reversed(fwd["lambdas_2"]))
+
+
+def test_ats_standard_window_count_is_parameter(rbfe):
+    # 2*n - 1 states (the two phases share the apex λ1=0/λ2=0.5 state).
+    for n in (3, 4, 6, 8):
+        sch = rbfe.build_ats_standard_ladder(n_windows_half=n)
+        assert sch["n_states"] == 2 * n - 1
+        # λ1 endpoints: starts 0, ends 0.5; λ2 starts 0, ends 0.5.
+        assert sch["lambdas_1"][0] == 0.0 and sch["lambdas_1"][-1] == 0.5
+        assert sch["lambdas_2"][0] == 0.0 and sch["lambdas_2"][-1] == 0.5
+
+
+def test_ats_standard_rejects_degenerate(rbfe):
+    with pytest.raises(ValueError):
+        rbfe.build_ats_standard_ladder(n_windows_half=1)
+    with pytest.raises(ValueError):
+        rbfe.build_ats_standard_ladder(n_windows_half=6, single_direction="both")
+
+
+# ---------------------------------------------------------------------------
+# Leg-switch bridge: explicit leg-down λ1 knots (lambda1_rampdown).
+# ---------------------------------------------------------------------------
+def test_ats_standard_lambda1_rampdown_none_is_byte_identical(rbfe):
+    """lambda1_rampdown=None reproduces the historical 11-state schedule exactly.
+
+    The default-None path MUST be byte-identical to the legacy uniform leg-down
+    (the existing callers — launcher / smoke / test — pass no lambda1_rampdown).
+    """
+    legacy = rbfe.build_ats_standard_ladder(n_windows_half=6,
+                                            single_direction="forward")
+    explicit = rbfe.build_ats_standard_ladder(n_windows_half=6,
+                                              single_direction="forward",
+                                              lambda1_rampdown=None)
+    for key in ("lambdas_1", "lambdas_2", "intermd", "directions",
+                "alpha", "u0", "w0", "n_states", "schedule_name"):
+        assert explicit[key] == legacy[key], "drift in %r" % (key,)
+    assert legacy["n_states"] == 11
+    assert legacy["lambda1_rampdown"] is None
+
+
+def test_ats_standard_lambda1_rampdown_bridge_12_states(rbfe):
+    """lambda1_rampdown=[0.05,...,0.5] inserts the leg-switch bridge => 12 states."""
+    sch = rbfe.build_ats_standard_ladder(
+        n_windows_half=6, single_direction="forward",
+        lambda1_rampdown=[0.05, 0.1, 0.2, 0.3, 0.4, 0.5])
+    assert sch["n_states"] == 12
+    assert sch["lambdas_1"] == [0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
+    assert sch["lambdas_2"] == [0.0, 0.1, 0.2, 0.3, 0.4, 0.5,
+                                0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
+    # Apex λ1=0/λ2=0.5 is idx 5; endpoints (idx0 decoupled, idx11 coupled apex)
+    # are the only intermd==0 states. The inserted bridge window is intermd==1.
+    assert sch["intermd"] == [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0]
+    assert sch["lambdas_1"][5] == 0.0 and sch["lambdas_2"][5] == 0.5  # apex
+    assert sch["lambdas_1"][0] == 0.0 and sch["lambdas_1"][-1] == 0.5
+    assert sch["lambdas_2"][0] == 0.0 and sch["lambdas_2"][-1] == 0.5
+    # Single DIRECTION, soft-core canon NOT re-tuned (C7), Uh=110 (ATS canon).
+    assert set(sch["directions"]) == {1}
+    assert sch["u0"][0] == rbfe.ATS_TWOCOPY_U0_DEFAULT == 110.0
+    assert sch["alpha"][0] == rbfe.RBFE_ALPHA_DEFAULT == 0.10
+    assert sch["umax"] == rbfe.ats.ATS_UMAX_KCAL == 200.0
+    assert sch["ubcore"] == rbfe.ats.ATS_UBCORE_KCAL == 100.0
+    assert sch["acore"] == rbfe.ats.ATS_ACORE == 0.0625
+    # λ1 strictly increasing across the leg-down (states 5..11), λ2 monotone.
+    legdown = sch["lambdas_1"][5:]
+    assert all(b > a for a, b in zip(legdown, legdown[1:]))
+    assert sch["lambda1_rampdown"] == [0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
+    assert "bridge" in sch["schedule_name"]
+
+
+def test_ats_standard_lambda1_rampdown_backward_is_reverse(rbfe):
+    """Backward bridge ladder is the whole-tuple reverse of the forward bridge."""
+    fwd = rbfe.build_ats_standard_ladder(
+        n_windows_half=6, single_direction="forward",
+        lambda1_rampdown=[0.05, 0.1, 0.2, 0.3, 0.4, 0.5])
+    bwd = rbfe.build_ats_standard_ladder(
+        n_windows_half=6, single_direction="backward",
+        lambda1_rampdown=[0.05, 0.1, 0.2, 0.3, 0.4, 0.5])
+    assert bwd["n_states"] == 12
+    assert set(bwd["directions"]) == {-1}
+    assert bwd["lambdas_1"] == list(reversed(fwd["lambdas_1"]))
+    assert bwd["lambdas_2"] == list(reversed(fwd["lambdas_2"]))
+    assert bwd["intermd"] == list(reversed(fwd["intermd"]))
+
+
+def test_ats_standard_lambda1_rampdown_rejects_invalid(rbfe):
+    """Out-of-range / non-monotone / wrong-endpoint knots fail loud."""
+    # value > 0.5
+    with pytest.raises(ValueError):
+        rbfe.build_ats_standard_ladder(
+            n_windows_half=6, lambda1_rampdown=[0.1, 0.6])
+    # value == 0 (apex is placed by leg-up; knots start above 0)
+    with pytest.raises(ValueError):
+        rbfe.build_ats_standard_ladder(
+            n_windows_half=6, lambda1_rampdown=[0.0, 0.5])
+    # not strictly increasing
+    with pytest.raises(ValueError):
+        rbfe.build_ats_standard_ladder(
+            n_windows_half=6, lambda1_rampdown=[0.2, 0.2, 0.5])
+    # does not end at 0.5
+    with pytest.raises(ValueError):
+        rbfe.build_ats_standard_ladder(
+            n_windows_half=6, lambda1_rampdown=[0.1, 0.2, 0.3])
+    # empty list
+    with pytest.raises(ValueError):
+        rbfe.build_ats_standard_ladder(
+            n_windows_half=6, lambda1_rampdown=[])
+
+
+# ---------------------------------------------------------------------------
 # ATM hybrid-potential recombination — pure math.
 # ---------------------------------------------------------------------------
 def test_state_energy_lambda0_is_base(rbfe):
@@ -495,3 +638,90 @@ def test_ladder_runs_cpu_reference(rbfe, tmp_path):
     tr = pdp.parse_state_transitions_from_log(logp, warmup_cycles=0)
     assert tr["n_samples"] > 0
     assert tr["n_cycles_total"] == 3
+
+
+# ---------------------------------------------------------------------------
+# Two-copy serialize wiring — construction param (pure validation + real build).
+# ---------------------------------------------------------------------------
+def test_serialize_construction_default_is_single_core(rbfe):
+    import inspect
+    sig = inspect.signature(rbfe.serialize_inplace_rbfe_system)
+    assert "construction" in sig.parameters
+    assert sig.parameters["construction"].default == "single_core"
+    assert "displacement_nm" in sig.parameters
+
+
+def test_serialize_rejects_bad_construction(rbfe):
+    with pytest.raises(ValueError):
+        rbfe.serialize_inplace_rbfe_system(construction="overlay")
+
+
+@pytest.mark.skipif(not _endpoints_present(),
+                    reason="2QKI endpoint final.pdb not present")
+def test_serialize_twocopy_roundtrip_unsolvated(rbfe, tmp_path):
+    """Serialize the unsolvated two-copy box + deserialize it: the ATMForce
+    survives, particle/topology lockstep holds, the box is ~2x a single
+    endpoint, and the C8 decouple direction is the (unit) displacement vector."""
+    res = rbfe.serialize_inplace_rbfe_system(
+        leg="free", out_dir=str(tmp_path), seed="s7", solvate=False,
+        harmonize_common_charges=True, construction="twocopy", constraints=None)
+    assert res["construction"] == "twocopy"
+    assert os.path.isfile(res["sys_xml_path"])
+    assert os.path.isfile(res["pdb_path"])
+    loaded = rbfe.load_serialized_system(res["sys_xml_path"], res["pdb_path"])
+    ns = loaded["system"].getNumParticles()
+    nt = loaded["topology"].getNumAtoms()
+    npos = len(loaded["positions"])
+    assert ns == nt == npos
+    assert loaded["atmforce_index"] is not None
+    # Two copies resident -> n_atoms ~ 2x a single endpoint (~210 -> ~417).
+    assert res["n_atoms"] > 380
+    assert res["n_copy1"] is not None and res["n_copy1"] < res["n_atoms"]
+    # The C8 decouple direction is a finite UNIT vector (the displacement unit).
+    dd = res["genuine_decouple_dir"]
+    assert dd is not None
+    mag = sum(c * c for c in dd) ** 0.5
+    assert abs(mag - 1.0) < 1e-6
+
+
+@pytest.mark.skipif(not _endpoints_present(),
+                    reason="2QKI endpoint final.pdb not present")
+def test_twocopy_ats_ladder_runs_cpu_reference(rbfe, tmp_path):
+    """The two-copy box runs through the canonical ATS standard ladder on the
+    Reference platform: loads, runs a few cycles, writes per-walker .out rows,
+    and the running-box |usc| is NOT pinned at the single-shared-core saturated
+    plateau (the collapse-signature escape re-checked under integration)."""
+    res = rbfe.serialize_inplace_rbfe_system(
+        leg="free", out_dir=str(tmp_path), seed="s7", solvate=False,
+        harmonize_common_charges=True, construction="twocopy", constraints=None)
+    loaded = rbfe.load_serialized_system(res["sys_xml_path"], res["pdb_path"])
+    sch = rbfe.build_ats_standard_ladder(n_windows_half=3,
+                                         single_direction="forward")
+    logp = str(tmp_path / "twocopy_driver.log")
+    ladder = rbfe.InplaceRbfeLadder(
+        loaded["system"], loaded["positions"], sch,
+        platform_name="Reference", timestep_fs=1.0, log_path=logp, seed=21,
+        minimize_iters=100, backward_equil_steps=0,
+        out_dir=str(tmp_path), out_basename="trackb_dplus")
+    nan_any = False
+    for _ in range(3):
+        info = ladder.run_cycle(md_steps=5)
+        nan_any = nan_any or info["nan_seen"]
+    ladder.close()
+    assert not nan_any
+    # Per-walker .out rows were written (UWHAM-consumable layout).
+    rows = 0
+    pmax = 0.0
+    for r in range(sch["n_states"]):
+        path = os.path.join(str(tmp_path), "r%d" % (r,), "trackb_dplus.out")
+        if not os.path.isfile(path):
+            continue
+        for line in open(path):
+            cols = line.split()
+            if len(cols) >= 10:
+                rows += 1
+                pmax = max(pmax, abs(float(cols[9])))
+    assert rows > 0
+    # Not pinned at the single-shared-core saturated plateau (~150) / clash.
+    assert not (140.0 <= pmax <= 201.0)
+    assert pmax < 1.0e3

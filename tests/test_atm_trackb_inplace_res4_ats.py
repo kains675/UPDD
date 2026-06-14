@@ -1015,3 +1015,225 @@ def test_smoke_tier2_bound_short_run(ats):
     if res["outcome"] == "tier2_pass":
         assert res["primary"]["survived"] is True
         assert res["primary"]["n_steps_completed"] == 40
+
+
+# ===========================================================================
+# CANONICAL ATS TWO-COPY rebuild tests
+# (canonical two-copy ATS construction; C1-C10 design criteria).
+#
+# These validate the NEW two-copy path is canonical (copy-2 d-displaced into bulk,
+# common-coord swap, DISTINCT attach atoms, ZERO inter-copy exclusions) and that
+# the LEGACY single-shared-core path is preserved byte-for-byte (R-7/C9).
+# ===========================================================================
+def test_twocopy_functions_present(ats):
+    """C9: the new two-copy path exists AND the legacy single-shared-core path is
+    preserved (R-7 — densify_pilot and other callers still use the old path)."""
+    for fn in ("build_inplace_res4_twocopy_system",
+               "attach_twocopy_swap_atmforce",
+               "_build_twocopy_index_map",
+               "assert_twocopy_common_param_continuity",
+               "assert_twocopy_separation",
+               "assert_twocopy_methyl_bonded",
+               "assert_twocopy_disulfides",
+               "assert_twocopy_seed",
+               "compute_twocopy_displacement_vector",
+               "check_twocopy_endpoint_equivalence",
+               "_register_copy2_common_to_copy1"):
+        assert hasattr(ats, fn), "two-copy fn missing: %s" % fn
+    # LEGACY path preserved (R-7/C9).
+    assert hasattr(ats, "build_inplace_res4_fused_system")
+    assert hasattr(ats, "attach_inplace_swap_atmforce")
+
+
+def test_twocopy_displacement_constant(ats):
+    """C2: the ATS peptide displacement convention (40 A = 4.0 nm)."""
+    assert ats.ATS_TWOCOPY_DISPLACEMENT_NM == 4.0
+
+
+def test_twocopy_shares_softcore_canon(ats):
+    """C7: the two-copy path reuses the SAME soft-core canon (NOT re-tuned)."""
+    # attach_twocopy_swap_atmforce defaults must be the module canon.
+    import inspect
+    sig = inspect.signature(ats.attach_twocopy_swap_atmforce)
+    assert sig.parameters["umax_kcal"].default == ats.ATS_UMAX_KCAL
+    assert sig.parameters["ubcore_kcal"].default == ats.ATS_UBCORE_KCAL
+    assert sig.parameters["acore"].default == ats.ATS_ACORE
+
+
+def test_twocopy_displace_positions_translates(ats):
+    """_displace_copy_positions translates by the d-vector exactly."""
+    import openmm as mm
+    import openmm.unit as unit
+    pos = [mm.Vec3(0.0, 0.0, 0.0) * unit.nanometer,
+           mm.Vec3(1.0, 2.0, 3.0) * unit.nanometer]
+    out = ats._displace_copy_positions(pos, (4.0, 0.0, 0.0))
+    a = out[0].value_in_unit(unit.nanometer)
+    b = out[1].value_in_unit(unit.nanometer)
+    assert abs(a[0] - 4.0) < 1e-9 and abs(a[1]) < 1e-9
+    assert abs(b[0] - 5.0) < 1e-9 and abs(b[1] - 2.0) < 1e-9
+
+
+# --- Real two-copy build (need endpoint final.pdb + openmm). Module-scoped. ---
+@pytest.fixture(scope="module")
+def real_twocopy_unsolv(ats):
+    """The canonical two-copy box, UNSOLVATED (cheap CPU), with the on-disk
+    harmonized RBFE XML (production charges; MC1 passes file-level)."""
+    if not _endpoints_present():
+        pytest.skip("2QKI endpoint final.pdb not present (s7)")
+    return ats.build_inplace_res4_twocopy_system(
+        leg="free", seed="s7", solvate=False,
+        harmonize_common_charges=False)
+
+
+def test_twocopy_outcome_attached(real_twocopy_unsolv):
+    """The two-copy build attaches (or honestly surfaces the MC1 finding)."""
+    assert real_twocopy_unsolv["outcome"] in (
+        "twocopy_attached", "mc1_charge_discontinuity")
+
+
+def test_twocopy_both_copies_resident(real_twocopy_unsolv):
+    """C2: both endpoint copies are resident (n_atoms ~ 2x single endpoint)."""
+    if real_twocopy_unsolv["outcome"] != "twocopy_attached":
+        pytest.skip("MC1 outcome — no attached box to inspect")
+    fused = real_twocopy_unsolv["fused_build"]
+    # copy-1 = 210 (MTR), copy-2 = 207 (WT) -> 417 unsolvated.
+    assert fused["n_copy1"] == 210
+    assert fused["n_atoms"] > 400
+    assert fused["n_atoms"] == fused["system"].getNumParticles()
+
+
+def test_twocopy_distinct_attach(real_twocopy_unsolv):
+    """C2: the two copies have DISTINCT NE1 attach atoms (NOT a shared core)."""
+    if real_twocopy_unsolv["outcome"] != "twocopy_attached":
+        pytest.skip("MC1 outcome")
+    cmap = real_twocopy_unsolv["common_map"]
+    assert cmap["copy1_attach"] != cmap["copy2_attach"]
+    assert real_twocopy_unsolv["swap"]["distinct_attach"] is True
+
+
+def test_twocopy_zero_inter_copy_exclusions(real_twocopy_unsolv):
+    """C3 (LOAD-BEARING): ZERO inter-copy exclusions — clash avoided by the
+    d-separation, NOT the forbidden overlay+exclusion design."""
+    if real_twocopy_unsolv["outcome"] != "twocopy_attached":
+        pytest.skip("MC1 outcome")
+    assert real_twocopy_unsolv["swap"]["inter_copy_exclusions_added"] == 0
+
+
+def test_twocopy_spatial_separation(real_twocopy_unsolv, ats):
+    """C2/C6: the two copies are spatially separated (NE1<->NE1 ~ d, NOT
+    overlaid). With conformer registration the separation is exactly d."""
+    if real_twocopy_unsolv["outcome"] != "twocopy_attached":
+        pytest.skip("MC1 outcome")
+    sep = real_twocopy_unsolv["separation"]["ne1_ne1_sep_nm"]
+    # Registered commons => offset is pure d (~4.0 nm). Always >> the PME cutoff.
+    assert sep >= 1.0
+    assert abs(sep - ats.ATS_TWOCOPY_DISPLACEMENT_NM) < 0.5
+
+
+def test_twocopy_common_count_parity(real_twocopy_unsolv):
+    """C4: the two copies' common-atom count parity (206 == 206)."""
+    if real_twocopy_unsolv["outcome"] != "twocopy_attached":
+        pytest.skip("MC1 outcome")
+    cmap = real_twocopy_unsolv["common_map"]
+    assert cmap["n_common"] == 206
+    assert len(cmap["copy1_common"]) == len(cmap["copy2_common"]) == 206
+    assert len(cmap["copy1_var"]) == 4   # MTR {CM, HM1-3}
+    assert len(cmap["copy2_var"]) == 1   # WT {HE1}
+
+
+def test_twocopy_two_disulfides(real_twocopy_unsolv):
+    """MC3: cyclic_ss preserved in BOTH copies (two disulfides)."""
+    if real_twocopy_unsolv["outcome"] != "twocopy_attached":
+        pytest.skip("MC1 outcome")
+    assert real_twocopy_unsolv["mc3_disulfide"]["n_disulfides"] == 2
+
+
+def test_twocopy_mc1_continuity(real_twocopy_unsolv):
+    """MC1: with the harmonized RBFE XML the common core is continuous."""
+    if real_twocopy_unsolv["outcome"] != "twocopy_attached":
+        # Honest MC1 finding: the on-disk XML diverges (a real result).
+        mc1 = real_twocopy_unsolv["mc1_param_continuity"]
+        assert mc1["passed"] is False
+        return
+    assert real_twocopy_unsolv["mc1_param_continuity"]["passed"] is True
+    assert real_twocopy_unsolv["mc1_param_continuity"]["max_dq_e"] <= 1e-4
+
+
+def test_twocopy_endpoint_equivalence_and_nonsaturation(ats):
+    """C6e/C8: u0 reproduces the full System potential (endpoint-equivalence) +
+    the bulk copy is decoupled + |u1-u0| is NOT the single-shared-core saturated
+    ~150 plateau (the collapse-signature escape)."""
+    if not _endpoints_present():
+        pytest.skip("2QKI endpoint final.pdb not present (s7)")
+    build = ats.build_inplace_res4_twocopy_system(
+        leg="free", seed="s7", solvate=False, harmonize_common_charges=True)
+    if build["outcome"] != "twocopy_attached":
+        pytest.skip("MC1 outcome")
+    eq = ats.check_twocopy_endpoint_equivalence(
+        build, platform_name="Reference")
+    assert eq["endpoint_equivalence"]["passed"] is True
+    assert eq["bulk_copy_decoupled"]["passed"] is True
+    assert eq["perturbation_regime"]["finite"] is True
+    # The collapse signature was a |u1-u0| saturated near ~150 (Umax band); the
+    # two-copy reference-frame perturbation must NOT be in that plateau.
+    assert eq["perturbation_regime"]["saturated_plateau_flag"] is False
+    assert eq["overall_pass"] is True
+
+
+def test_twocopy_no_inter_copy_exclusions_in_source(ats):
+    """C3 source-level invariant: the attach function reports ZERO inter-copy
+    exclusions by construction (the wiring adds none — mirrors the upstream
+    add_common_var_atoms_to_atmforce which adds none)."""
+    import inspect
+    src = inspect.getsource(ats.attach_twocopy_swap_atmforce)
+    # No addException call in the swap-wiring function.
+    assert "addException" not in src
+    assert '"inter_copy_exclusions_added": 0' in src
+
+
+def test_legacy_single_core_path_unchanged(real_fused_harmonized):
+    """R-7/C9: the LEGACY single-shared-core path still produces its fused box
+    (the new two-copy path did not break it). densify_pilot depends on this."""
+    assert real_fused_harmonized["outcome"] == "fused_attached"
+    assert real_fused_harmonized["swap_mode"] == "genuine"
+    assert real_fused_harmonized["swap"]["swap_mode"] == "genuine"
+
+
+# --- Two-copy smoke-script plumbing ---
+def _load_twocopy_smoke():
+    spec = importlib.util.spec_from_file_location(
+        "trackb_inplace_res4_twocopy_smoke",
+        os.path.join(_PROJ, "scripts", "trackb_inplace_res4_twocopy_smoke.py"))
+    if spec is None or spec.loader is None:
+        pytest.skip("could not locate scripts/trackb_inplace_res4_twocopy_smoke.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_twocopy_smoke_module_imports():
+    if not _have_openmm():
+        pytest.skip("openmm not importable")
+    smoke = _load_twocopy_smoke()
+    assert hasattr(smoke, "run_tier1_twocopy_smoke")
+    assert hasattr(smoke, "main")
+
+
+def test_twocopy_smoke_tier1_free_unsolvated(ats):
+    """The two-copy Tier-1 smoke runs end-to-end (Reference, unsolvated) and
+    reports a structured outcome (pass / endpoint-mismatch / MC1)."""
+    if not _endpoints_present():
+        pytest.skip("2QKI endpoint final.pdb not present (s7)")
+    smoke = _load_twocopy_smoke()
+    res = smoke.run_tier1_twocopy_smoke(
+        seed="s7", solvate=False, harmonize_common_charges=True,
+        lam=0.5, platform_name="Reference", leg="free")
+    assert res["swap_mode"] == "twocopy"
+    assert res["outcome"] in (
+        "tier1_twocopy_pass", "tier1_twocopy_endpoint_mismatch",
+        "mc1_charge_discontinuity")
+    if res["outcome"] == "tier1_twocopy_pass":
+        assert res["swap"]["inter_copy_exclusions_added"] == 0
+        assert res["swap"]["distinct_attach"] is True
+        assert abs(res["energies_kcal"]["u1_minus_u0"]) <= 1.0e3
+        assert res["endpoint_equivalence"]["overall_pass"] is True

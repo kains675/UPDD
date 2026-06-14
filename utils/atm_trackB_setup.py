@@ -2132,6 +2132,1199 @@ def build_inplace_res4_fused_system(
     }
 
 
+# ===========================================================================
+# CANONICAL ATS TWO-COPY (Gallicchio 2025 JCIM, DOI 10.1021/acs.jcim.5c00207;
+# preprint arXiv:2412.19971).
+# Cp4-WT residue-4 RBFE; C1-C10 design criteria.
+#
+# This is a SEPARATE, ADDITIVE code path from the single-shared-core
+# build_inplace_res4_fused_system / attach_inplace_swap_atmforce above, which are
+# left BYTE-IDENTICAL (R-7 / C9 — densify_pilot and other callers still use the
+# old path). The single-shared-core box held ONE physical common copy + an
+# HE1-into-MTR injection + var-var exclusions; that re-packaged a single-topology
+# fused box and collapsed (pertE saturated ~150, overlap ~0, dgbind1 = 0.5*pertE
+# deterministic offset).
+#
+# CANONICAL ATS (the LOAD-BEARING correction in the 06-14 verdict, Q1/Q3):
+#   - BOTH endpoint copies are resident in ONE box. copy-1 (MTR) sits at the
+#     receptor-binding / free-peptide site; copy-2 (WT) is DISPLACED by a vector
+#     d (~40 Å, ATS peptide convention) into BULK SOLVENT. The two copies are
+#     therefore spatially separated — common-common clash is avoided by the
+#     d-separation, NOT by nonbonded exclusions (NO inter-copy exclusion is added,
+#     mirroring upstream add_common_var_atoms_to_atmforce which adds none; C3).
+#   - The common-region COORDINATES are SWAPPED as an ATMForce transform
+#     (setParticleTransformation + ParticleOffsetDisplacement(other_common_i,
+#     this_common_i)) so λ=0 is one physical system (copy-1 at site, copy-2 in
+#     bulk) and λ=1 is the reverse (copy-2 at site, copy-1 in bulk). Each copy's
+#     VARIABLE atoms map to the PARTNER copy's attach atom (distinct NE1 atoms —
+#     NOT a single shared NE1), so the var perturbation is a genuine transfer, not
+#     a null op.
+#   - There is NO "single MTR base + HE1 inject" here; that paradigm is RETIRED in
+#     this path. Each copy is a complete, independently-built endpoint topology.
+#
+# Reuse map (C1, anti-fragmentation; ALL VERBATIM):
+#   - build_leg_system()                 : each endpoint copy, UNSOLVATED.
+#   - identify_alchemical_atoms()        : the residue-4 partition per copy.
+#   - upstream add_common_var_atoms_to_atmforce (ommsystem.py:745-789) idiom :
+#       the common-swap + var-swap loop reproduced verbatim (C1), with DISTINCT
+#       attach atoms (copy-1 NE1 != copy-2 NE1).
+#   - upstream set_atmforce() expression strings + 10 globals (ommsystem.py:817-834)
+#       reused via the _ATS_* module constants (shared with the legacy path).
+#   - upstream add_forces_to_atmforce() var_regions migration (ommsystem.py:209-223)
+#       reused via _ATS_MOVE_FORCE_TYPES (shared with the legacy path).
+#
+# Ranking-only (R-11); PREDICTION test (R-18). two-copy correctness is NOT yet
+# proven — endpoint-equivalence + frac<UBCORE>0 + O>=0.1 + dgbind1!=0.5 + UWHAM
+# convergence (the pilot, post-validation) must hold SIMULTANEOUSLY. Until then this
+# is NOT a converged ΔΔG_bind and NEVER a Magotti / absolute comparison.
+# ===========================================================================
+
+# ATS peptide displacement convention (Gallicchio 2025 §Methods: TYK2 45 Å,
+# peptides 40 Å). copy-2 is moved this far into bulk so the two copies never
+# overlap (PME cutoff 1.0 nm << d) — C2/C3 spatial separation, not exclusion.
+ATS_TWOCOPY_DISPLACEMENT_NM = 4.0   # 40 Å
+
+
+def _displace_copy_positions(
+    positions: List[Any], dvec_nm: Tuple[float, float, float]
+) -> List[Any]:
+    """Return a NEW position list translated by ``dvec_nm`` (a unit-wrapped list).
+
+    Used to move copy-2 (the bulk copy) by the displacement vector d before the
+    two copies are merged. Operates on a list of OpenMM ``Quantity`` Vec3
+    positions; returns nm-wrapped Vec3s.
+    """
+    dx, dy, dz = (float(c) for c in dvec_nm)
+    out = []
+    for p in positions:
+        v = p.value_in_unit(unit.nanometer)
+        out.append(mm.Vec3(v[0] + dx, v[1] + dy, v[2] + dz) * unit.nanometer)
+    return out
+
+
+def compute_twocopy_displacement_vector(
+    copy1_build: Dict[str, Any], copy2_build: Dict[str, Any],
+    binder_chain: str = "B", magnitude_nm: float = ATS_TWOCOPY_DISPLACEMENT_NM,
+) -> Tuple[float, float, float]:
+    """C3: the d-vector that moves copy-2 (bulk copy) clear of BOTH the receptor
+    and the binder fold of copy-1.
+
+    Reuses the local-outward logic of ``compute_decouple_direction`` (NE1 minus
+    the centroid of the local heavy-atom shell around copy-1's residue-4 NE1) —
+    the same leg-agnostic direction that clears the receptor AND the peptide's own
+    fold for the BOUND pose, and points into bulk for the FREE peptide. Scaled to
+    ``magnitude_nm``. Falls back to +X if the local outward direction is
+    degenerate (the magnitude alone still separates the copies; the precise
+    direction only matters so the bulk copy lands in solvent, which the box
+    padding guarantees after a uniform displacement).
+
+    NOT the single-HE1 decouple of the legacy path — here the WHOLE copy-2 is
+    translated by d, so the relevant geometry is copy-1's residue-4 outward
+    direction (where copy-2 must NOT collide as it is swapped to the site at
+    λ=1).
+    """
+    unit_dir = compute_decouple_direction(copy1_build, binder_chain=binder_chain)
+    if unit_dir is None:
+        unit_dir = (1.0, 0.0, 0.0)
+    norm = float(np.linalg.norm(np.array(unit_dir, dtype=float)))
+    if norm < 1e-9:
+        unit_dir = (1.0, 0.0, 0.0)
+        norm = 1.0
+    scale = float(magnitude_nm) / norm
+    return (unit_dir[0] * scale, unit_dir[1] * scale, unit_dir[2] * scale)
+
+
+def _build_twocopy_index_map(
+    copy1_build: Dict[str, Any], copy2_build: Dict[str, Any],
+    n_copy1: int, binder_chain: str = "B",
+) -> Dict[str, Any]:
+    """Pair the residue-shared (common) atoms between the two RESIDENT copies.
+
+    Unlike ``_build_common_index_map`` (single-shared-core: WT atoms were NOT
+    resident in the fused box), here BOTH copies are physically resident in the
+    merged box. copy-1 occupies indices [0, n_copy1); copy-2 occupies
+    [n_copy1, n_copy1 + n_copy2). The common/var/attach atom indices for copy-2
+    are its per-copy indices PLUS ``n_copy1`` (the merge offset).
+
+    Returns index-aligned common lists (in MERGED indices) + each copy's var and
+    attach atoms, and runs the C4 hard gate: equal common-atom COUNT and
+    byte-identical NAME ORDER (the swap is positional). Distinct attach atoms
+    (copy1_attach != copy2_attach) is the structural difference from the legacy
+    single-shared-core map.
+    """
+    c1_top = copy1_build["modeller"].topology
+    c2_top = copy2_build["modeller"].topology
+
+    c1_var = set(copy1_build["alchemical_atoms"]["mtr_only"])   # copy-1 = MTR
+    c2_var = set(copy2_build["alchemical_atoms"]["wt_only"])    # copy-2 = WT
+
+    c1_atoms = list(c1_top.atoms())
+    c2_atoms = list(c2_top.atoms())
+
+    def _is_binder_protein(atom) -> bool:
+        return (atom.residue.chain.id == binder_chain
+                and atom.residue.name not in _SOLVENT_RESNAMES)
+
+    # copy-1 common: per-copy indices (the merge keeps copy-1 at [0, n_copy1)).
+    c1_common = [a.index for a in c1_atoms
+                 if a.index not in c1_var and _is_binder_protein(a)]
+    # copy-2 common: per-copy indices SHIFTED by the merge offset.
+    c2_common = [a.index + n_copy1 for a in c2_atoms
+                 if a.index not in c2_var and _is_binder_protein(a)]
+
+    # C4 hard gate 1: common-atom COUNT parity (upstream _exit L763-765).
+    if len(c1_common) != len(c2_common):
+        raise ValueError(
+            "C4 two-copy common-atom COUNT parity FAIL: copy-1 has %d common "
+            "atoms, copy-2 has %d. The two-copy swap is positional and requires "
+            "equal common-atom counts (upstream ommsystem.py:763-765 _exit)."
+            % (len(c1_common), len(c2_common))
+        )
+
+    # C4 hard gate 2: index-order alignment by atom NAME (positional swap). Names
+    # are read per-copy (copy-2 names from its own topology, indices un-shifted).
+    c1_name = {a.index: a.name for a in c1_atoms}
+    c2_name = {a.index: a.name for a in c2_atoms}
+    mismatches: List[str] = []
+    for w_i, m_shifted in zip(c1_common, c2_common):
+        m_i = m_shifted - n_copy1
+        if c1_name[w_i] != c2_name[m_i]:
+            mismatches.append(
+                "pos copy1[%d]=%s vs copy2[%d]=%s"
+                % (w_i, c1_name[w_i], m_i, c2_name[m_i])
+            )
+    if mismatches:
+        raise ValueError(
+            "C4 two-copy common-atom ORDER alignment FAIL (%d mismatches): the "
+            "two copies' common-atom lists must be in the same physical order for "
+            "the positional swap. First mismatches: %s"
+            % (len(mismatches), "; ".join(mismatches[:8]))
+        )
+
+    return {
+        "copy1_common": c1_common,                               # MERGED indices
+        "copy2_common": c2_common,                               # MERGED indices
+        "copy1_var": sorted(i for i in c1_var),                  # MTR {CM,HM1-3}
+        "copy2_var": sorted(i + n_copy1 for i in c2_var),        # WT {HE1}
+        "copy1_attach":
+            copy1_build["alchemical_atoms"]["common"][0],        # MTR NE1
+        "copy2_attach":
+            copy2_build["alchemical_atoms"]["common"][0] + n_copy1,  # WT NE1
+        "n_common": len(c1_common),
+        "n_copy1": n_copy1,
+    }
+
+
+def assert_twocopy_common_param_continuity(
+    system: mm.System, cmap: Dict[str, Any],
+    q_tol_e: float = 1e-4, sigma_tol_nm: float = 1e-4, eps_tol_kj: float = 1e-4,
+) -> Dict[str, Any]:
+    """MC1 (C5, HIGHEST RISK): common-atom (q, sigma, epsilon) continuity between
+    the two RESIDENT copies, read from the MERGED System's NonbondedForce.
+
+    The two-copy box EXPOSES the common-charge gap the single-shared-core box hid
+    (it held one physical common copy). For the relative cycle to be exact each
+    common atom's nonbonded params must be byte-identical between copy-1 (MTR) and
+    copy-2 (WT). If they diverge the "common" core is not common and the swap
+    injects spurious ΔE that is finite-but-wrong (a false-green). Production
+    requires the harmonized RBFE XML (Σ|Δq| = 0, NMTR = amber14SB-Trp).
+
+    Raises on any exceedance; returns the worst per-channel deviation otherwise.
+    """
+    nb = next(f for f in system.getForces()
+              if isinstance(f, mm.NonbondedForce))
+    max_dq = max_dsig = max_deps = 0.0
+    worst: List[str] = []
+    for c1_i, c2_i in zip(cmap["copy1_common"], cmap["copy2_common"]):
+        q1, s1, e1 = nb.getParticleParameters(c1_i)
+        q2, s2, e2 = nb.getParticleParameters(c2_i)
+        dq = abs(q1.value_in_unit(unit.elementary_charge)
+                 - q2.value_in_unit(unit.elementary_charge))
+        dsig = abs(s1.value_in_unit(unit.nanometer)
+                   - s2.value_in_unit(unit.nanometer))
+        deps = abs(e1.value_in_unit(unit.kilojoule_per_mole)
+                   - e2.value_in_unit(unit.kilojoule_per_mole))
+        max_dq = max(max_dq, dq)
+        max_dsig = max(max_dsig, dsig)
+        max_deps = max(max_deps, deps)
+        if dq > q_tol_e or dsig > sigma_tol_nm or deps > eps_tol_kj:
+            worst.append("idx %d<->%d: dq=%.3e dsig=%.3e deps=%.3e"
+                         % (c1_i, c2_i, dq, dsig, deps))
+    result = {
+        "max_dq_e": max_dq, "max_dsigma_nm": max_dsig, "max_deps_kj": max_deps,
+        "n_common_checked": cmap["n_common"], "passed": not worst,
+    }
+    if worst:
+        raise ValueError(
+            "MC1 two-copy common-atom continuity FAIL (%d atoms exceed tol "
+            "q=%.1e sigma=%.1e eps=%.1e): the dual-topology common core is not "
+            "electrostatically/LJ continuous between the two resident copies. "
+            "Offenders: %s"
+            % (len(worst), q_tol_e, sigma_tol_nm, eps_tol_kj, "; ".join(worst[:8]))
+        )
+    return result
+
+
+def _summarize_twocopy_charge_divergence(
+    system: mm.System, cmap: Dict[str, Any], copy1_build: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Structured per-atom report of the copy1<->copy2 common-charge divergence.
+
+    Two-copy analog of ``_summarize_common_charge_divergence``: when MC1 fails
+    non-strictly, surface WHICH common atoms diverge and by how much (residue-4
+    vs elsewhere, net displaced charge) so the pre-registered outcome (ii) is
+    actionable instead of an opaque crash.
+    """
+    nb = next(f for f in system.getForces()
+              if isinstance(f, mm.NonbondedForce))
+    c1_res = {a.index: a.residue.id
+              for a in copy1_build["modeller"].topology.atoms()}
+    c1_name = {a.index: a.name
+               for a in copy1_build["modeller"].topology.atoms()}
+    per_res4: List[Dict[str, Any]] = []
+    sum_dq_res4 = sum_dq_all = 0.0
+    n_diverging = 0
+    for c1_i, c2_i in zip(cmap["copy1_common"], cmap["copy2_common"]):
+        q1 = nb.getParticleParameters(c1_i)[0].value_in_unit(unit.elementary_charge)
+        q2 = nb.getParticleParameters(c2_i)[0].value_in_unit(unit.elementary_charge)
+        dq = q1 - q2
+        sum_dq_all += dq
+        if abs(dq) > 1e-4:
+            n_diverging += 1
+        if str(c1_res.get(c1_i)) == str(ALCH_RESNUM):
+            sum_dq_res4 += dq
+            per_res4.append({"name": c1_name.get(c1_i), "q_copy1": round(q1, 4),
+                             "q_copy2": round(q2, 4), "dq": round(dq, 4)})
+    return {
+        "passed": False,
+        "n_common_checked": cmap["n_common"],
+        "n_diverging": n_diverging,
+        "sum_dq_res4_e": round(sum_dq_res4, 5),
+        "sum_dq_all_common_e": round(sum_dq_all, 6),
+        "residue4_common": per_res4,
+    }
+
+
+def assert_twocopy_separation(
+    fused_build: Dict[str, Any], cmap: Dict[str, Any], min_sep_nm: float = 1.0,
+) -> Dict[str, Any]:
+    """C6: the two copies are spatially SEPARATED (no overlay) BEFORE attach.
+
+    Asserts the minimum distance between copy-1's residue-4 NE1 and copy-2's
+    residue-4 NE1 is >= ``min_sep_nm`` (the PME cutoff floor; the real
+    displacement is ~40 Å). This is the structural proof that clash is avoided by
+    d-separation, NOT by exclusion. A small separation means the copies overlap
+    and the build collapsed back toward the (forbidden) overlay design.
+    """
+    positions = np.array([
+        v.value_in_unit(unit.nanometer)
+        for v in fused_build["modeller"].positions])
+    ne1_c1 = cmap["copy1_attach"]
+    ne1_c2 = cmap["copy2_attach"]
+    sep = float(np.linalg.norm(positions[ne1_c1] - positions[ne1_c2]))
+    if sep < min_sep_nm:
+        raise ValueError(
+            "C6 two-copy separation FAIL: copy-1 NE1 and copy-2 NE1 are %.3f nm "
+            "apart (< %.3f nm). The two copies must be d-displaced into bulk "
+            "(overlay is the FORBIDDEN single-shared-core design — clash must be "
+            "avoided by separation, not exclusion)." % (sep, min_sep_nm))
+    return {"ne1_ne1_sep_nm": sep, "min_sep_nm": min_sep_nm, "passed": True}
+
+
+def attach_twocopy_swap_atmforce(
+    fused_build: Dict[str, Any],
+    cmap: Dict[str, Any],
+    lambda1: float = 0.0,
+    lambda2: float = 0.0,
+    alpha_per_kcal: float = 0.0,
+    u0_kcal: float = 0.0,
+    w0_kcal: float = 0.0,
+    umax_kcal: float = ATS_UMAX_KCAL,
+    ubcore_kcal: float = ATS_UBCORE_KCAL,
+    acore: float = ATS_ACORE,
+    direction: float = 1.0,
+    uoffset_kcal: float = 0.0,
+) -> Dict[str, Any]:
+    """C1/C2/C3: attach the CANONICAL ATS two-copy coordinate-swap ATMForce.
+
+    Reuses the upstream var-region protocol (add_common_var_atoms_to_atmforce,
+    ommsystem.py:745-789) VERBATIM:
+      - expression-string ``ATMForce`` ctor with the upstream reference/alchemy/
+        soft-core strings + all 10 globals (incl. UOffset) — shared _ATS_* consts;
+      - migrate ALL Nonbonded/Harmonic/Torsion forces into the ATMForce via
+        ``copy.copy`` + ``removeForce`` (upstream var_regions branch);
+      - addParticle() for every particle, then the upstream
+        ``setParticleTransformation`` + ``ParticleOffsetDisplacement`` idiom.
+
+    The swap (C1, verbatim upstream):
+      common: copy1_common_i  <- ParticleOffsetDisplacement(copy2_common_i, copy1_common_i)
+              copy2_common_i  <- ParticleOffsetDisplacement(copy1_common_i, copy2_common_i)
+      var   : copy1_var_i     <- ParticleOffsetDisplacement(copy2_attach, copy1_attach)
+              copy2_var_i     <- ParticleOffsetDisplacement(copy1_attach, copy2_attach)
+    The attach atoms are DISTINCT (copy1_attach != copy2_attach), so the var
+    offset is a REAL d-transfer, not the single-shared-core null op. NO inter-copy
+    exclusion is added (C3 — clash is avoided by the d-separation, mirroring the
+    upstream which adds none).
+
+    Mutates ``fused_build['system']`` in place. Returns the ATMForce index +
+    wiring bookkeeping. Soft-core canon (umax/ubcore/acore) is NOT re-tuned (C7).
+    """
+    import copy
+
+    system = fused_build["system"]
+
+    if cmap["copy1_attach"] == cmap["copy2_attach"]:
+        raise ValueError(
+            "attach_twocopy_swap_atmforce: copy1_attach == copy2_attach (%d). "
+            "The two-copy swap REQUIRES distinct attach atoms (the whole point of "
+            "the rebuild — a shared attach is the single-shared-core null op)."
+            % (cmap["copy1_attach"],))
+
+    # --- ATMForce: expression-string ctor + 10 globals (upstream, verbatim). ---
+    atm = mm.ATMForce(
+        _ATS_REFERENCE_POT_EXPR + _ATS_ALCHEMICAL_POT_EXPR + _ATS_SOFTCORE_EXPR
+    )
+    alpha_kj = alpha_per_kcal / _kcal_to_kj(1.0) if alpha_per_kcal else 0.0
+    atm.addGlobalParameter("Lambda1", lambda1)
+    atm.addGlobalParameter("Lambda2", lambda2)
+    atm.addGlobalParameter("Alpha", alpha_kj)
+    atm.addGlobalParameter("Uh", _kcal_to_kj(u0_kcal))
+    atm.addGlobalParameter("W0", _kcal_to_kj(w0_kcal))
+    atm.addGlobalParameter("Umax", _kcal_to_kj(umax_kcal))
+    atm.addGlobalParameter("Ubcore", _kcal_to_kj(ubcore_kcal))
+    atm.addGlobalParameter("Acore", acore)
+    atm.addGlobalParameter("Direction", direction)
+    atm.addGlobalParameter("UOffset", _kcal_to_kj(uoffset_kcal))
+
+    # --- Migrate the var forces into the ATMForce (upstream var_regions). ---
+    to_move = [i for i in range(system.getNumForces())
+               if isinstance(system.getForce(i), _ATS_MOVE_FORCE_TYPES)]
+    for i in to_move:
+        atm.addForce(copy.copy(system.getForce(i)))
+    for i in sorted(to_move, reverse=True):
+        system.removeForce(i)
+
+    # --- addParticle() for every particle (no-arg overload, upstream L747-748). --
+    for _ in range(system.getNumParticles()):
+        atm.addParticle()
+
+    # --- Common + var swap (upstream add_common_var_atoms_to_atmforce L769-776,
+    #     VERBATIM). BOTH common sets are resident -> the common-common swap is a
+    #     REAL coordinate transform (NOT the legacy identity), and the var sets map
+    #     to the PARTNER copy's DISTINCT attach atom. NO exclusions added (C3). ---
+    c1_common = cmap["copy1_common"]
+    c2_common = cmap["copy2_common"]
+    c1_var = cmap["copy1_var"]
+    c2_var = cmap["copy2_var"]
+    c1_attach = cmap["copy1_attach"]
+    c2_attach = cmap["copy2_attach"]
+
+    for i in range(len(c1_common)):
+        atm.setParticleTransformation(
+            c1_common[i],
+            mm.ParticleOffsetDisplacement(c2_common[i], c1_common[i]))
+    for i in range(len(c2_common)):
+        atm.setParticleTransformation(
+            c2_common[i],
+            mm.ParticleOffsetDisplacement(c1_common[i], c2_common[i]))
+    for i in range(len(c1_var)):
+        atm.setParticleTransformation(
+            c1_var[i],
+            mm.ParticleOffsetDisplacement(c2_attach, c1_attach))
+    for i in range(len(c2_var)):
+        atm.setParticleTransformation(
+            c2_var[i],
+            mm.ParticleOffsetDisplacement(c1_attach, c2_attach))
+
+    atm_index = system.addForce(atm)
+    return {
+        "atm_force_index": atm_index,
+        "n_forces_migrated": len(to_move),
+        "n_common_swapped": len(c1_common),
+        "n_copy1_var": len(c1_var),
+        "n_copy2_var": len(c2_var),
+        "copy1_attach": c1_attach,
+        "copy2_attach": c2_attach,
+        "swap_mode": "twocopy",
+        "distinct_attach": True,
+        "inter_copy_exclusions_added": 0,   # C3: NONE (clash avoided by d-sep).
+    }
+
+
+def _twocopy_alchemical_atoms(
+    copy1_build: Dict[str, Any], copy2_build: Dict[str, Any], n_copy1: int,
+) -> Dict[str, Any]:
+    """Residue-4 alchemical partition on the MERGED two-copy box.
+
+    copy-1 (MTR, site) contributes ``common`` (NE1) + ``mtr_only`` (CM, HM1-3)
+    at their un-shifted indices; copy-2 (WT, bulk) contributes ``wt_only`` (HE1)
+    + its own NE1 at +n_copy1. The ``common`` slot is copy-1's NE1 (the swap
+    attaches each copy's var to its OWN NE1, both resident; the index map carries
+    both attach atoms separately). Returns the merged indices the swap consumes.
+    """
+    c1 = copy1_build["alchemical_atoms"]
+    c2 = copy2_build["alchemical_atoms"]
+    return {
+        # copy-1 attach NE1 (un-shifted). The two-copy swap uses cmap's
+        # copy1_attach / copy2_attach for the distinct attach atoms; this list is
+        # the convenience "common attach" pointer (copy-1 NE1) for callers.
+        "common": [c1["common"][0]],
+        "mtr_only": list(c1["mtr_only"]),                       # copy-1 indices
+        "wt_only": [i + n_copy1 for i in c2["wt_only"]],        # copy-2 +offset
+        "copy1_ne1": c1["common"][0],
+        "copy2_ne1": c2["common"][0] + n_copy1,
+    }
+
+
+def _detect_twocopy_disulfides(
+    merged_modeller, n_copy1: int, binder_chain: str = "B",
+) -> List[Dict[str, Any]]:
+    """Detect the cyclic_ss disulfide in EACH copy on the merged topology.
+
+    Two copies => two SG-SG disulfides. Reuses the shared ``detect_disulfide_pair``
+    on the merged modeller; both copies' CYS2-CYS12 SG-SG pairs are within the
+    detector threshold (copy-2 is rigidly displaced by d, so its intra-copy SG-SG
+    distance is preserved). Commits any missing bond on the merged topology.
+    Returns one record per detected pair (expected: 2).
+
+    The detector scans ALL chain-B residues; with two copies the merged topology
+    has TWO chain-B segments (Modeller.add preserves chain ids), so the detector
+    may pair across copies if SG indices interleave. To keep the pairing
+    intra-copy we partition by the merge offset: copy-1 SGs are < n_copy1, copy-2
+    SGs are >= n_copy1, and we pair the two nearest SGs within each partition.
+    """
+    sgs = []
+    positions = np.array([
+        v.value_in_unit(unit.nanometer) for v in merged_modeller.positions])
+    for atom in merged_modeller.topology.atoms():
+        if (atom.residue.chain.id == binder_chain
+                and atom.residue.name in ("CYS", "CYX")
+                and atom.name == "SG"):
+            sgs.append(atom)
+    records: List[Dict[str, Any]] = []
+    for lo, hi, label in ((0, n_copy1, "copy1"),
+                          (n_copy1, 10 ** 12, "copy2")):
+        part = [a for a in sgs if lo <= a.index < hi]
+        # Pair the two SGs whose separation is the smallest (the cyclic_ss pair).
+        best = None
+        for i in range(len(part)):
+            for j in range(i + 1, len(part)):
+                d = float(np.linalg.norm(
+                    positions[part[i].index] - positions[part[j].index]))
+                if d <= DISULFIDE_MAX_NM and (best is None or d < best[2]):
+                    best = (part[i], part[j], d)
+        if best is not None:
+            added = commit_bond_if_missing(
+                merged_modeller.topology, best[0], best[1])
+            records.append({
+                "copy": label,
+                "sg1_index": best[0].index, "sg2_index": best[1].index,
+                "sg_dist_nm": best[2], "bond_added": added,
+            })
+    return records
+
+
+def _harmonize_twocopy_common_charges(
+    system: mm.System, cmap: Dict[str, Any],
+) -> int:
+    """DIAGNOSTIC-ONLY: overwrite copy-2 (WT) common-atom charges with copy-1
+    (MTR) values in the MERGED System so the common core is continuous (MC1
+    passes).
+
+    NOT a production fix — production uses the harmonized RBFE XML (Σ|Δq|=0) on
+    disk. This in-memory override only ISOLATES the mechanical swap / endpoint-
+    equivalence validation from the charge gap. Sigma/eps are already identical
+    (only charge diverges). Mutates the merged NonbondedForce. Returns the count.
+    """
+    nb = next(f for f in system.getForces()
+              if isinstance(f, mm.NonbondedForce))
+    n = 0
+    for c1_i, c2_i in zip(cmap["copy1_common"], cmap["copy2_common"]):
+        q1, _, _ = nb.getParticleParameters(c1_i)
+        _, s2, e2 = nb.getParticleParameters(c2_i)
+        nb.setParticleParameters(c2_i, q1, s2, e2)
+        n += 1
+    return n
+
+
+def assert_twocopy_methyl_bonded(
+    fused_build: Dict[str, Any], cmap: Dict[str, Any],
+) -> Dict[str, Any]:
+    """MC2 (C5): copy-1 (MTR) appearing-methyl bonded terms present in the merged
+    box (CM-NE1 internal bond + HM-CM connectivities).
+
+    Two-copy analog of ``assert_methyl_bonded_present`` but reads the merged
+    System: CM-NE1 must be a true HarmonicBondForce term; HM-CM may be a
+    HarmonicBond or a SHAKE constraint under HBonds (presence is the gate). The
+    methyl lives only in copy-1; copy-2 (WT) carries HE1 instead.
+    """
+    system = fused_build["system"]
+    name_by_idx = {a.index: a.name
+                   for a in fused_build["modeller"].topology.atoms()}
+    alch = fused_build["alchemical_atoms"]
+    ne1 = cmap["copy1_attach"]
+    cm = next((i for i in alch["mtr_only"] if name_by_idx.get(i) == "CM"), None)
+    hms = [i for i in alch["mtr_only"] if name_by_idx.get(i, "").startswith("HM")]
+
+    bond_pairs = set()
+    for f in system.getForces():
+        if isinstance(f, mm.HarmonicBondForce):
+            for bi in range(f.getNumBonds()):
+                p1, p2, _, _ = f.getBondParameters(bi)
+                bond_pairs.add(frozenset((p1, p2)))
+        elif isinstance(f, mm.ATMForce):
+            for j in range(f.getNumForces()):
+                inner = f.getForce(j)
+                if isinstance(inner, mm.HarmonicBondForce):
+                    for bi in range(inner.getNumBonds()):
+                        p1, p2, _, _ = inner.getBondParameters(bi)
+                        bond_pairs.add(frozenset((p1, p2)))
+    constraint_pairs = set()
+    for ci in range(system.getNumConstraints()):
+        a, b, _ = system.getConstraintParameters(ci)
+        constraint_pairs.add(frozenset((a, b)))
+
+    def _connected(i, j):
+        return (frozenset((i, j)) in bond_pairs
+                or frozenset((i, j)) in constraint_pairs)
+
+    cm_ne1_present = cm is not None and frozenset((cm, ne1)) in bond_pairs
+    hm_cm_present = {name_by_idx[h]: _connected(h, cm) for h in hms}
+    if not cm_ne1_present:
+        raise ValueError(
+            "MC2 two-copy FAIL: CM-NE1 internal bond absent from the merged box's "
+            "HarmonicBondForce (CM is heavy — must be a real bond).")
+    missing_hm = [k for k, v in hm_cm_present.items() if not v]
+    if missing_hm:
+        raise ValueError(
+            "MC2 two-copy FAIL: methyl HM-CM connectivity absent (neither bond "
+            "nor constraint): %s" % missing_hm)
+    return {
+        "cm_ne1_bond_present": cm_ne1_present,
+        "hm_cm_bonds_present": hm_cm_present,
+        "passed": True,
+    }
+
+
+def assert_twocopy_disulfides(fused_build: Dict[str, Any]) -> Dict[str, Any]:
+    """MC3 (C5): BOTH copies' cyclic_ss SG-SG disulfides preserved in the merged
+    box (two copies => two disulfides).
+
+    Confirms each detected SG-SG pair survives into the merged System's
+    HarmonicBondForce (or a constraint). Raises if fewer than 2 disulfides were
+    detected or any one is absent from the System.
+    """
+    disulfides = fused_build.get("disulfides") or []
+    if len(disulfides) < 2:
+        raise ValueError(
+            "MC3 two-copy FAIL: expected 2 cyclic_ss disulfides (one per copy), "
+            "detected %d." % (len(disulfides),))
+    system = fused_build["system"]
+    bond_pairs = set()
+    for f in system.getForces():
+        if isinstance(f, mm.HarmonicBondForce):
+            for bi in range(f.getNumBonds()):
+                p1, p2, _, _ = f.getBondParameters(bi)
+                bond_pairs.add(frozenset((p1, p2)))
+        elif isinstance(f, mm.ATMForce):
+            for j in range(f.getNumForces()):
+                inner = f.getForce(j)
+                if isinstance(inner, mm.HarmonicBondForce):
+                    for bi in range(inner.getNumBonds()):
+                        p1, p2, _, _ = inner.getBondParameters(bi)
+                        bond_pairs.add(frozenset((p1, p2)))
+    constraint_pairs = set()
+    for ci in range(system.getNumConstraints()):
+        a, b, _ = system.getConstraintParameters(ci)
+        constraint_pairs.add(frozenset((a, b)))
+
+    checked = []
+    for d in disulfides:
+        pair = frozenset((d["sg1_index"], d["sg2_index"]))
+        present = pair in bond_pairs or pair in constraint_pairs
+        if not present:
+            raise ValueError(
+                "MC3 two-copy FAIL: %s cyclic_ss SG-SG (%d-%d) absent from the "
+                "merged System." % (d["copy"], d["sg1_index"], d["sg2_index"]))
+        checked.append({"copy": d["copy"], "sg1_index": d["sg1_index"],
+                        "sg2_index": d["sg2_index"], "present": True})
+    return {"n_disulfides": len(checked), "disulfides": checked, "passed": True}
+
+
+def assert_twocopy_seed(
+    fused_build: Dict[str, Any], cmap: Dict[str, Any], min_dist_nm: float = 0.10,
+) -> Dict[str, Any]:
+    """R2 (C6): per-copy seed-geometry ASSERT (appearing/disappearing atoms not
+    clashing WITHIN their own copy), gates BEFORE the ATMForce attach.
+
+    The inter-copy clash is handled by the d-separation (C6 separation assert);
+    this gate covers the per-copy geometry: copy-1's appearing methyl (CM, HM1-3)
+    must not clash copy-1's own common/solvent atoms, and copy-2's disappearing
+    HE1 must not clash copy-2's own atoms. A clashing seed detonates the uncapped
+    bonded base term locally. Each copy's atoms are partitioned by the merge
+    offset so an appearing atom is only checked against ITS OWN copy + solvent
+    (the partner copy is d-displaced and irrelevant here).
+    """
+    positions = np.array([
+        v.value_in_unit(unit.nanometer)
+        for v in fused_build["modeller"].positions])
+    topology = fused_build["modeller"].topology
+    system = fused_build["system"]
+    n_copy1 = fused_build["n_copy1"]
+    name_by_idx = {a.index: a.name for a in topology.atoms()}
+    res_by_idx = {a.index: a.residue.name for a in topology.atoms()}
+
+    alch = fused_build["alchemical_atoms"]
+    appearing = list(alch["mtr_only"])     # copy-1 methyl (indices < n_copy1)
+    he1 = alch["wt_only"][0]               # copy-2 HE1 (index >= n_copy1)
+    ne1_c1 = cmap["copy1_attach"]
+    ne1_c2 = cmap["copy2_attach"]
+
+    solvent_o = [a.index for a in topology.atoms()
+                 if a.residue.name in _SOLVENT_RESNAMES and a.element is not None
+                 and a.element.symbol == "O"]
+
+    # HARD targets for the COPY-1 appearing methyl = copy-1's own non-appearing
+    # atoms (< n_copy1) + solvent O. Exclude the methyl's own bonded partners
+    # (CM-NE1, HM-CM) which are bond-length terms, not clashes.
+    cm_idx = next((a for a in appearing if name_by_idx.get(a) == "CM"), None)
+    bonded_partners = {ne1_c1}
+    if cm_idx is not None:
+        bonded_partners.add(cm_idx)
+    copy1_targets = {a.index for a in topology.atoms()
+                     if a.index < n_copy1 and a.index not in appearing
+                     and res_by_idx.get(a.index) not in _SOLVENT_RESNAMES}
+    copy1_targets.update(solvent_o)
+
+    min_hard = float("inf")
+    worst_hard = None
+    for ap in appearing:
+        pa = positions[ap]
+        for tgt in copy1_targets:
+            if tgt in bonded_partners:
+                continue
+            d = float(np.linalg.norm(pa - positions[tgt]))
+            if d < min_hard:
+                min_hard = d
+                worst_hard = (name_by_idx.get(ap, ap), name_by_idx.get(tgt, tgt), d)
+    if min_hard <= min_dist_nm:
+        raise ValueError(
+            "R2 two-copy seed min-dist FAIL: copy-1 appearing methyl too close to "
+            "a copy-1 common/solvent atom (%.4f nm <= %.4f nm) — %s."
+            % (min_hard, min_dist_nm, worst_hard))
+
+    # COPY-2 HE1: check against copy-2's own atoms (>= n_copy1) + solvent O,
+    # EXCLUDING HE1's own 1-2/1-3 neighbours (NE1 bond + the ring atoms CD1/CE2
+    # bonded to NE1). These are nonbonded-EXCLUDED in the FF (1-3 pairs sit at a
+    # standard ~0.08-0.09 nm from a ring-N hydrogen), so counting them as a clash
+    # is a false positive — the legacy seed assert likewise excludes HE1's bonded
+    # partners. We read the System bonds to find NE1's bonded ring neighbours.
+    he1_excluded = {ne1_c2}
+    for f in system.getForces():
+        if isinstance(f, mm.HarmonicBondForce):
+            for bi in range(f.getNumBonds()):
+                p1, p2, _, _ = f.getBondParameters(bi)
+                if ne1_c2 in (p1, p2):
+                    he1_excluded.add(p2 if p1 == ne1_c2 else p1)
+        elif isinstance(f, mm.ATMForce):
+            for j in range(f.getNumForces()):
+                inner = f.getForce(j)
+                if isinstance(inner, mm.HarmonicBondForce):
+                    for bi in range(inner.getNumBonds()):
+                        p1, p2, _, _ = inner.getBondParameters(bi)
+                        if ne1_c2 in (p1, p2):
+                            he1_excluded.add(p2 if p1 == ne1_c2 else p1)
+    copy2_targets = {a.index for a in topology.atoms()
+                     if a.index >= n_copy1 and a.index != he1
+                     and res_by_idx.get(a.index) not in _SOLVENT_RESNAMES}
+    copy2_targets.update(solvent_o)
+    min_he1 = float("inf")
+    worst_he1 = None
+    for tgt in copy2_targets:
+        if tgt in he1_excluded:  # NE1 bond + 1-3 ring neighbours (FF-excluded).
+            continue
+        d = float(np.linalg.norm(positions[he1] - positions[tgt]))
+        if d < min_he1:
+            min_he1 = d
+            worst_he1 = (name_by_idx.get(he1, he1), name_by_idx.get(tgt, tgt), d)
+    if min_he1 <= min_dist_nm:
+        raise ValueError(
+            "R2 two-copy seed min-dist FAIL: copy-2 HE1 too close to a copy-2 "
+            "common/solvent atom (%.4f nm <= %.4f nm) — %s."
+            % (min_he1, min_dist_nm, worst_he1))
+
+    return {
+        "min_copy1_methyl_dist_nm": min_hard,
+        "min_copy1_methyl_pair": worst_hard,
+        "min_copy2_he1_dist_nm": min_he1,
+        "min_copy2_he1_pair": worst_he1,
+        "n_solvent_o_checked": len(solvent_o),
+        "passed": True,
+    }
+
+
+def _register_copy2_common_to_copy1(
+    copy1_build: Dict[str, Any], copy2_build: Dict[str, Any],
+    binder_chain: str = "B",
+) -> Dict[str, Any]:
+    """Set copy-2's common-core coordinates to copy-1's (byte-identical common
+    conformation), and reposition copy-2's variable atom(s) accordingly.
+
+    Both endpoint copies are built from INDEPENDENT MD final.pdb's, so their
+    common-core conformers differ (~4.5 Å backbone RMSD). The canonical ATS
+    common-core coordinate SWAP needs the two copies' common coordinates in
+    REGISTER so the swap offset is PURE d (a clean rigid translation), not an
+    inter-conformer mismatch that the swapped state pays as un-relievable strain.
+    This mirrors the upstream dual-topology PDB (both ligands share the common
+    coordinates); the alignment force maintains it under dynamics.
+
+    Mutates ``copy2_build['modeller'].positions`` in place:
+      - copy-2 common atom i  -> copy-1 common atom i's position (paired by C4
+        name-order alignment, computed here on per-copy indices).
+      - copy-2 var atom (HE1) -> copy-2 NE1's NEW position + (HE1 - NE1) original
+        offset, so HE1 keeps its WT bond geometry off the (now-registered) NE1.
+
+    Returns bookkeeping (n_common_registered, the HE1 offset applied).
+    """
+    c1_top = copy1_build["modeller"].topology
+    c2_top = copy2_build["modeller"].topology
+    c1_var = set(copy1_build["alchemical_atoms"]["mtr_only"])
+    c2_var = set(copy2_build["alchemical_atoms"]["wt_only"])
+
+    def _is_binder_protein(atom) -> bool:
+        return (atom.residue.chain.id == binder_chain
+                and atom.residue.name not in _SOLVENT_RESNAMES)
+
+    c1_common = [a.index for a in c1_top.atoms()
+                 if a.index not in c1_var and _is_binder_protein(a)]
+    c2_common = [a.index for a in c2_top.atoms()
+                 if a.index not in c2_var and _is_binder_protein(a)]
+    if len(c1_common) != len(c2_common):
+        raise ValueError(
+            "_register_copy2_common_to_copy1: common COUNT mismatch (%d vs %d) — "
+            "cannot register conformers." % (len(c1_common), len(c2_common)))
+
+    c1_pos = [p.value_in_unit(unit.nanometer)
+              for p in copy1_build["modeller"].positions]
+    c2_pos = list(copy2_build["modeller"].positions)
+
+    c2_ne1 = copy2_build["alchemical_atoms"]["common"][0]
+    he1_list = sorted(c2_var)
+
+    # Capture copy-2's original NE1->HE1 BOND LENGTH (preserve the bond magnitude;
+    # the DIRECTION is recomputed in the registered ring frame below so HE1 does
+    # not clash the registered ring — using the raw WT offset against the MTR-frame
+    # ring would mis-place HE1 since the two ring conformers differ).
+    he1_bond_nm = 0.101
+    if he1_list:
+        ne1_orig = np.array(c2_pos[c2_ne1].value_in_unit(unit.nanometer))
+        he1_orig = np.array(c2_pos[he1_list[0]].value_in_unit(unit.nanometer))
+        he1_bond_nm = float(np.linalg.norm(he1_orig - ne1_orig)) or 0.101
+
+    # Overwrite copy-2 commons with copy-1 commons (registered conformation).
+    name_c2 = {a.index: a.name for a in c2_top.atoms()}
+    c2_common_by_name = {name_c2[i]: i for i in c2_common}
+    for c1_i, c2_i in zip(c1_common, c2_common):
+        v = c1_pos[c1_i]
+        c2_pos[c2_i] = mm.Vec3(v[0], v[1], v[2]) * unit.nanometer
+
+    # Reposition HE1 in the REGISTERED ring frame: off the (now copy-1-framed) NE1,
+    # pointing AWAY from the (CD1,CE2) ring bisector at the preserved bond length.
+    # This is the same indole-donor geometry the legacy HE1 injector uses, so HE1
+    # lands at the real Trp NE1-HE1 site relative to the registered ring (no clash
+    # with the registered CD1/CE2).
+    he1_dir = None
+    if he1_list:
+        ne1_new = np.array(c2_pos[c2_ne1].value_in_unit(unit.nanometer))
+        cd1_i = c2_common_by_name.get("CD1")
+        ce2_i = c2_common_by_name.get("CE2")
+        if cd1_i is not None and ce2_i is not None:
+            cd1 = np.array(c2_pos[cd1_i].value_in_unit(unit.nanometer))
+            ce2 = np.array(c2_pos[ce2_i].value_in_unit(unit.nanometer))
+            d = ne1_new - (cd1 + ce2) / 2.0
+            nrm = np.linalg.norm(d)
+            he1_dir = (d / nrm) if nrm > 1e-9 else np.array([0.0, 0.0, 1.0])
+        else:
+            he1_dir = np.array([0.0, 0.0, 1.0])
+        he1_new = ne1_new + he1_bond_nm * he1_dir
+        c2_pos[he1_list[0]] = mm.Vec3(*he1_new) * unit.nanometer
+
+    copy2_build["modeller"].positions = c2_pos
+    return {
+        "n_common_registered": len(c1_common),
+        "he1_repositioned": bool(he1_list),
+        "he1_bond_nm": he1_bond_nm,
+        "he1_dir": (he1_dir.tolist() if he1_dir is not None else None),
+    }
+
+
+def build_inplace_res4_twocopy_system(
+    leg: str = "free",
+    seed: str = "s7",
+    binder_chain: str = "B",
+    solvate: bool = True,
+    padding_nm: float = 1.2,
+    strict_mc1: bool = False,
+    harmonize_common_charges: bool = False,
+    displacement_nm: float = ATS_TWOCOPY_DISPLACEMENT_NM,
+    mtr_ncaa_xml: Optional[str] = None,
+    constraints: Any = HBonds,
+) -> Dict[str, Any]:
+    """Top-level orchestrator: build the CANONICAL ATS TWO-COPY box (C2-C8).
+
+    Both endpoint copies (copy-1 = MTR at the site, copy-2 = WT in bulk) are
+    resident in ONE box. copy-2 is displaced by a vector d (~40 Å) so the copies
+    are spatially separated; then the merged topology is solvated ONCE and a
+    single System is built. The common-region coordinates are swapped by the
+    upstream ATS transform; var atoms map to the PARTNER copy's DISTINCT attach
+    atom. NO inter-copy exclusion is added (clash avoided by d-separation, C3).
+
+    Order (C5/C6):
+      1. Build both endpoint copies via ``build_leg_system`` UNSOLVATED.
+      2. Displace copy-2 by d (compute_twocopy_displacement_vector).
+      3. Merge copy-1 + copy-2 into one Modeller, solvate ONCE, createSystem.
+      4. C4: pair common atoms across the two resident copies (count + order).
+      5. MC1: common-atom (q,sigma,eps) continuity ASSERT (highest risk).
+      6. C6: two-copy spatial-separation ASSERT (no overlay).
+      7. MC2: methyl bonded present (copy-1) ; MC3: cyclic_ss in BOTH copies.
+      8. R2-style seed: appearing/disappearing atoms non-clashing (within copy).
+      9. C1/C2/C3: attach the canonical two-copy swap ATMForce (distinct attach).
+
+    Returns the fused build dict + all assert results. Ranking-only (R-11);
+    PREDICTION test (R-18), NOT a converged ΔΔG.
+
+      - ``leg="free"``  : the solvated cyclic peptide alone (receptor dropped),
+                          TWO copies (MTR site + WT bulk).
+      - ``leg="bound"`` : the receptor + cyclic peptide in the equilibrated BOUND
+                          pose, TWO binder copies (the receptor is shared inert
+                          context for copy-1; copy-2's binder is in bulk). The
+                          d-vector clears both the receptor and the binder fold.
+
+    ``displacement_nm`` is the magnitude of d (default 40 Å). ``solvate=True`` is
+    the C8 target. ``constraints`` is forwarded to BOTH endpoint builds (Tier-2
+    short dynamics pass ``constraints=None`` for the unconstrained alch-H run).
+    """
+    if leg not in ("free", "bound"):
+        raise NotImplementedError(
+            "build_inplace_res4_twocopy_system: leg must be 'free' or 'bound', "
+            "got %r." % (leg,))
+
+    li = resolve_leg_inputs(seed)
+    if not li["final"]["wt"] or not li["final"]["cp4"]:
+        raise FileNotFoundError(
+            "build_inplace_res4_twocopy_system requires both endpoint final.pdb "
+            "(seed %s). Got wt=%s cp4=%s"
+            % (seed, li["final"]["wt"], li["final"]["cp4"]))
+
+    # 1) Endpoint structures (UNSOLVATED; the merge solvates once after the
+    #    displacement so both copies + the d-gap share one water shell). copy-1 =
+    #    MTR (site), copy-2 = WT (bulk).
+    import tempfile
+    tmpdir = tempfile.mkdtemp(prefix="ats_twocopy_%s_" % (leg,))
+    mtr_struct = os.path.join(tmpdir, "cp4_%s.pdb" % (leg,))
+    wt_struct = os.path.join(tmpdir, "wt_%s.pdb" % (leg,))
+    if leg == "free":
+        prepare_free_peptide_from_final(li["final"]["cp4"], mtr_struct, binder_chain)
+        prepare_free_peptide_from_final(li["final"]["wt"], wt_struct, binder_chain)
+    else:
+        prepare_bound_complex_from_final(li["final"]["cp4"], mtr_struct, binder_chain)
+        prepare_bound_complex_from_final(li["final"]["wt"], wt_struct, binder_chain)
+
+    # RBFE MTR XML resolution (cross-track isolation): the RBFE build loads the
+    # DEDICATED harmonized RBFE XML (Σ|Δq|=0 common core), never the shared
+    # Option-β HYBRID_MTR_XML the other tracks consume.
+    if mtr_ncaa_xml is not None:
+        mtr_xml = mtr_ncaa_xml
+    elif os.path.isfile(HYBRID_MTR_XML_RBFE):
+        mtr_xml = HYBRID_MTR_XML_RBFE
+    else:
+        mtr_xml = HYBRID_MTR_XML
+
+    copy1_build = build_leg_system(   # MTR, site copy
+        mtr_struct, leg=leg, binder_chain=binder_chain, solvate=False,
+        add_hydrogens=False, ncaa_xml=mtr_xml, hydrogens_xml=li["hydrogens_xml"],
+        constraints=constraints)
+    copy2_build = build_leg_system(   # WT, bulk copy
+        wt_struct, leg=leg, binder_chain=binder_chain, solvate=False,
+        add_hydrogens=False, hydrogens_xml=li["hydrogens_xml"],
+        constraints=constraints)
+
+    # 2a) REGISTER copy-2's common-core coordinates onto copy-1's frame. The two
+    #     endpoint conformers come from INDEPENDENT MD final.pdb's (WT vs Cp4), so
+    #     their backbone differs by ~4.5 Å RMSD. The canonical ATS common-core
+    #     coordinate SWAP requires the two copies' common coordinates to be in
+    #     REGISTER (the swap offset is then PURE d) — otherwise the swapped state
+    #     pays the inter-conformer mismatch as bond/nonbonded strain (~5e4 kcal/mol
+    #     that minimization cannot relieve, the same false-clash the verdict warns
+    #     of). We therefore set copy-2's common atoms to copy-1's common positions
+    #     (byte-identical common conformation by construction), and reposition
+    #     copy-2's variable atom(s) (HE1) at the SAME offset from copy-2's NE1 as in
+    #     the original WT structure (so HE1's bond/geometry is preserved). This is
+    #     the in-memory equivalent of the upstream dual-topology PDB where both
+    #     ligands share the common-core coordinates; the alignment FORCE (C4 ATS
+    #     params) then maintains register under dynamics.
+    _register_copy2_common_to_copy1(copy1_build, copy2_build, binder_chain)
+
+    # 2b) Displace copy-2 (WT) by d into bulk (C2/C3). The direction clears copy-1's
+    #     residue-4 local density (receptor + binder fold); the magnitude is d.
+    dvec = compute_twocopy_displacement_vector(
+        copy1_build, copy2_build, binder_chain=binder_chain,
+        magnitude_nm=displacement_nm)
+    copy2_disp_positions = _displace_copy_positions(
+        copy2_build["modeller"].positions, dvec)
+
+    # 3) Merge copy-1 + copy-2 into ONE Modeller, then solvate ONCE + createSystem.
+    #    Modeller.add appends copy-2's topology/positions AFTER copy-1, so copy-1
+    #    keeps indices [0, n_copy1) and copy-2 takes [n_copy1, n_copy1+n_copy2) —
+    #    the merge offset the index map applies. The ncAA XML (copy-1 MTR template)
+    #    + amber14 (copy-2 WT standard) both resolve, and a single addSolvent
+    #    bathes both copies and the d-gap in one consistent water shell.
+    ff_inputs = list(FF_FILES) + [mtr_xml]
+    ff = ForceField(*ff_inputs)
+    n_copy1 = copy1_build["modeller"].topology.getNumAtoms()
+
+    merged = Modeller(copy1_build["modeller"].topology,
+                      copy1_build["modeller"].positions)
+    merged.add(copy2_build["modeller"].topology, copy2_disp_positions)
+
+    if solvate:
+        merged.addSolvent(
+            ff, model="tip3p", padding=padding_nm * unit.nanometers,
+            ionicStrength=0.15 * unit.molar,
+            positiveIon="Na+", negativeIon="Cl-", neutralize=True,
+        )
+        system = ff.createSystem(
+            merged.topology, nonbondedMethod=PME,
+            nonbondedCutoff=1.0 * unit.nanometers, constraints=constraints,
+            rigidWater=True, ewaldErrorTolerance=0.0005,
+        )
+    else:
+        system = ff.createSystem(
+            merged.topology, nonbondedMethod=app.NoCutoff,
+            constraints=constraints, rigidWater=True,
+        )
+
+    # Re-detect the disulfide in EACH copy on the merged topology (MC3: two copies
+    # => two disulfides). The createSystem above resolved the S-S via the
+    # distance-completed bonds in each copy's prep; here we record both pairs.
+    disulfides = _detect_twocopy_disulfides(merged, n_copy1, binder_chain)
+
+    fused = {
+        "leg": leg,
+        "modeller": merged,
+        "system": system,
+        "n_atoms": merged.topology.getNumAtoms(),
+        "n_copy1": n_copy1,
+        "displacement_vector_nm": [float(c) for c in dvec],
+        "ff_inputs": ff_inputs,
+        # The residue-4 partition on the MERGED box, per copy (copy-2 shifted).
+        "alchemical_atoms": _twocopy_alchemical_atoms(
+            copy1_build, copy2_build, n_copy1),
+        "disulfides": disulfides,
+    }
+
+    # 4) C4: pair common atoms across the two RESIDENT copies (count + order).
+    cmap = _build_twocopy_index_map(copy1_build, copy2_build, n_copy1, binder_chain)
+
+    # 4b) OPTIONAL diagnostic: harmonize the MERGED System's copy-2 (WT) common
+    #     charges to copy-1 (MTR) so MC1 passes (isolates the mechanical swap +
+    #     endpoint-equivalence validation from the charge-continuity gap; NOT a
+    #     production fix — production uses the harmonized RBFE XML on disk).
+    common_charges_harmonized = False
+    if harmonize_common_charges:
+        _harmonize_twocopy_common_charges(system, cmap)
+        common_charges_harmonized = True
+
+    # 5) MC1: common-atom continuity (highest ncAA risk). Surface as a STRUCTURED
+    #    outcome (not an opaque crash) by default so review sees the charge gap;
+    #    strict_mc1=True re-raises (the fail-loud unit-test path).
+    mc1_error: Optional[str] = None
+    try:
+        mc1 = assert_twocopy_common_param_continuity(system, cmap)
+    except ValueError as exc:
+        if strict_mc1:
+            raise
+        mc1_error = str(exc)
+        mc1 = _summarize_twocopy_charge_divergence(system, cmap, copy1_build)
+        return {
+            "leg": leg, "seed": seed,
+            "outcome": "mc1_charge_discontinuity",
+            "mc1_param_continuity": mc1,
+            "mc1_error": mc1_error,
+            "common_map": {k: cmap[k] for k in ("n_common", "copy1_var", "copy2_var")},
+            "displacement_vector_nm": [float(c) for c in dvec],
+            "regime": "ranking_only",
+            "note": ("PRE-REGISTERED outcome (ii): the two-copy common core is "
+                     "electrostatically discontinuous (copy-1 MTR vs copy-2 WT "
+                     "common charges diverge). The two-copy box EXPOSED the gap "
+                     "the single-shared-core box hid. Resolve via the harmonized "
+                     "RBFE XML (Σ|Δq|=0) before a meaningful ΔΔG. R-18: a real "
+                     "charge-continuity finding, not a pass."),
+        }
+
+    # 6) C6: two-copy spatial-separation ASSERT (no overlay; clash avoided by d).
+    separation = assert_twocopy_separation(fused, cmap)
+
+    # 7) MC2 (copy-1 methyl bonded) + MC3 (cyclic_ss in BOTH copies).
+    mc2 = assert_twocopy_methyl_bonded(fused, cmap)
+    mc3 = assert_twocopy_disulfides(fused)
+
+    # 8) R2-style seed: appearing/disappearing atoms non-clashing WITHIN their own
+    #    copy (the inter-copy separation is C6; this is the per-copy seed gate).
+    seed_assert = assert_twocopy_seed(fused, cmap)
+
+    # 9) C1/C2/C3: attach the canonical two-copy swap ATMForce (distinct attach).
+    swap = attach_twocopy_swap_atmforce(fused, cmap, lambda1=0.0, lambda2=0.0)
+
+    return {
+        "leg": leg, "seed": seed,
+        "outcome": "twocopy_attached",
+        "fused_build": fused,
+        "copy1_endpoint": copy1_build,
+        "copy2_endpoint": copy2_build,
+        "common_map": cmap,
+        "mc1_param_continuity": mc1,
+        "common_charges_harmonized": common_charges_harmonized,
+        "mtr_ncaa_xml": mtr_xml,
+        "swap_mode": "twocopy",
+        "displacement_vector_nm": [float(c) for c in dvec],
+        "separation": separation,
+        "seed_assert": seed_assert,
+        "mc2_methyl_bonded": mc2,
+        "mc3_disulfide": mc3,
+        "swap": swap,
+        "solvated": solvate,
+        "regime": "ranking_only",
+        "note": ("CANONICAL ATS two-copy PREDICTION test (R-18); ranking-only "
+                 "(R-11); two-copy correctness NOT yet proven (needs the pilot: "
+                 "endpoint-equiv + frac<UBCORE>0 + O>=0.1 + dgbind1!=0.5 + UWHAM "
+                 "convergence). NOT a converged ΔΔG_bind."
+                 + (" [DIAGNOSTIC: common charges harmonized — NOT production-"
+                    "valid for a quantitative DDG]"
+                    if common_charges_harmonized else "")),
+    }
+
+
+def check_twocopy_endpoint_equivalence(
+    twocopy_build: Dict[str, Any],
+    platform_name: str = "Reference",
+    tol_kcal: float = 25.0,
+    pert_plausible_max_kcal: float = 1.0e3,
+    pert_saturated_floor_kcal: float = 140.0,
+) -> Dict[str, Any]:
+    """C6e/C8/Q5: the canonical two-copy endpoint-equivalence + decouple check.
+
+    For the rebuild to be CORRECT (not a finite-but-wrong false-green), THREE
+    things must hold at the un-transformed reference frame (Lambda1=Lambda2=0,
+    Direction=+1):
+
+      (1) ENDPOINT-EQUIVALENCE: the ATM reference potential ``u0`` (the energy of
+          the box with the swap NOT applied) must reproduce the full merged
+          System potential energy within ``tol_kcal``. ``u0`` is the physical
+          state "copy-1 (MTR) at the site + copy-2 (WT) in bulk", so if it equals
+          the plain potential the swap wiring did not corrupt the reference state.
+
+      (2) PERTURBATION REGIME: ``|u1 - u0|`` must be in the physically plausible
+          ones-to-hundreds-kcal/mol band — NOT the single-shared-core saturated
+          ~150 plateau (the collapse signature) and NOT a 56,000 kcal/mol clash.
+          ``u1`` is the energy AFTER the coordinate swap (copy-2 swapped to the
+          site, copy-1 to bulk), so a finite, non-saturated ``|u1-u0|`` is the
+          first evidence the two-copy transfer is real. (A definitive
+          non-saturation verdict needs the soft-core-uncapped raw transfer at a
+          real λ window — that is the pilot, post-validation; here we report the
+          one-frame value + flag the saturated-plateau signature.)
+
+      (3) BULK-COPY DECOUPLED: copy-2 (WT, the bulk copy at the reference frame)
+          must be far from copy-1 / the receptor (the d-separation), evidenced by
+          the copy1-NE1 <-> copy2-NE1 distance >= the PME cutoff. This is the
+          "non-interacting partner decoupled" direct check (if the bulk copy still
+          interacts strongly the d was too small or the swap is wrong).
+
+    This is a CHEAP one-frame check (Tier-1). It does NOT prove the converged
+    ΔΔG; the pilot (frac<UBCORE>0 + O>=0.1 + dgbind1!=0.5 + UWHAM convergence)
+    does. Returns a structured dict; never raises (the caller decides PASS/FAIL
+    from the flags) so the smoke surfaces an honest finding.
+    """
+    import openmm as mm
+    import openmm.unit as unit2
+
+    fused = twocopy_build["fused_build"]
+    system = fused["system"]
+    positions = fused["modeller"].positions
+    cmap = twocopy_build["common_map"]
+
+    integ = mm.VerletIntegrator(0.001 * unit2.picoseconds)
+    try:
+        plat = mm.Platform.getPlatformByName(platform_name)
+        ctx = mm.Context(system, integ, plat)
+    except Exception:
+        plat = mm.Platform.getPlatformByName("Reference")
+        ctx = mm.Context(system, integ, plat)
+        platform_name = "Reference"
+    ctx.setPositions(positions)
+    ctx.setParameter("Lambda1", 0.0)
+    ctx.setParameter("Lambda2", 0.0)
+    ctx.setParameter("Direction", 1.0)
+
+    state = ctx.getState(getEnergy=True)
+    e_pot = state.getPotentialEnergy().value_in_unit(unit2.kilocalorie_per_mole)
+    atm = next(system.getForce(i) for i in range(system.getNumForces())
+               if isinstance(system.getForce(i), mm.ATMForce))
+    pert = atm.getPerturbationEnergy(ctx)
+    u1 = pert[0].value_in_unit(unit2.kilocalorie_per_mole)
+    u0 = pert[1].value_in_unit(unit2.kilocalorie_per_mole)
+    raw_pert = u1 - u0
+
+    # (1) endpoint-equivalence: u0 reproduces the plain potential (the reference
+    #     frame energy, swap not applied).
+    endpoint_gap = e_pot - u0
+    endpoint_equiv = bool(np.isfinite(endpoint_gap)
+                          and abs(endpoint_gap) <= tol_kcal)
+
+    # (2) perturbation regime.
+    finite_pert = bool(np.isfinite(raw_pert))
+    plausible = bool(finite_pert and abs(raw_pert) <= pert_plausible_max_kcal)
+    # The single-shared-core collapse saturated near Umax/Ubcore (~150). A raw
+    # perturbation pinned at the soft-core plateau is the collapse signature; flag
+    # it (a definitive verdict needs the multi-window uncapped transfer — pilot).
+    saturated_plateau = bool(
+        finite_pert and abs(raw_pert) >= pert_saturated_floor_kcal
+        and abs(raw_pert) <= ATS_UMAX_KCAL + 1.0)
+
+    # (3) bulk-copy decoupled: copy1 NE1 <-> copy2 NE1 separation.
+    pos = np.array([v.value_in_unit(unit2.nanometer) for v in positions])
+    sep_nm = float(np.linalg.norm(
+        pos[cmap["copy1_attach"]] - pos[cmap["copy2_attach"]]))
+    bulk_decoupled = bool(sep_nm >= 1.0)
+
+    overall = bool(endpoint_equiv and finite_pert and plausible
+                   and bulk_decoupled and not saturated_plateau)
+    return {
+        "platform": platform_name,
+        "energies_kcal": {
+            "E_pot": e_pot, "u0": u0, "u1": u1, "u1_minus_u0": raw_pert,
+        },
+        "endpoint_equivalence": {
+            "u0_kcal": u0, "E_pot_kcal": e_pot, "gap_kcal": endpoint_gap,
+            "tol_kcal": tol_kcal, "passed": endpoint_equiv,
+        },
+        "perturbation_regime": {
+            "u1_minus_u0_kcal": raw_pert, "finite": finite_pert,
+            "plausible": plausible, "saturated_plateau_flag": saturated_plateau,
+            "plausible_max_kcal": pert_plausible_max_kcal,
+        },
+        "bulk_copy_decoupled": {
+            "ne1_ne1_sep_nm": sep_nm, "passed": bulk_decoupled,
+        },
+        "overall_pass": overall,
+        "regime": "ranking_only",
+        "note": ("C6e/C8 one-frame two-copy endpoint-equivalence (Tier-1). NOT a "
+                 "converged ΔΔG; the saturated-plateau exit is the cheap "
+                 "collapse-signature flag, the definitive non-saturation verdict "
+                 "needs the pilot (frac<UBCORE>0 + O>=0.1 + dgbind1!=0.5)."),
+    }
+
+
 def smoke_test_leg(
     pdb_path: str,
     leg: str = "bound",

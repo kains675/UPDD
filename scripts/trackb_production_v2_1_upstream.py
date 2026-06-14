@@ -419,6 +419,7 @@ def setup_one_leg_v21(
     checkpoint_time_s: int = 600,
     smoke: bool = False,
     free_schedule: str = v2_legacy.DEFAULT_FREE_SCHEDULE,
+    bound_schedule: str = v2_legacy.DEFAULT_BOUND_SCHEDULE,
 ) -> Dict[str, Any]:
     """Prepare one (endpoint, leg) for abfe_production. System XML pre-built.
 
@@ -427,9 +428,23 @@ def setup_one_leg_v21(
     ``trackb.pdb``). This function only writes the cntl + nodefile.
 
     ``free_schedule`` (default ``"canonical22"``) selects the λ ladder for the
-    FREE leg only (Path λ-densify spec 2026-06-05). ``"densified34"`` swaps the
-    free-leg cntl to the 34-state ilogistic anneal ladder. The BOUND leg always
-    uses the canonical 22-state schedule.
+    FREE leg only (λ-densify spec, 2026-06-05). ``"densified34"`` swaps the
+    free-leg cntl to the 34-state ilogistic anneal ladder.
+
+    ``bound_schedule`` (default ``"canonical22"``) selects the λ ladder for the
+    BOUND leg only (densified_bound28 spec 2026-06-11). ``"densified_bound28"``
+    writes the combined bound-leg cntl as the 28-state (dplus 14 + dminus 14)
+    soft-core-bridge ladder that closes the 6→7 cliff (λ0.30→0.35) BC=0
+    zero-overlap; ``"densified_bound30"`` is the 4-window cap-1 escalation of the
+    same cliff (30-state = dplus 15 + dminus 15, denser λ across the same span —
+    window COUNT is the lever, U0 still DESCENDS 105→97). This combined cntl is
+    the schedule SSOT that ``trackb_per_direction_structprep`` +
+    ``generate_per_direction_cntls`` then split (count-agnostically) into the
+    per-direction cntls (28→14/14, 30→15/15). The free/bound selectors are
+    INDEPENDENT (a bound densify does not perturb the free leg and vice-versa).
+    The valid bound schedules are ``v2_legacy.BOUND_SCHEDULES`` (the free-leg
+    densified38* ladders are NOT bound-valid — they fix the free-leg decoupling
+    crossover the receptor-held bound leg does not have).
     """
     leg_dir = os.path.join(out_root, endpoint, leg)
     if not os.path.isdir(leg_dir):
@@ -491,14 +506,30 @@ def setup_one_leg_v21(
     else:
         pos_restrained = []
 
-    # Resolve the λ schedule. densified34 applies to the FREE leg only; the
-    # bound leg always uses canonical 22-state (Path: receptor holds ligand →
-    # no decoupling crossover gap).
+    # Resolve the λ schedule. The free + bound selectors are INDEPENDENT:
+    # ``free_schedule`` (densified38*) applies to the FREE leg only; the
+    # densified38* ladders fix the free-leg decoupling crossover. The BOUND
+    # leg uses ``bound_schedule`` (densified_bound28) which closes the bound
+    # 6→7 cliff (λ0.30→0.35) BC=0 zero-overlap. Default canonical22 on both
+    # legs → schedule_dict=None → byte-equal to the historical cntl. The
+    # resulting combined bound cntl is the schedule SSOT that
+    # generate_per_direction_cntls splits (count-agnostically) into dplus/dminus.
     schedule_dict: Optional[Dict[str, Any]] = None
     schedule_name = v2_legacy.DEFAULT_FREE_SCHEDULE
     if leg == "free" and free_schedule != v2_legacy.DEFAULT_FREE_SCHEDULE:
         schedule_dict = v2_legacy.get_schedule(free_schedule)
         schedule_name = free_schedule
+    elif leg == "bound" and bound_schedule != v2_legacy.DEFAULT_BOUND_SCHEDULE:
+        if bound_schedule not in v2_legacy.BOUND_SCHEDULES:
+            raise ValueError(
+                f"bound_schedule {bound_schedule!r} is not valid for the bound "
+                f"leg; valid bound schedules: "
+                f"{sorted(v2_legacy.BOUND_SCHEDULES)}. The free-leg densified38* "
+                f"ladders fix the free-leg decoupling crossover, which the "
+                f"receptor-held bound leg does not have."
+            )
+        schedule_dict = v2_legacy.get_schedule(bound_schedule)
+        schedule_name = bound_schedule
 
     # Write nodefile + cntl
     nodefile_path = os.path.join(leg_dir, "nodefile")
@@ -776,15 +807,29 @@ def main() -> int:
                    help="smoke gate: 50 steps x 2 cycles x 1 leg")
     p.add_argument("--free-schedule", default=v2_legacy.DEFAULT_FREE_SCHEDULE,
                    choices=sorted(v2_legacy.SCHEDULES),
-                   help=("lambda ladder for the FREE leg only (Path "
-                         "lambda-densify spec 2026-06-05). 'canonical22' "
+                   help=("lambda ladder for the FREE leg only "
+                         "(lambda-densify spec, 2026-06-05). 'canonical22' "
                          "(default) = 22-state symmetric; 'densified38' = "
                          "REVISED 38-state ilogistic anneal ladder (softened "
                          "backward W0-peak + per-state alpha/U0 ramp) bridging "
                          "the lambda=0.45->0.50 decoupling crossover "
                          "(PRODUCTION); 'densified34' = DEPRECATED (Factor-B "
-                         "broken, forensic only). The bound leg always uses "
-                         "canonical22."))
+                         "broken, forensic only). The bound leg uses "
+                         "--bound-schedule (independent selector)."))
+    p.add_argument("--bound-schedule",
+                   default=v2_legacy.DEFAULT_BOUND_SCHEDULE,
+                   choices=sorted(v2_legacy.BOUND_SCHEDULES),
+                   help=("lambda ladder for the BOUND leg only "
+                         "(densified_bound28 spec 2026-06-11). 'canonical22' "
+                         "(default) = 22-state symmetric; 'densified_bound28' = "
+                         "28-state (dplus14 + dminus14) soft-core-bridge ladder "
+                         "closing the bound 6->7 cliff (lambda0.30->0.35) BC=0 "
+                         "zero-overlap; 'densified_bound30' = 4-window cap-1 "
+                         "escalation (30-state = dplus15 + dminus15, denser "
+                         "lambda across the same cliff span). The combined bound "
+                         "cntl is the schedule SSOT that per_direction_structprep "
+                         "+ generate_per_direction_cntls split count-agnostically "
+                         "(28->14/14, 30->15/15). Independent of --free-schedule."))
     p.add_argument("--skip-build", action="store_true",
                    help="skip system rebuild (use existing trackb.{pdb,sys.xml})")
     p.add_argument("--build-only", action="store_true",
@@ -799,6 +844,25 @@ def main() -> int:
                    help="spawn abfe_production in background (Popen) and return")
     p.add_argument("--no-charge-axis-gate", action="store_true",
                    help="skip the charge_axis verifier pre-flight (debug only)")
+    p.add_argument(
+        "--bound-directions",
+        default="dplus,dminus",
+        help=(
+            "Comma-separated bound-leg directions to build via "
+            "build_all_four_systems. The bound leg REQUIRES distinct "
+            "per-direction systems: dplus = bound-state base (binder at "
+            "binding-site coords, ~92855 particles), dminus = "
+            "dissociated-state base (binder pre-displaced to bulk solvent, "
+            "binding-site pocket re-hydrated by addSolvent, ~92804 "
+            "particles = -17 waters). The two systems describe physically "
+            "DISTINCT solvation environments and are NOT interchangeable. "
+            "Default 'dplus,dminus' emits trackb_sys_dplus.xml + "
+            "trackb_sys_dminus.xml so both walker directions start "
+            "clash-free. Pass 'dplus' only for legacy single-system "
+            "combined builds (free leg / forensic). Free legs ignore this "
+            "(direction-agnostic single system)."
+        ),
+    )
     args = p.parse_args()
 
     # CUDA pin (hardware contract — Track A V100 untouched)
@@ -840,18 +904,40 @@ def main() -> int:
         print("# smoke mode: restricted to cp4/bound "
               "(override with --endpoints/--legs)")
 
+    # Parse bound-leg directions. The bound leg requires per-direction
+    # systems (dplus = bound-state base / dminus = dissociated-state base,
+    # binding-site pocket re-hydrated). A combined-only ('dplus') build
+    # leaves the dminus walker starting against the wrong (bound) topology,
+    # so the dissociated-state base never exists and the alchemical
+    # perturbation is ill-defined.
+    bound_directions = tuple(
+        d.strip() for d in args.bound_directions.split(",") if d.strip()
+    )
+    if not bound_directions:
+        print("ERROR: --bound-directions must be non-empty "
+              "(use 'dplus,dminus' for the bound leg)", file=sys.stderr)
+        return 2
+    for d in bound_directions:
+        if d not in ("dplus", "dminus"):
+            print(f"ERROR: --bound-directions entry must be 'dplus' or "
+                  f"'dminus', got {d!r}", file=sys.stderr)
+            return 2
+
     # Step 1: build 4 systems via upstream wrapper
     build_meta: Dict[str, Any] = {}
     if not args.skip_build:
         from phase4_trackB_v2_make_system import build_all_four_systems
         print(f"\n=== BUILD 4 systems (upstream make_system) ===")
+        print(f"    bound_directions = {list(bound_directions)}")
         t0 = time.time()
         build_meta = build_all_four_systems(
             out_root=out_root,
             seed_tag=args.seed_tag,
             displacement_nm=displacement_nm,
+            bound_directions=bound_directions,
         )
         print(f"    build wall: {time.time() - t0:.1f} s")
+        build_meta["bound_directions"] = list(bound_directions)
         with open(os.path.join(out_root, "build_metadata.json"), "w") as fh:
             json.dump(build_meta, fh, indent=2)
     else:
@@ -906,6 +992,7 @@ def main() -> int:
                 checkpoint_time_s=args.checkpoint_time_s,
                 smoke=args.smoke,
                 free_schedule=args.free_schedule,
+                bound_schedule=args.bound_schedule,
             )
             setup_results.append(leg_info)
             print(f"    cntl: {leg_info['cntl_path']}")
@@ -1054,14 +1141,20 @@ def main() -> int:
             "u0_kcal": U0,
             "temperature_K": TEMP_K,
         },
-        # Per-leg free-leg schedule selector (Path lambda-densify spec
-        # 2026-06-05). Bound leg always canonical22; free_schedule applies to
-        # the free leg only. densified34 records the full 34-state arrays for
-        # Audit of the free=34/bound=22 asymmetry.
+        # Per-leg schedule selectors (lambda-densify spec 2026-06-05 +
+        # densified_bound28 spec 2026-06-11). free_schedule applies to the
+        # free leg only; bound_schedule applies to the bound leg only — they
+        # are INDEPENDENT. densified38*/densified_bound28 record the full
+        # per-state arrays for audit of the free/bound asymmetry.
         "free_schedule": args.free_schedule,
         "free_schedule_detail": (
             None if args.free_schedule == v2_legacy.DEFAULT_FREE_SCHEDULE
             else v2_legacy.get_schedule(args.free_schedule)
+        ),
+        "bound_schedule": args.bound_schedule,
+        "bound_schedule_detail": (
+            None if args.bound_schedule == v2_legacy.DEFAULT_BOUND_SCHEDULE
+            else v2_legacy.get_schedule(args.bound_schedule)
         ),
         "production_steps_per_cycle": (
             50 if args.smoke else args.production_steps

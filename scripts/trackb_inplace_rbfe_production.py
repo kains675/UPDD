@@ -205,6 +205,91 @@ def _csv(vals) -> str:
     return ", ".join(str(v) for v in vals)
 
 
+def _build_single_direction_schedule(
+    rbfe, *, construction: str, direction: str,
+    n_windows_half: int, softcore_band: int,
+    n_apex_bridge: int, apex_band: float,
+    lambda1_rampdown: Optional[List[float]] = None,
+) -> Dict[str, Any]:
+    """Build ONE standalone direction's schedule for the chosen construction.
+
+    ``single_core`` (default) -> ``build_rbfe_ladder(single_direction=...)`` (the
+    validated single-shared-core λ1==λ2 linear + apex anneal band ladder).
+    ``twocopy`` -> ``build_ats_standard_ladder(single_direction=...)`` (the
+    canonical ATS two-phase per-leg schedule, spec C: λ1=0/λ2 climbs then
+    λ2=0.5/λ1 climbs, single DIRECTION, Uh=110). The two-copy box's swap is a real
+    transfer, so it uses the ATS canon schedule, NOT the single-shared-core ladder.
+
+    ``lambda1_rampdown`` (two-copy ONLY): explicit leg-down λ1 knots that densify
+    the leg-switch handoff (e.g. ``[0.05,0.1,0.2,0.3,0.4,0.5]`` = a λ1=0.05 bridge
+    window => 12 λ/leg). ``None`` keeps the canonical uniform leg-down (11 λ/leg).
+    Ignored for single_core (it has no leg-switch boundary).
+    """
+    if construction == "twocopy":
+        return rbfe.build_ats_standard_ladder(
+            n_windows_half=n_windows_half, single_direction=direction,
+            lambda1_rampdown=lambda1_rampdown)
+    return rbfe.build_rbfe_ladder(
+        n_windows_half=n_windows_half, softcore_band=softcore_band,
+        n_apex_bridge=n_apex_bridge, apex_band=apex_band,
+        single_direction=direction)
+
+
+def _build_combined_schedule(
+    rbfe, *, construction: str,
+    n_windows_half: int, softcore_band: int,
+    n_apex_bridge: int, apex_band: float,
+    lambda1_rampdown: Optional[List[float]] = None,
+) -> Dict[str, Any]:
+    """Build the COMBINED symmetric schedule (the merge + UWHAM per-state SSOT).
+
+    The combined cntl MUST carry a +1 (dplus) block AND a -1 (dminus) block so
+    ``merge_per_direction_outputs`` derives (total, fwd) from its DIRECTION column.
+
+    ``single_core`` -> ``build_rbfe_ladder(single_direction=None)`` (the symmetric
+    forward+backward ladder, byte-identical to the pre-existing behaviour).
+    ``twocopy`` -> the concatenation of the forward + backward ATS standard
+    schedules (forward DIRECTION=+1 block then backward DIRECTION=-1 block), the
+    ATS-standard analogue of the symmetric ladder. fwd_count = n_states of one
+    direction (e.g. 11 for n_windows_half=6), total = 2 * that.
+    """
+    if construction != "twocopy":
+        return rbfe.build_rbfe_ladder(
+            n_windows_half=n_windows_half, softcore_band=softcore_band,
+            n_apex_bridge=n_apex_bridge, apex_band=apex_band,
+            single_direction=None)
+
+    fwd = rbfe.build_ats_standard_ladder(
+        n_windows_half=n_windows_half, single_direction="forward",
+        lambda1_rampdown=lambda1_rampdown)
+    bwd = rbfe.build_ats_standard_ladder(
+        n_windows_half=n_windows_half, single_direction="backward",
+        lambda1_rampdown=lambda1_rampdown)
+    # Concatenate the two standalone halves (forward +1 block, backward -1 block)
+    # — the symmetric combined ladder the merge + UWHAM consume. Per-state arrays
+    # are joined; scalar canon (umax/ubcore/acore/temperature) is shared.
+    combined: Dict[str, Any] = {
+        "lambdas": list(fwd["lambdas"]) + list(bwd["lambdas"]),
+        "lambdas_1": list(fwd["lambdas_1"]) + list(bwd["lambdas_1"]),
+        "lambdas_2": list(fwd["lambdas_2"]) + list(bwd["lambdas_2"]),
+        "directions": list(fwd["directions"]) + list(bwd["directions"]),
+        "intermd": list(fwd["intermd"]) + list(bwd["intermd"]),
+        "alpha": list(fwd["alpha"]) + list(bwd["alpha"]),
+        "u0": list(fwd["u0"]) + list(bwd["u0"]),
+        "w0": list(fwd["w0"]) + list(bwd["w0"]),
+        "umax": fwd["umax"], "ubcore": fwd["ubcore"], "acore": fwd["acore"],
+        "n_states": fwd["n_states"] + bwd["n_states"],
+        "n_windows_half": fwd["n_states"],
+        "schedule_kind": "ats_standard",
+        "single_direction": None,
+        "temperature_K": fwd["temperature_K"],
+        "schedule_name": "ats_standard_combined_%dw" % (
+            fwd["n_states"] + bwd["n_states"],),
+        "regime": "ranking_only",
+    }
+    return combined
+
+
 def _write_combined_cntl(cntl_path: str, schedule: Dict[str, Any], leg: str,
                          md_steps: int, timestep_fs: float) -> None:
     """Write the COMBINED symmetric-ladder cntl (the per-state SSOT).
@@ -393,6 +478,8 @@ def run_one_direction(
     rng_seed: int,
     minimize_iters: int,
     backward_equil_steps: int,
+    construction: str = "single_core",
+    lambda1_rampdown: Optional[List[float]] = None,
 ) -> Dict[str, Any]:
     """Run ONE standalone direction ladder and write its per-walker .out tree.
 
@@ -401,15 +488,19 @@ def run_one_direction(
     NaN fail-fast: if ANY cycle sees a NaN the run RAISES (no silent UWHAM on a
     corrupt sample set) and records which states NaN'd.
 
+    ``construction`` selects the schedule (single_core -> the validated single-
+    shared-core ladder; twocopy -> the canonical ATS standard schedule).
+
     Returns a per-direction manifest (schedule, mixing gate, per-cycle integrity).
     """
     direction = DIRECTION_OF_TAG[direction_tag]
     os.makedirs(subdir, exist_ok=True)
 
-    schedule = rbfe.build_rbfe_ladder(
+    schedule = _build_single_direction_schedule(
+        rbfe, construction=construction, direction=direction,
         n_windows_half=n_windows_half, softcore_band=softcore_band,
         n_apex_bridge=n_apex_bridge, apex_band=apex_band,
-        single_direction=direction)
+        lambda1_rampdown=lambda1_rampdown)
     base = JOBNAME + "_" + direction_tag
 
     cntl_path = os.path.join(subdir, base + "_asyncre.cntl")
@@ -479,6 +570,8 @@ def run_one_direction(
         "cntl_path": cntl_path,
         "driver_log": log_path,
         "platform": ladder.platform_name,
+        "construction": construction,
+        "schedule_kind": schedule.get("schedule_kind", "rbfe_ladder"),
         "n_states": schedule["n_states"],
         "n_windows_half": schedule["n_windows_half"],
         "n_apex_bridge": schedule.get("n_apex_bridge"),
@@ -534,15 +627,32 @@ def run_one_replicate(
     mtr_ncaa_xml: Optional[str],
     binder_chain: str,
     archive_existing: bool,
+    reuse_serialized: bool = False,
+    construction: str = "single_core",
+    displacement_nm: Optional[float] = None,
+    lambda1_rampdown: Optional[List[float]] = None,
 ) -> Dict[str, Any]:
-    """Run one matched-seed replicate of one (endpoint, leg): both directions +
-    merge into the combined leg dir UWHAM consumes.
+    """Run one matched-seed replicate of one (endpoint, leg): the requested
+    direction(s) + (when BOTH ran) merge into the combined leg dir UWHAM consumes.
 
     The per-replicate Langevin RNG seed is distinct (replicate_index+1 offset)
     so the replicates are genuinely independent (sigma_btwn meaningful).
+
+    ``reuse_serialized`` (box reuse): when True AND a saved box
+    (``inplace_rbfe_<leg>_sys.xml`` + ``inplace_rbfe_<leg>.pdb``) already exists
+    in the rep dir, the box is NOT re-serialized (no re-solvation) — the existing
+    box_A is loaded as-is and the C8 decouple direction is RE-DERIVED from that
+    box's own geometry. This is the path for re-running a single direction
+    (``--directions dminus``) against the SAME box the producing direction
+    (dplus) used, so the two directions' ``.out`` stitch in UWHAM. It is meant
+    with ``archive_existing=False`` so the existing dplus subdir is preserved;
+    only the requested direction's subdir is (re)written.
     """
     rep_dir = _rep_dir(out_root, endpoint, leg, replicate_index)
     # C12 R-7: archive (never delete) an existing rep dir before a fresh run.
+    # Box reuse keeps the rep dir in place (do NOT archive — that would move the
+    # producing direction's outputs away); the reuse path requires the box, and
+    # is meant to be paired with archive_existing=False (see launcher gate).
     if archive_existing and os.path.isdir(rep_dir) and os.listdir(rep_dir):
         ts = time.strftime("%Y%m%d_%H%M%S")
         archive_root = os.path.join(out_root, "_archive",
@@ -552,21 +662,63 @@ def run_one_replicate(
         shutil.move(rep_dir, archive_root)
     os.makedirs(rep_dir, exist_ok=True)
 
-    # 1) Serialize the in-place fused System for this leg (C1: free leg gets its
-    #    OWN in-place RBFE box; the build picks free vs bound topology + the
-    #    bound decouple direction). The serialized System carries the genuine
-    #    ATMForce (so the in-process adapter never rebuilds it).
-    ser = rbfe.serialize_inplace_rbfe_system(
-        leg=leg, out_dir=rep_dir, seed=seed, binder_chain=binder_chain,
-        solvate=True, harmonize_common_charges=False, swap_mode="genuine",
-        genuine_decouple_nm=genuine_decouple_nm, mtr_ncaa_xml=mtr_ncaa_xml,
-        constraints=None, tag=leg)
-
-    # C8 SIGN-critical: validate the bound-leg decouple direction (fail loud).
-    c8 = gate_decouple_direction(leg, ser.get("genuine_decouple_dir"),
-                                 raise_on_fail=True)
-
-    loaded = rbfe.load_serialized_system(ser["sys_xml_path"], ser["pdb_path"])
+    # 1) Obtain the in-place fused System for this leg. Two paths:
+    #    (a) FRESH (default): serialize a new box (C1: each leg gets its OWN
+    #        in-place RBFE box; the build picks free vs bound topology + the
+    #        bound decouple direction). The serialized System carries the genuine
+    #        ATMForce (so the in-process adapter never rebuilds it).
+    #    (b) REUSE (--reuse-serialized, box present): load the EXISTING box_A
+    #        without re-solvating, and re-derive the C8 decouple direction from
+    #        that box's geometry — so a single-direction re-run samples the SAME
+    #        box the producing direction used (UWHAM stitch validity).
+    reuse_xml = os.path.join(rep_dir, "inplace_rbfe_%s_sys.xml" % (leg,))
+    reuse_pdb = os.path.join(rep_dir, "inplace_rbfe_%s.pdb" % (leg,))
+    reused_box = (reuse_serialized
+                  and os.path.isfile(reuse_xml) and os.path.isfile(reuse_pdb))
+    if reused_box:
+        loaded = rbfe.load_serialized_system(reuse_xml, reuse_pdb)
+        decouple_dir = rbfe.recompute_decouple_direction_from_loaded(
+            loaded, binder_chain=binder_chain,
+            decouple_nm=genuine_decouple_nm)
+        # C8 SIGN-critical: validate the RE-DERIVED bound-leg direction (fail
+        # loud). For the bound leg this must be a finite unit outward vector.
+        c8 = gate_decouple_direction(leg, decouple_dir, raise_on_fail=True)
+        c8["source"] = "reused_box_recomputed"
+        ser = {
+            "sys_xml_path": reuse_xml,
+            "pdb_path": reuse_pdb,
+            "n_atoms": loaded["n_atoms"],
+            "genuine_decouple_dir": decouple_dir,
+            "reused": True,
+        }
+    else:
+        if reuse_serialized:
+            # Asked to reuse but the box is absent — fail loud (do NOT silently
+            # fall back to a fresh re-serialize, which would build a DIFFERENT
+            # box and break the same-box UWHAM stitch the flag exists to keep).
+            raise RuntimeError(
+                "run_one_replicate(reuse_serialized=True): the saved box is "
+                "missing for %s/%s rep%d — expected\n  %s\n  %s\nA single-"
+                "direction reuse run REQUIRES the producing direction's box_A "
+                "(re-serializing would build a different box and break the "
+                "UWHAM stitch). Stage the box first." % (
+                    endpoint, leg, replicate_index, reuse_xml, reuse_pdb))
+        serialize_kwargs = dict(
+            leg=leg, out_dir=rep_dir, seed=seed, binder_chain=binder_chain,
+            solvate=True, harmonize_common_charges=False, swap_mode="genuine",
+            genuine_decouple_nm=genuine_decouple_nm, mtr_ncaa_xml=mtr_ncaa_xml,
+            constraints=None, tag=leg, construction=construction)
+        # displacement_nm is two-copy-only; pass it through only when set so the
+        # single-core path signature is unaffected (the rbfe serialize uses the
+        # canonical ATS default when None).
+        if construction == "twocopy" and displacement_nm is not None:
+            serialize_kwargs["displacement_nm"] = displacement_nm
+        ser = rbfe.serialize_inplace_rbfe_system(**serialize_kwargs)
+        # C8 SIGN-critical: validate the bound-leg decouple direction (fail loud).
+        c8 = gate_decouple_direction(leg, ser.get("genuine_decouple_dir"),
+                                     raise_on_fail=True)
+        c8["source"] = "fresh_serialize"
+        loaded = rbfe.load_serialized_system(ser["sys_xml_path"], ser["pdb_path"])
 
     # 2) Run each requested direction as a STANDALONE ladder. The per-replicate
     #    velocity/exchange RNG seed differs per replicate (genuine independence).
@@ -583,16 +735,18 @@ def run_one_replicate(
             n_cycles=n_cycles, md_steps_per_cycle=md_steps_per_cycle,
             platform_name=platform_name, timestep_fs=timestep_fs,
             rng_seed=rng_seed, minimize_iters=minimize_iters,
-            backward_equil_steps=backward_equil_steps)
+            backward_equil_steps=backward_equil_steps,
+            construction=construction, lambda1_rampdown=lambda1_rampdown)
 
     # 3) Write the COMBINED symmetric cntl (the SSOT for merge + UWHAM) +, when
     #    BOTH directions ran, merge the per-direction outputs into r*/trackb.out.
     merged = None
     if set(directions) == set(DIRECTION_TAGS):
-        combined_schedule = rbfe.build_rbfe_ladder(
+        combined_schedule = _build_combined_schedule(
+            rbfe, construction=construction,
             n_windows_half=n_windows_half, softcore_band=softcore_band,
             n_apex_bridge=n_apex_bridge, apex_band=apex_band,
-            single_direction=None)
+            lambda1_rampdown=lambda1_rampdown)
         combined_cntl = os.path.join(leg_dir, JOBNAME + "_asyncre.cntl")
         _write_combined_cntl(combined_cntl, combined_schedule, leg,
                              md_steps_per_cycle, timestep_fs)
@@ -611,17 +765,21 @@ def run_one_replicate(
     manifest = {
         "endpoint": endpoint,
         "leg": leg,
+        "construction": construction,
         "replicate_index": replicate_index,
         "seed": seed,
         "rep_dir": leg_dir,
         "rng_seed": rng_seed,
         "directions": list(directions),
         "c8_decouple_gate": c8,
+        "reused_box": reused_box,
         "serialize": {
             "sys_xml_path": ser["sys_xml_path"],
             "pdb_path": ser["pdb_path"],
             "n_atoms": ser["n_atoms"],
             "genuine_decouple_dir": ser.get("genuine_decouple_dir"),
+            "reused": bool(ser.get("reused")),
+            "construction": ser.get("construction", construction),
         },
         "per_direction": per_direction,
         "merged": merged,
@@ -656,6 +814,10 @@ def run_leg(
     mtr_ncaa_xml: Optional[str],
     binder_chain: str,
     archive_existing: bool,
+    reuse_serialized: bool = False,
+    construction: str = "single_core",
+    displacement_nm: Optional[float] = None,
+    lambda1_rampdown: Optional[List[float]] = None,
 ) -> Dict[str, Any]:
     """Run all matched-seed replicates of one (endpoint, leg)."""
     rbfe = _load_rbfe()
@@ -674,10 +836,14 @@ def run_leg(
             backward_equil_steps=backward_equil_steps,
             genuine_decouple_nm=genuine_decouple_nm,
             mtr_ncaa_xml=mtr_ncaa_xml, binder_chain=binder_chain,
-            archive_existing=archive_existing))
+            archive_existing=archive_existing,
+            reuse_serialized=reuse_serialized,
+            construction=construction, displacement_nm=displacement_nm,
+            lambda1_rampdown=lambda1_rampdown))
     return {
         "endpoint": endpoint,
         "leg": leg,
+        "construction": construction,
         "n_replicates": len(reps),
         "replicates": reps,
     }
@@ -972,6 +1138,7 @@ def run_pool_local(
     max_concurrent: int,
     ladder_args: Dict[str, Any],
     archive_existing: bool,
+    reuse_serialized: bool = False,
 ) -> Dict[str, Any]:
     """Launch all (endpoint, seed) units of one leg as a CONCURRENT local pool.
 
@@ -1025,8 +1192,23 @@ def run_pool_local(
         ]
         if ladder_args.get("mtr_ncaa_xml"):
             cmd += ["--mtr-ncaa-xml", ladder_args["mtr_ncaa_xml"]]
+        # Two-copy construction (opt-in) — propagate the flag + displacement so
+        # the worker builds the SAME box the dispatcher requested.
+        if ladder_args.get("construction") == "twocopy":
+            cmd.append("--twocopy")
+            if ladder_args.get("displacement_nm") is not None:
+                cmd += ["--displacement-nm",
+                        str(ladder_args["displacement_nm"])]
+            # Leg-down densification knots (two-copy-only): thread the same
+            # comma-list the dispatcher parsed so the worker builds the SAME
+            # ladder (e.g. the λ1=0.05 leg-switch bridge => 12 λ/leg).
+            if ladder_args.get("lambda1_rampdown") is not None:
+                cmd += ["--lambda1-rampdown",
+                        ",".join(str(x) for x in ladder_args["lambda1_rampdown"])]
         if not archive_existing:
             cmd.append("--no-archive-existing")
+        if reuse_serialized:
+            cmd.append("--reuse-serialized")
         logfh = open(log_path, "w")
         proc = subprocess.Popen(cmd, stdout=logfh, stderr=subprocess.STDOUT,
                                 env=env, cwd=_PROJ)
@@ -1088,6 +1270,26 @@ def _parse_directions(raw: Optional[str]) -> List[str]:
     return dirs
 
 
+def _parse_lambda1_rampdown(raw: Optional[str]) -> Optional[List[float]]:
+    """Parse the --lambda1-rampdown comma list into floats (fail loud).
+
+    ``None`` / empty -> ``None`` (canonical uniform leg-down). The per-knot
+    range / monotonicity / endpoint validation lives in build_ats_standard_ladder
+    (the SSOT); this only turns the CLI string into floats.
+    """
+    if not raw:
+        return None
+    knots = [s.strip() for s in raw.split(",") if s.strip()]
+    if not knots:
+        raise ValueError("--lambda1-rampdown parsed to an empty list")
+    try:
+        return [float(x) for x in knots]
+    except ValueError as exc:
+        raise ValueError(
+            "--lambda1-rampdown must be a comma list of floats, got %r (%s)"
+            % (raw, exc))
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         description="Track B in-place residue-4 RBFE per-direction production "
@@ -1107,9 +1309,32 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "both, required for the merge + UWHAM cycle).")
     p.add_argument("--out-root", default=None,
                    help="Output root (default outputs/_trackb/inplace_rbfe_prod).")
+    p.add_argument("--twocopy", action="store_true",
+                   help="Use the CANONICAL ATS TWO-COPY box (copy-1 MTR at site + "
+                        "copy-2 WT displaced into bulk, common-coord swap, real "
+                        "transfer) instead of the legacy single-shared-core box. "
+                        "Selects construction='twocopy' AND the canonical ATS "
+                        "standard schedule (spec C: λ1=0/λ2 climbs then "
+                        "λ2=0.5/λ1 climbs; n_windows_half=6 => 11 λ/leg). DEFAULT "
+                        "OFF = single_core (legacy, byte-identical).")
+    p.add_argument("--displacement-nm", type=float, default=None,
+                   help="Two-copy ONLY: magnitude of the copy-2 bulk displacement "
+                        "d (nm; ATS peptide convention ~4.0 = 40 A). Default None "
+                        "=> the canonical ATS_TWOCOPY_DISPLACEMENT_NM.")
+    p.add_argument("--lambda1-rampdown", default=None,
+                   help="Two-copy ONLY: comma list of explicit leg-down λ1 knots "
+                        "to densify the leg-switch handoff (each in (0,0.5], "
+                        "strictly increasing, ending at 0.5; the apex λ1=0 state "
+                        "is placed by the leg-up phase). E.g. "
+                        "0.05,0.1,0.2,0.3,0.4,0.5 inserts a λ1=0.05 bridge window "
+                        "=> 12 λ/leg. Default None => the canonical uniform "
+                        "leg-down (11 λ/leg). Interior-λ reshaping = ΔG-unbiased "
+                        "(ranking-only, R-11); soft-core canon untouched (C7).")
     p.add_argument("--n-windows-half", type=int, default=6,
                    help="Forward-half window count (the fork-validated default "
-                        "6; C6 escalation densifies thin pairs up to the cap).")
+                        "6; C6 escalation densifies thin pairs up to the cap). "
+                        "For --twocopy this is the ATS leg-up phase length "
+                        "(n=6 => 11 λ states per leg, the spec C count).")
     p.add_argument("--softcore-band", type=int, default=2)
     p.add_argument("--n-apex-bridge", type=int, default=0)
     p.add_argument("--apex-band", type=float, default=0.5)
@@ -1133,6 +1358,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-archive-existing", action="store_true",
                    help="Do NOT archive (R-7) an existing rep dir before a "
                         "fresh run (default archives).")
+    p.add_argument("--reuse-serialized", action="store_true",
+                   help="Box reuse: if a saved box "
+                        "(inplace_rbfe_<leg>_sys.xml + .pdb) already exists in a "
+                        "rep dir, LOAD it instead of re-serializing (no re-"
+                        "solvation), and RE-DERIVE the C8 decouple direction "
+                        "from that box. Use with --no-archive-existing and a "
+                        "single --directions value to re-run one direction "
+                        "against the SAME box the producing direction used "
+                        "(UWHAM stitch validity). Fails loud if the box is "
+                        "absent (no silent fresh re-serialize).")
     p.add_argument("--analyze-only", action="store_true",
                    help="Skip the run; UWHAM-analyze already-completed leg dirs.")
     p.add_argument("--dry-run", action="store_true",
@@ -1170,8 +1405,23 @@ def main(argv: Optional[List[str]] = None) -> int:
     seeds = _parse_seeds(args.seeds)
     directions = _parse_directions(args.directions)
     leg = args.leg
+    construction = "twocopy" if args.twocopy else "single_core"
+    displacement_nm = args.displacement_nm
+    lambda1_rampdown = _parse_lambda1_rampdown(args.lambda1_rampdown)
 
     mintimeid = None if args.mintimeid == -1 else args.mintimeid
+
+    # Box-reuse safety gate: --reuse-serialized MUST be paired with
+    # --no-archive-existing. Otherwise run_one_replicate archives (shutil.move)
+    # the existing rep dir BEFORE the reuse load could find the box — which both
+    # destroys the producing direction's outputs AND removes the box the reuse
+    # path needs. Fail loud rather than silently moving box_A + dplus away.
+    if args.reuse_serialized and not args.no_archive_existing:
+        print("ERROR: --reuse-serialized requires --no-archive-existing "
+              "(otherwise the existing rep dir — box_A + the producing "
+              "direction's outputs — is archived/moved before the reuse load).",
+              file=sys.stderr)
+        return 2
 
     # WORKER MODE: run exactly ONE (endpoint, leg, replicate) unit (both
     # directions + merge) and exit. The pool dispatcher re-invokes this with a
@@ -1202,7 +1452,10 @@ def main(argv: Optional[List[str]] = None) -> int:
                 backward_equil_steps=args.backward_equil_steps,
                 genuine_decouple_nm=args.genuine_decouple_nm,
                 mtr_ncaa_xml=args.mtr_ncaa_xml, binder_chain=args.binder_chain,
-                archive_existing=not args.no_archive_existing)
+                archive_existing=not args.no_archive_existing,
+                reuse_serialized=args.reuse_serialized,
+                construction=construction, displacement_nm=displacement_nm,
+                lambda1_rampdown=lambda1_rampdown)
         except Exception as exc:  # noqa: BLE001 — surface as non-zero worker exit
             print("WORKER FAILED %s/%s rep%d: %s"
                   % (args.worker_endpoint, leg, args.worker_replicate, exc),
@@ -1220,6 +1473,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         "n_cycles": args.n_cycles, "md_steps_per_cycle": args.md_steps_per_cycle,
         "platform": args.platform, "timestep_fs": args.timestep_fs,
         "genuine_decouple_nm": args.genuine_decouple_nm,
+        "construction": construction, "displacement_nm": displacement_nm,
+        "lambda1_rampdown": lambda1_rampdown,
         "out_root": out_root, "mintimeid": mintimeid,
     }
 
@@ -1228,21 +1483,37 @@ def main(argv: Optional[List[str]] = None) -> int:
     print("C11 pre-registration -> %s" % (prereg_path,))
 
     if args.dry_run:
-        print(json.dumps({
-            "plan": {
-                "leg": leg,
-                "endpoints": endpoints,
-                "seeds (n=%d)" % len(seeds): seeds,
-                "directions": directions,
-                "ladder": "%d windows/half, softcore_band=%d, apex_bridge=%d"
-                          % (args.n_windows_half, args.softcore_band,
-                             args.n_apex_bridge),
-                "cycles": args.n_cycles,
-                "runs": len(endpoints) * len(seeds) * len(directions),
-                "out_root": out_root,
-            },
-            "config": config,
-        }, indent=2, default=str))
+        plan = {
+            "leg": leg,
+            "construction": construction,
+            "endpoints": endpoints,
+            "seeds (n=%d)" % len(seeds): seeds,
+            "directions": directions,
+            "ladder": "%d windows/half, softcore_band=%d, apex_bridge=%d"
+                      % (args.n_windows_half, args.softcore_band,
+                         args.n_apex_bridge),
+            "cycles": args.n_cycles,
+            "runs": len(endpoints) * len(seeds) * len(directions),
+            "out_root": out_root,
+        }
+        if construction == "twocopy":
+            # Surface the two-copy ATS schedule shape (n_windows_half=6 => 11 λ/leg;
+            # with --lambda1-rampdown the leg-down is densified => 12 λ/leg).
+            rbfe_mod = _load_rbfe()
+            sch = rbfe_mod.build_ats_standard_ladder(
+                n_windows_half=args.n_windows_half, single_direction="forward",
+                lambda1_rampdown=lambda1_rampdown)
+            plan["schedule_kind"] = "ats_standard"
+            plan["n_lambda_per_leg"] = sch["n_states"]
+            plan["lambdas_1"] = sch["lambdas_1"]
+            plan["lambdas_2"] = sch["lambdas_2"]
+            plan["lambda1_rampdown"] = lambda1_rampdown
+            plan["u0_kcal"] = sch["u0"][0]
+            plan["displacement_nm"] = (
+                displacement_nm if displacement_nm is not None
+                else "default (ATS_TWOCOPY_DISPLACEMENT_NM)")
+        print(json.dumps({"plan": plan, "config": config}, indent=2,
+                         default=str))
         return 0
 
     if not args.analyze_only:
@@ -1267,6 +1538,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             "backward_equil_steps": args.backward_equil_steps,
             "genuine_decouple_nm": args.genuine_decouple_nm,
             "mtr_ncaa_xml": args.mtr_ncaa_xml, "binder_chain": args.binder_chain,
+            "construction": construction, "displacement_nm": displacement_nm,
+            "lambda1_rampdown": lambda1_rampdown,
         }
 
         if args.pool:
@@ -1291,7 +1564,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                 out_root=out_root, leg=leg, endpoints=endpoints, seeds=seeds,
                 directions=directions, device_index=args.device_index,
                 max_concurrent=max_conc, ladder_args=ladder_args,
-                archive_existing=not args.no_archive_existing)
+                archive_existing=not args.no_archive_existing,
+                reuse_serialized=args.reuse_serialized)
             print("[pool/%s] drained in %.1f s; all_ok=%s"
                   % (leg, time.time() - t0, pool_result["all_ok"]))
             with open(os.path.join(out_root, "pool_manifest_%s.json" % (leg,)),
@@ -1316,7 +1590,10 @@ def main(argv: Optional[List[str]] = None) -> int:
                     genuine_decouple_nm=args.genuine_decouple_nm,
                     mtr_ncaa_xml=args.mtr_ncaa_xml,
                     binder_chain=args.binder_chain,
-                    archive_existing=not args.no_archive_existing)
+                    archive_existing=not args.no_archive_existing,
+                    reuse_serialized=args.reuse_serialized,
+                    construction=construction, displacement_nm=displacement_nm,
+                    lambda1_rampdown=lambda1_rampdown)
                 print("[%s/%s] done in %.1f s (%d replicates)"
                       % (endpoint, leg, time.time() - t0,
                          leg_result["n_replicates"]))

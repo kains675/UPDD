@@ -161,7 +161,16 @@ def classify(
         for p in pairs:
             is_bottleneck = p.bc < cfg.bottleneck_floor
             if p.mbar_o is not None:
-                # MBAR-O is the primary gate when available.
+                # MBAR-O supersedes BC the instant it is non-None. This is
+                # DORMANT (P6 BC3): classify() / estimate_overlap are
+                # UNWIRED from every production gate (no production caller
+                # imports them — only __init__ exports + tests), so MBAR-O does
+                # NOT gate anything today. Promoting MBAR-O to a PRIMARY gate in
+                # a WIRED context is a SEPARATE Stage-2 decision needing its OWN
+                # verdict (BC5: O-floor + min-N + bootstrap-CI-on-O, because a
+                # ~20-sample pilot O is itself noisy). P6 made the soft-core O
+                # physically correct but did NOT promote it — BC (Gaussian
+                # Bhattacharyya) remains the always-available gate proxy.
                 is_bottleneck = (
                     is_bottleneck or p.mbar_o < cfg.mbar_well_determined_floor
                 )

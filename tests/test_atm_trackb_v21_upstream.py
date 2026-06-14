@@ -266,6 +266,234 @@ def test_v21_helpers_reused_from_v2(v21):
 
 
 # ---------------------------------------------------------------------------
+# --bound-schedule wiring (densified_bound28 per-direction-path plumbing)
+# ---------------------------------------------------------------------------
+def _load_per_direction_production():
+    """Load scripts/trackb_per_direction_production.py (cntl-split helpers
+    are atom_openmm-free; the GPU dispatch path is not exercised here)."""
+    spec = importlib.util.spec_from_file_location(
+        "trackb_per_direction_production",
+        os.path.join(_PROJ, "scripts", "trackb_per_direction_production.py"),
+    )
+    if spec is None or spec.loader is None:
+        pytest.skip(
+            "could not locate scripts/trackb_per_direction_production.py"
+        )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_v21_bound_schedule_registry_is_v2_ssot(v21):
+    """The bound-schedule registry is the SINGLE SSOT in v2 — v2.1 only
+    imports it (no duplicate definition). The free-leg densified38* ladders
+    must NOT be bound-valid."""
+    assert v21.v2_legacy.DEFAULT_BOUND_SCHEDULE == "canonical22"
+    assert v21.v2_legacy.BOUND_SCHEDULES == frozenset(
+        {"canonical22", "densified_bound28", "densified_bound30"}
+    )
+    # free-leg densified38* are not bound-valid
+    assert "densified38" not in v21.v2_legacy.BOUND_SCHEDULES
+    assert "densified38v4" not in v21.v2_legacy.BOUND_SCHEDULES
+    # v2.1 module does NOT redefine the registry (import-only SSOT)
+    assert not hasattr(v21, "BOUND_SCHEDULES") or (
+        v21.BOUND_SCHEDULES is v21.v2_legacy.BOUND_SCHEDULES
+    )
+
+
+def test_v21_bound_default_cntl_byte_equal_canonical22(v21, tmp_path):
+    """bound_schedule default (canonical22) → schedule=None path → byte-equal
+    to an explicit canonical22 None-schedule cntl (no regression)."""
+    lig = list(range(10))
+    restr = list(range(10, 20))
+    kw = dict(
+        basename="trackb",
+        nodefile_path=str(tmp_path / "nodefile"),
+        ligand_atom_indices=lig,
+        pos_restrained_atom_indices=restr,
+        displacement_nm=(2.5, 0.0, 0.0),
+        production_steps=2500,
+        prnt_frequency=2500,
+        trj_frequency=25000,
+        wall_time_min=720,
+        cycle_time_s=10,
+        checkpoint_time_s=600,
+    )
+    # Default bound resolution = schedule_dict None (canonical22).
+    p_default = tmp_path / "default.cntl"
+    v21.write_cntl_file(cntl_path=str(p_default), schedule=None, **kw)
+    # Explicit canonical22 None-schedule cntl.
+    p_canon = tmp_path / "canon.cntl"
+    v21.write_cntl_file(cntl_path=str(p_canon), schedule=None, **kw)
+    assert p_default.read_text() == p_canon.read_text()
+    # The canonical cntl carries 22-state arrays.
+    body = p_default.read_text()
+    for line in body.splitlines():
+        if line.strip().startswith("LAMBDA1 ="):
+            inner = line.split("=", 1)[1].strip().strip("'\"")
+            assert len([t for t in inner.split(",") if t.strip()]) == 22
+
+
+def test_v21_bound_densified28_cntl_is_28_state_with_bridge(v21, tmp_path):
+    """--bound-schedule densified_bound28 → write_cntl_file emits a 28-state
+    (dplus14 + dminus14) cntl whose forward LAMBDA1 carries the W0-graded
+    soft-core bridge windows (W0COEFF 0.20 / 0.45 / 0.70) at the 6→7 cliff."""
+    sched = v21.v2_legacy.get_schedule("densified_bound28")
+    p = tmp_path / "bound28.cntl"
+    v21.write_cntl_file(
+        cntl_path=str(p),
+        basename="trackb",
+        nodefile_path=str(tmp_path / "nodefile"),
+        ligand_atom_indices=list(range(10)),
+        pos_restrained_atom_indices=list(range(10, 20)),
+        displacement_nm=(2.5, 0.0, 0.0),
+        production_steps=2500,
+        prnt_frequency=2500,
+        trj_frequency=25000,
+        wall_time_min=720,
+        cycle_time_s=10,
+        checkpoint_time_s=600,
+        schedule=sched,
+    )
+    body = p.read_text()
+
+    def _row(key):
+        for line in body.splitlines():
+            if line.strip().startswith(key + " ="):
+                inner = line.split("=", 1)[1].strip().strip("'\"")
+                return [t.strip() for t in inner.split(",") if t.strip()]
+        raise AssertionError(f"no {key} row in cntl")
+
+    # 28-state symmetric (14 forward + 14 backward).
+    direction = [int(float(x)) for x in _row("DIRECTION")]
+    assert len(direction) == 28
+    assert sum(1 for d in direction if d >= 0) == 14
+    assert sum(1 for d in direction if d < 0) == 14
+    for key in ("LAMBDA1", "LAMBDA2", "ALPHA", "U0", "W0COEFF", "INTERMEDIATE"):
+        assert len(_row(key)) == 28, f"{key} must be 28-state"
+
+    # The bridge W0 ramp (0.20 / 0.45 / 0.70) appears in the forward block.
+    w0_fwd = [float(x) for x in _row("W0COEFF")][:14]
+    assert 0.20 in w0_fwd
+    assert 0.45 in w0_fwd
+    assert 0.70 in w0_fwd
+
+
+def test_v21_bound_densified30_resolves_and_is_30_state(v21, tmp_path):
+    """--bound-schedule densified_bound30 resolves through the v2 SSOT registry
+    (BOUND_SCHEDULES validation) and write_cntl_file emits a 30-state
+    (dplus15 + dminus15) cntl with 4 soft-core bridge windows whose U0 DESCENDS
+    105→97 (MC-1). The free-leg densified38* ladders remain bound-INVALID."""
+    assert "densified_bound30" in v21.v2_legacy.BOUND_SCHEDULES
+    assert "densified38v4" not in v21.v2_legacy.BOUND_SCHEDULES
+    sched = v21.v2_legacy.get_schedule("densified_bound30")
+    p = tmp_path / "bound30.cntl"
+    v21.write_cntl_file(
+        cntl_path=str(p),
+        basename="trackb",
+        nodefile_path=str(tmp_path / "nodefile"),
+        ligand_atom_indices=list(range(10)),
+        pos_restrained_atom_indices=list(range(10, 20)),
+        displacement_nm=(2.5, 0.0, 0.0),
+        production_steps=2500,
+        prnt_frequency=2500,
+        trj_frequency=25000,
+        wall_time_min=720,
+        cycle_time_s=10,
+        checkpoint_time_s=600,
+        schedule=sched,
+    )
+    body = p.read_text()
+
+    def _row(key):
+        for line in body.splitlines():
+            if line.strip().startswith(key + " ="):
+                inner = line.split("=", 1)[1].strip().strip("'\"")
+                return [t.strip() for t in inner.split(",") if t.strip()]
+        raise AssertionError(f"no {key} row in cntl")
+
+    # 30-state symmetric (15 forward + 15 backward).
+    direction = [int(float(x)) for x in _row("DIRECTION")]
+    assert len(direction) == 30
+    assert sum(1 for d in direction if d >= 0) == 15
+    assert sum(1 for d in direction if d < 0) == 15
+    for key in ("LAMBDA1", "LAMBDA2", "ALPHA", "U0", "W0COEFF", "INTERMEDIATE"):
+        assert len(_row(key)) == 30, f"{key} must be 30-state"
+
+    # 4 soft-core bridge windows in the forward block; U0 strictly DESCENDS.
+    w0_fwd = [float(x) for x in _row("W0COEFF")][:15]
+    u0_fwd = [float(x) for x in _row("U0")][:15]
+    bridge_u0 = [u for w, u in zip(w0_fwd, u0_fwd) if 0.0 < w < 1.0]
+    assert len(bridge_u0) == 4
+    assert all(a > b for a, b in zip(bridge_u0, bridge_u0[1:])), (
+        f"U0 must strictly descend across the bridge (MC-1); got {bridge_u0!r}")
+
+
+def test_v21_bound_densified28_cntl_splits_14_14(v21, tmp_path):
+    """The 28-state combined bound cntl from --bound-schedule densified_bound28
+    is split by generate_per_direction_cntls into dplus14 / dminus14
+    (count-agnostic: the slice boundary is sum(DIRECTION>=0), never a
+    hardcoded 11/22)."""
+    perdir = _load_per_direction_production()
+    leg_dir = tmp_path / "cp4" / "bound"
+    leg_dir.mkdir(parents=True)
+    sched = v21.v2_legacy.get_schedule("densified_bound28")
+    cntl_path = leg_dir / "trackb_asyncre.cntl"
+    v21.write_cntl_file(
+        cntl_path=str(cntl_path),
+        basename="trackb",
+        nodefile_path=str(leg_dir / "nodefile"),
+        ligand_atom_indices=list(range(10)),
+        pos_restrained_atom_indices=list(range(10, 20)),
+        displacement_nm=(2.5, 0.0, 0.0),
+        production_steps=2500,
+        prnt_frequency=2500,
+        trj_frequency=25000,
+        wall_time_min=720,
+        cycle_time_s=10,
+        checkpoint_time_s=600,
+        schedule=sched,
+    )
+    gen = perdir.generate_per_direction_cntls(
+        leg_dir=str(leg_dir), jobname="trackb"
+    )
+    assert gen["total_state_count"] == 28
+    assert gen["fwd_state_count"] == 14
+    assert gen["directions"]["dplus"]["n_states"] == 14
+    assert gen["directions"]["dminus"]["n_states"] == 14
+    assert gen["directions"]["dplus"]["state_slice"] == [0, 14]
+    assert gen["directions"]["dminus"]["state_slice"] == [14, 28]
+    # The dminus slice carries DIRECTION forced to +1 (b+ ATM base=u0).
+    dm_dir = gen["directions"]["dminus"]["schedule"]["DIRECTION"]
+    assert len(dm_dir) == 14
+    assert all(int(float(d)) == 1 for d in dm_dir)
+
+
+def test_v21_argparse_has_bound_schedule():
+    """The launcher argparse exposes --bound-schedule {canonical22,
+    densified_bound28, densified_bound30} (default canonical22). Verified via the
+    CLI --help surface (argparse lives inside main(), no standalone parser
+    factory)."""
+    import subprocess
+
+    launcher = os.path.join(
+        _PROJ, "scripts", "trackb_production_v2_1_upstream.py"
+    )
+    proc = subprocess.run(
+        [sys.executable, launcher, "--help"],
+        capture_output=True, text=True, timeout=120,
+    )
+    # argparse --help exits 0.
+    assert proc.returncode == 0, proc.stderr
+    out = proc.stdout
+    assert "--bound-schedule" in out
+    assert "densified_bound28" in out
+    assert "densified_bound30" in out
+    # all bound-valid choices surfaced in the {..} choice set
+    assert "canonical22" in out
+
+
+# ---------------------------------------------------------------------------
 # Builder argument plumbing — defaults preserved
 # ---------------------------------------------------------------------------
 def test_builder_default_displacement(builder):

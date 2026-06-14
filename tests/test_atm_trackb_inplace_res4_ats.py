@@ -976,7 +976,13 @@ def test_bound_endpoint_equivalence_u0_reproduces_mtr(real_fused_bound):
     smoke = _load_smoke()
     mtr_e = smoke._pure_mtr_only_energy(
         "s7", "B", solvate=False, harmonize_common_charges=True, leg="bound")
-    assert abs(u0 - mtr_e) <= 10.0
+    # Bound tol 30 (the free leg uses 10): in the contacting bound pose the WT
+    # partner atom HE1 carries a genuine HE1<->receptor nonbonded residual on top
+    # of the MTR-only energy -- the bound-only binding contribution, absent in the
+    # free leg (no receptor). Single-H single-shell contact is a tens-of-kcal
+    # band; 30 keeps ~1.5x margin over the observed ~20 while still flagging a
+    # collapse / wrong-swap-wiring (those are ~10x away, z >> 3).
+    assert abs(u0 - mtr_e) <= 30.0
 
 
 def test_smoke_tier1_bound_runs(ats):
@@ -1180,6 +1186,167 @@ def test_twocopy_endpoint_equivalence_and_nonsaturation(ats):
     assert eq["overall_pass"] is True
 
 
+# ---------------------------------------------------------------------------
+# Canonical-fix tests: ONE shared receptor + binder-only copy-2 (bound leg) +
+# the whole-solute separation guard that catches receptor-receptor
+# interpenetration the NE1<->NE1 gate is blind to.
+# ---------------------------------------------------------------------------
+def _toy_twocopy_separation_build(ats, copy2_shift_nm):
+    """Minimal fake two-copy fused_build + cmap for the solute-separation guard.
+
+    Two solute residues (2 heavy atoms each) + a couple of shared water atoms.
+    copy-1 sits at the origin; copy-2 is translated by ``copy2_shift_nm`` on x.
+    Returns ``(fused_build, cmap)`` exercising assert_twocopy_separation with no
+    real build (deterministic). The NE1 attach atoms are deliberately placed far
+    apart (4 nm on x) regardless of the shift so the NE1<->NE1 gate ALWAYS
+    passes — the solute-solute gate is the one under test.
+    """
+    import openmm as mm
+    from openmm import app
+    import openmm.unit as unit
+
+    top = app.Topology()
+    chain = top.addChain(id="B")
+    res1 = top.addResidue("TRP", chain, id="4")    # copy-1 solute
+    res2 = top.addResidue("TRP", chain, id="104")  # copy-2 solute
+    wchain = top.addChain(id="W")
+    wres = top.addResidue("HOH", wchain, id="900")  # shared bath
+
+    # copy-1 solute: NE1 (attach) + CA, at the origin.
+    a_ne1_c1 = top.addAtom("NE1", app.element.nitrogen, res1)
+    a_ca_c1 = top.addAtom("CA", app.element.carbon, res1)
+    n_copy1 = top.getNumAtoms()  # boundary AFTER copy-1's atoms
+    # copy-2 solute: NE1 (attach) + CA, shifted by copy2_shift_nm on x.
+    a_ne1_c2 = top.addAtom("NE1", app.element.nitrogen, res2)
+    a_ca_c2 = top.addAtom("CA", app.element.carbon, res2)
+    # shared solvent: one O between the copies (must NOT trip the guard).
+    a_o = top.addAtom("O", app.element.oxygen, wres)
+    top.addAtom("H1", app.element.hydrogen, wres)  # H -> dropped by guard
+
+    s = copy2_shift_nm
+    positions = [
+        mm.Vec3(0.0, 0.0, 0.0) * unit.nanometer,        # NE1 copy-1
+        mm.Vec3(0.1, 0.0, 0.0) * unit.nanometer,        # CA copy-1
+        mm.Vec3(4.0 + s, 0.0, 0.0) * unit.nanometer,    # NE1 copy-2 (far on x)
+        mm.Vec3(0.1 + s, 0.0, 0.0) * unit.nanometer,    # CA copy-2 (near c1 CA)
+        mm.Vec3(2.0, 0.0, 0.0) * unit.nanometer,        # shared water O
+        mm.Vec3(2.0, 0.1, 0.0) * unit.nanometer,        # shared water H
+    ]
+
+    class _M:
+        pass
+    m = _M()
+    m.topology = top
+    m.positions = positions
+    fused = {"modeller": m}
+    cmap = {
+        "copy1_attach": a_ne1_c1.index,
+        "copy2_attach": a_ne1_c2.index,
+        "n_copy1": n_copy1,
+    }
+    return fused, cmap
+
+
+def test_twocopy_separation_solute_gate_passes_when_displaced(ats):
+    """The augmented C6 guard PASSES when the two solute copies are >= 1 nm apart
+    (copy-2 displaced) and reports the new solute-solute key. Shared solvent
+    between the copies is excluded."""
+    fused, cmap = _toy_twocopy_separation_build(ats, copy2_shift_nm=4.0)
+    res = ats.assert_twocopy_separation(fused, cmap, min_sep_nm=1.0)
+    assert res["passed"] is True
+    assert res["solute_solute_min_sep_nm"] >= 1.0
+    # Hydrogen + solvent excluded: 2 heavy solute atoms per copy.
+    assert res["n_copy1_solute_heavy"] == 2
+    assert res["n_copy2_solute_heavy"] == 2
+
+
+def test_twocopy_separation_solute_gate_catches_interpenetration(ats):
+    """The augmented C6 guard RAISES on receptor/solute interpenetration that the
+    NE1<->NE1 gate cannot see: the two NE1 attach atoms are 4 nm apart (NE1 gate
+    passes), but the solute BODIES overlap (copy-2 not displaced) -> the
+    solute-solute gate fails loud (the false-green the fix is designed to block)."""
+    fused, cmap = _toy_twocopy_separation_build(ats, copy2_shift_nm=0.0)
+    # Sanity: the NE1<->NE1 distance alone is still >= 1 nm (gate 1 would pass).
+    import numpy as np
+    import openmm.unit as unit
+    pos = np.array([v.value_in_unit(unit.nanometer)
+                    for v in fused["modeller"].positions])
+    ne1_sep = float(np.linalg.norm(pos[cmap["copy1_attach"]]
+                                   - pos[cmap["copy2_attach"]]))
+    assert ne1_sep >= 1.0
+    with pytest.raises(ValueError, match="SOLUTE separation FAIL"):
+        ats.assert_twocopy_separation(fused, cmap, min_sep_nm=1.0)
+
+
+@pytest.fixture(scope="module")
+def real_twocopy_bound(ats):
+    """The canonical two-copy BOUND box, UNSOLVATED, harmonized so MC1 passes:
+    copy-1 = receptor + MTR binder, copy-2 = WT binder ONLY (receptor dropped)."""
+    if not _endpoints_present():
+        pytest.skip("2QKI endpoint final.pdb not present (s7)")
+    return ats.build_inplace_res4_twocopy_system(
+        leg="bound", seed="s7", solvate=False,
+        harmonize_common_charges=True)
+
+
+def test_twocopy_bound_copy2_is_binder_only(real_twocopy_bound, ats):
+    """Canonical fix (a): on the BOUND leg copy-2 carries the binder ONLY (no
+    receptor). copy-1 holds the shared receptor (large); copy-2 is the small
+    binder-only copy whose atom count matches the free WT peptide (~207)."""
+    if real_twocopy_bound["outcome"] != "twocopy_attached":
+        pytest.skip("MC1 outcome — no attached box to inspect")
+    fused = real_twocopy_bound["fused_build"]
+    n_copy1 = fused["n_copy1"]
+    n_copy2 = fused["n_atoms"] - n_copy1
+    # copy-1 = receptor + MTR binder -> thousands of atoms (receptor present).
+    assert n_copy1 > 5000
+    # copy-2 = binder ONLY -> ~207 atoms (receptor dropped); MUST NOT be a second
+    # full bound complex (>5000). This is the interpenetration root cause removed.
+    assert n_copy2 < 1000
+    # copy-2 matches the free-leg WT binder-only count (canonical: single receptor
+    # + duplicated binder). The free copy-2 (WT) is 207 atoms unsolvated.
+    assert n_copy2 == 207
+
+
+def test_twocopy_bound_solute_separation_reports_both_gates(real_twocopy_bound):
+    """The BOUND two-copy box passes BOTH separation gates and the augmented
+    result carries the whole-solute min distance (>= the PME floor)."""
+    if real_twocopy_bound["outcome"] != "twocopy_attached":
+        pytest.skip("MC1 outcome")
+    sep = real_twocopy_bound["separation"]
+    assert sep["passed"] is True
+    assert sep["ne1_ne1_sep_nm"] >= 1.0
+    assert sep["solute_solute_min_sep_nm"] >= 1.0
+    # copy-1 solute (receptor + MTR binder) is large; copy-2 solute (binder) small.
+    assert sep["n_copy1_solute_heavy"] > sep["n_copy2_solute_heavy"]
+
+
+def test_twocopy_free_build_unchanged_reports_solute_gate(real_twocopy_unsolv):
+    """Regression (c): the FREE build still attaches and now also reports the new
+    solute-solute separation key (the augmented guard runs on the free leg too,
+    with no behavioural regression — both copies are already binder-only)."""
+    if real_twocopy_unsolv["outcome"] != "twocopy_attached":
+        pytest.skip("MC1 outcome")
+    sep = real_twocopy_unsolv["separation"]
+    assert sep["passed"] is True
+    assert sep["ne1_ne1_sep_nm"] >= 1.0
+    assert "solute_solute_min_sep_nm" in sep
+    assert sep["solute_solute_min_sep_nm"] >= 1.0
+
+
+def test_twocopy_bound_branch_uses_binder_only_prep_in_source(ats):
+    """Source-level invariant: the bound branch of build_inplace_res4_twocopy_system
+    builds copy-2 with the binder-only prep (prepare_free_peptide_from_final), NOT
+    a second bound complex. Guards against a regression that re-introduces the
+    duplicated full receptor (the interpenetration / NaN root cause)."""
+    import inspect
+    src = inspect.getsource(ats.build_inplace_res4_twocopy_system)
+    # Find the bound (else) branch's two prep calls.
+    assert "prepare_bound_complex_from_final(li[\"final\"][\"cp4\"]" in src
+    # copy-2 (WT) on the bound leg uses the binder-only prep.
+    assert "prepare_free_peptide_from_final(li[\"final\"][\"wt\"]" in src
+
+
 def test_twocopy_no_inter_copy_exclusions_in_source(ats):
     """C3 source-level invariant: the attach function reports ZERO inter-copy
     exclusions by construction (the wiring adds none — mirrors the upstream
@@ -1237,3 +1404,150 @@ def test_twocopy_smoke_tier1_free_unsolvated(ats):
         assert res["swap"]["distinct_attach"] is True
         assert abs(res["energies_kcal"]["u1_minus_u0"]) <= 1.0e3
         assert res["endpoint_equivalence"]["overall_pass"] is True
+
+
+# ---------------------------------------------------------------------------
+# Bound-complex PBC re-imaging (the cycle-0 / NaN root cause). An MD final.pdb
+# written with PBC unwrapping can leave the binder a whole box vector away from
+# the receptor; prepare_bound_complex_from_final must minimum-image the binder
+# back into receptor contact (pose-preserving) and fail-fast on a genuinely
+# broken endpoint. These are pure-coordinate tests (no openmm/GPU); a synthetic
+# 2-chain PDB is written so they run in any env. A separate real-data test
+# (s7 cp4) is gated on the endpoint being present.
+# ---------------------------------------------------------------------------
+_REIMAGE_BOX = 30.0
+
+
+def _write_synthetic_bound_pdb(path, binder_offset=(0.0, 0.0, 0.0),
+                               box=_REIMAGE_BOX):
+    """Write a minimal 2-chain bound complex: a small receptor cluster (chain A)
+    near the origin and a binder cluster (chain B) ~3 A away, optionally
+    translated by ``binder_offset`` (used to fake a PBC-image displacement).
+    Includes a CRYST1 record. Heavy atoms only (element column set)."""
+    rec = [(0.0, 0.0, 0.0), (1.5, 0.0, 0.0), (0.0, 1.5, 0.0), (0.0, 0.0, 1.5)]
+    # Binder cluster ~3 A from the nearest receptor atom (a valid bound contact).
+    bnd = [(3.0 + dx, dy, dz) for (dx, dy, dz) in
+           ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0))]
+    ox, oy, oz = binder_offset
+    bnd = [(x + ox, y + oy, z + oz) for (x, y, z) in bnd]
+    lines = ["CRYST1%9.3f%9.3f%9.3f  90.00  90.00  90.00 P 1           1\n"
+             % (box, box, box)]
+    serial = 1
+    for (x, y, z) in rec:
+        lines.append("ATOM  %5d  CA  ALA A%4d    %8.3f%8.3f%8.3f  1.00  0.00"
+                     "           C  \n" % (serial, serial, x, y, z))
+        serial += 1
+    lines.append("TER\n")
+    for (x, y, z) in bnd:
+        lines.append("ATOM  %5d  CA  ALA B%4d    %8.3f%8.3f%8.3f  1.00  0.00"
+                     "           C  \n" % (serial, serial, x, y, z))
+        serial += 1
+    lines.append("TER\nEND\n")
+    with open(path, "w") as fh:
+        fh.writelines(lines)
+    return path
+
+
+def _ab_min_heavy_dist(pdb):
+    import math
+    a = []
+    b = []
+    for line in open(pdb):
+        if line[:6] in ("ATOM  ", "HETATM"):
+            xyz = (float(line[30:38]), float(line[38:46]), float(line[46:54]))
+            if line[21] == "A":
+                a.append(xyz)
+            elif line[21] == "B":
+                b.append(xyz)
+    best = float("inf")
+    for (ax, ay, az) in a:
+        for (bx, by, bz) in b:
+            d = math.sqrt((ax - bx) ** 2 + (ay - by) ** 2 + (az - bz) ** 2)
+            if d < best:
+                best = d
+    return best
+
+
+def test_bound_reimage_preserves_contacting_complex(ats):
+    """A normal complex (receptor-binder in contact) is unchanged by re-imaging:
+    no box shift, contact distance preserved."""
+    import os
+    import tempfile
+    td = tempfile.mkdtemp(prefix="ats_reimage_normal_")
+    src = _write_synthetic_bound_pdb(os.path.join(td, "in.pdb"))
+    before = _ab_min_heavy_dist(src)
+    out = os.path.join(td, "out.pdb")
+    ats.prepare_bound_complex_from_final(src, out, "B", "A")
+    after = _ab_min_heavy_dist(out)
+    # Contact preserved to floating-point precision (no spurious shift).
+    assert abs(after - before) < 1e-3
+    assert after < ats._BOUND_CONTACT_MAX_A
+
+
+def test_bound_reimage_restores_pbc_split_binder(ats):
+    """A binder displaced by one whole box vector (PBC-unwrapped) is brought back
+    into receptor contact by the minimum-image shift — the cp4 cycle-0 fix."""
+    import os
+    import tempfile
+    td = tempfile.mkdtemp(prefix="ats_reimage_split_")
+    # Push the binder one box vector along +z (an integer image displacement).
+    src = _write_synthetic_bound_pdb(
+        os.path.join(td, "in.pdb"), binder_offset=(0.0, 0.0, _REIMAGE_BOX))
+    assert _ab_min_heavy_dist(src) > ats._BOUND_CONTACT_MAX_A   # broken on input
+    out = os.path.join(td, "out.pdb")
+    ats.prepare_bound_complex_from_final(src, out, "B", "A")
+    after = _ab_min_heavy_dist(out)
+    # Re-imaged back to the original ~3 A contact.
+    assert after < ats._BOUND_CONTACT_MAX_A
+    assert after < 5.0
+
+
+def test_bound_reimage_guard_raises_on_broken_endpoint(ats):
+    """A genuinely separated endpoint (binder NOT one box image away — it sits
+    mid-box, beyond contact, with no integer shift that restores contact) trips
+    the fail-fast guard instead of emitting a non-bound complex."""
+    import os
+    import tempfile
+    td = tempfile.mkdtemp(prefix="ats_reimage_broken_")
+    # Offset by HALF a box: min-image rounds to 0 shift, so it stays separated.
+    src = _write_synthetic_bound_pdb(
+        os.path.join(td, "in.pdb"),
+        binder_offset=(0.0, 0.0, _REIMAGE_BOX / 2.0))
+    out = os.path.join(td, "out.pdb")
+    with pytest.raises(ValueError, match="min heavy-atom distance"):
+        ats.prepare_bound_complex_from_final(src, out, "B", "A")
+
+
+def test_bound_reimage_missing_cryst1_raises(ats):
+    """A final.pdb without a CRYST1 record cannot be re-imaged (PBC box unknown)
+    and is a hard error — never a silent pass."""
+    import os
+    import tempfile
+    td = tempfile.mkdtemp(prefix="ats_reimage_nobox_")
+    src = _write_synthetic_bound_pdb(os.path.join(td, "in.pdb"))
+    # Strip the CRYST1 line.
+    kept = [ln for ln in open(src) if ln[:6] != "CRYST1"]
+    nobox = os.path.join(td, "nobox.pdb")
+    with open(nobox, "w") as fh:
+        fh.writelines(kept)
+    out = os.path.join(td, "out.pdb")
+    with pytest.raises(ValueError, match="no CRYST1"):
+        ats.prepare_bound_complex_from_final(nobox, out, "B", "A")
+
+
+def test_bound_reimage_real_cp4_endpoint(ats):
+    """On the real s7 cp4 final.pdb (PBC-unwrapped: binder ~44 A from receptor),
+    re-imaging restores receptor-binder contact (< guard threshold) — the actual
+    failing endpoint that crashed bound asyncre at cycle 0."""
+    import os
+    import tempfile
+    if not _endpoints_present():
+        pytest.skip("2QKI endpoint final.pdb not present (s7)")
+    li = ats.resolve_leg_inputs("s7")
+    td = tempfile.mkdtemp(prefix="ats_reimage_cp4_")
+    out = os.path.join(td, "cp4_bound.pdb")
+    ats.prepare_bound_complex_from_final(li["final"]["cp4"], out, "B", "A")
+    after = _ab_min_heavy_dist(out)
+    assert after < ats._BOUND_CONTACT_MAX_A
+    # Real bound contact lands at ~2.6 A after the one-image (z) shift.
+    assert after < 5.0

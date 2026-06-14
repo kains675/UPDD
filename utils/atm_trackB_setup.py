@@ -489,6 +489,144 @@ def prepare_free_peptide_from_final(final_pdb: str, out_pdb: str,
     return out_pdb
 
 
+# Bound-complex contact thresholds (Angstrom). A correctly imaged 2QKI bound
+# pose sits at ~2.5-3.0 A receptor<->binder min heavy-atom distance; a
+# PBC-unwrapped final.pdb leaves the binder one box image away (~44 A). The
+# guard rejects anything that still reads as separated after re-imaging.
+_BOUND_CONTACT_MAX_A = 8.0
+
+
+def _parse_cryst1_box(final_pdb: str) -> Tuple[float, float, float]:
+    """Read the orthorhombic box lengths (a, b, c) in Angstrom from the CRYST1
+    record of ``final_pdb``.
+
+    The minimum-image re-imaging in :func:`prepare_bound_complex_from_final`
+    requires the unit-cell vectors. A missing / degenerate CRYST1 is a hard
+    error (no silent pass): without the box the binder cannot be re-imaged and a
+    broken bound endpoint would propagate into solvation + minimize.
+
+    Only the orthorhombic (alpha=beta=gamma=90) case is supported — the 2QKI
+    final.pdb is cubic ``109.113 109.113 109.113 90 90 90``. A non-orthorhombic
+    cell raises rather than mis-handling the off-diagonal box terms.
+    """
+    box_line = None
+    with open(final_pdb) as fh:
+        for line in fh:
+            if line[:6] == "CRYST1":
+                box_line = line
+                break
+    if box_line is None:
+        raise ValueError(
+            "prepare_bound_complex_from_final: no CRYST1 record in %s; cannot "
+            "minimum-image the binder against the receptor (PBC box unknown)."
+            % final_pdb)
+    try:
+        a = float(box_line[6:15])
+        b = float(box_line[15:24])
+        c = float(box_line[24:33])
+        alpha = float(box_line[33:40])
+        beta = float(box_line[40:47])
+        gamma = float(box_line[47:54])
+    except ValueError as exc:
+        raise ValueError(
+            "prepare_bound_complex_from_final: malformed CRYST1 record in %s: "
+            "%r" % (final_pdb, box_line.rstrip())) from exc
+    if min(a, b, c) <= 0.0:
+        raise ValueError(
+            "prepare_bound_complex_from_final: non-positive box length in "
+            "CRYST1 of %s (a=%g b=%g c=%g)." % (final_pdb, a, b, c))
+    if not (abs(alpha - 90.0) < 1e-3 and abs(beta - 90.0) < 1e-3
+            and abs(gamma - 90.0) < 1e-3):
+        raise ValueError(
+            "prepare_bound_complex_from_final: non-orthorhombic CRYST1 in %s "
+            "(alpha=%g beta=%g gamma=%g); only orthorhombic boxes are "
+            "supported for binder re-imaging." % (final_pdb, alpha, beta, gamma))
+    return (a, b, c)
+
+
+def _atom_xyz(line: str) -> Tuple[float, float, float]:
+    """Parse the (x, y, z) Angstrom coordinates from a PDB ATOM/HETATM line."""
+    return (float(line[30:38]), float(line[38:46]), float(line[46:54]))
+
+
+def _shift_atom_line(line: str, shift: np.ndarray) -> str:
+    """Return ``line`` with its x/y/z translated by ``shift`` (Angstrom),
+    preserving the strict PDB column layout (8.3f in cols 31-54)."""
+    x, y, z = _atom_xyz(line)
+    nx = x + float(shift[0])
+    ny = y + float(shift[1])
+    nz = z + float(shift[2])
+    return "%s%8.3f%8.3f%8.3f%s" % (line[:30], nx, ny, nz, line[54:])
+
+
+def _is_heavy_atom(line: str) -> bool:
+    """Heavy-atom test for a PDB line (element != H, falling back to the atom
+    name when the element column is blank)."""
+    el = line[76:78].strip()
+    if el:
+        return el != "H"
+    return not line[12:16].strip().startswith("H")
+
+
+def _reimage_binder_min_image(kept_lines: List[str], binder_chain: str,
+                              receptor_chain: str,
+                              box: Tuple[float, float, float]):
+    """Rigid minimum-image re-alignment of the binder onto the receptor.
+
+    An MD trajectory written with PBC unwrapping can leave the binder (chain B)
+    a whole box vector away from the receptor (chain A) even though the binder
+    itself is intact (its own atoms are contiguous). This applies the single
+    per-axis integer box-vector translation that brings the binder heavy-atom
+    centroid to the receptor's minimum image — i.e. the whole-molecule
+    ``image_molecules(anchor=receptor, other=binder, make_whole=True)`` result
+    for an already-whole binder — so the equilibrated bound pose is preserved
+    (rigid translation only) while the PBC wrap is corrected.
+
+    Returns ``(new_lines, min_dist_A, shift)`` where ``min_dist_A`` is the
+    receptor<->binder heavy-atom minimum distance after the shift and ``shift``
+    is the applied translation (Angstrom).
+    """
+    box_arr = np.asarray(box, dtype=float)
+    rec_heavy = []
+    bnd_heavy = []
+    for line in kept_lines:
+        if line[:6] not in ("ATOM  ", "HETATM"):
+            continue
+        if not _is_heavy_atom(line):
+            continue
+        ch = line[21]
+        if ch == receptor_chain:
+            rec_heavy.append(_atom_xyz(line))
+        elif ch == binder_chain:
+            bnd_heavy.append(_atom_xyz(line))
+    if not rec_heavy or not bnd_heavy:
+        raise ValueError(
+            "prepare_bound_complex_from_final: receptor (chain %s, %d heavy) or "
+            "binder (chain %s, %d heavy) atoms missing after extraction; cannot "
+            "re-image." % (receptor_chain, len(rec_heavy),
+                           binder_chain, len(bnd_heavy)))
+    rec_arr = np.asarray(rec_heavy, dtype=float)
+    bnd_arr = np.asarray(bnd_heavy, dtype=float)
+    rec_centroid = rec_arr.mean(axis=0)
+    bnd_centroid = bnd_arr.mean(axis=0)
+    # Per-axis integer box shift that pulls the binder centroid into the
+    # receptor's minimum image (round() picks the nearest image per axis).
+    n_image = np.round((bnd_centroid - rec_centroid) / box_arr)
+    shift = -n_image * box_arr
+    new_lines = []
+    for line in kept_lines:
+        if line[:6] in ("ATOM  ", "HETATM") and line[21] == binder_chain:
+            new_lines.append(_shift_atom_line(line, shift))
+        else:
+            new_lines.append(line)
+    bnd_shifted = bnd_arr + shift
+    # Minimum receptor<->binder heavy-atom distance after the shift (no PBC —
+    # the binder is now in the receptor's primary image).
+    deltas = rec_arr[:, None, :] - bnd_shifted[None, :, :]
+    min_dist = float(np.sqrt((deltas ** 2).sum(axis=-1)).min())
+    return new_lines, min_dist, shift
+
+
 def prepare_bound_complex_from_final(final_pdb: str, out_pdb: str,
                                      binder_chain: str = "B",
                                      receptor_chain: str = "A") -> str:
@@ -510,7 +648,19 @@ def prepare_bound_complex_from_final(final_pdb: str, out_pdb: str,
     same distance-threshold completion ``build_leg_system`` runs, and amber14 has
     clean templates for every standard receptor residue, so re-solvation +
     createSystem succeed without ncAA reconstruction on the receptor.
+
+    PBC re-imaging: an MD trajectory written with PBC unwrapping can store the
+    binder a whole box vector away from the receptor (observed on 2QKI Cp4:
+    binder ~44 A from receptor, one box image of ~109 A in Z). Solvating that
+    split with a 1.2 nm pad wraps the ~96 A gap in a giant box, and minimize then
+    diverges (NaN) as bonds straddle the periodic boundary — the bound asyncre
+    crash before cycle 0. After extraction the binder is rigidly translated to
+    the receptor's minimum image (pose-preserving) and a fail-fast guard rejects
+    any complex whose receptor<->binder min heavy-atom distance still exceeds
+    ``_BOUND_CONTACT_MAX_A`` (a genuinely separated / broken endpoint, never a
+    valid bound pose). The free-peptide prep has no such guard (binder only).
     """
+    box = _parse_cryst1_box(final_pdb)
     keep_chains = {binder_chain, receptor_chain}
     kept = []
     for line in open(final_pdb):
@@ -524,6 +674,15 @@ def prepare_bound_complex_from_final(final_pdb: str, out_pdb: str,
             # Preserve chain breaks so the receptor and binder do not get fused
             # into one chain by the reader (each chain keeps its own id).
             kept.append(line)
+    kept, min_dist, _shift = _reimage_binder_min_image(
+        kept, binder_chain, receptor_chain, box)
+    if min_dist > _BOUND_CONTACT_MAX_A:
+        raise ValueError(
+            "prepare_bound_complex_from_final: receptor<->binder min heavy-atom "
+            "distance %.2f A exceeds %.1f A after minimum-image re-imaging of %s "
+            "— the bound endpoint is broken (binder not in contact with the "
+            "receptor); refusing to emit a non-bound complex."
+            % (min_dist, _BOUND_CONTACT_MAX_A, final_pdb))
     with open(out_pdb, "w") as fh:
         fh.writelines(kept)
         fh.write("END\n")
@@ -2405,16 +2564,58 @@ def _summarize_twocopy_charge_divergence(
     }
 
 
+def _twocopy_solute_heavy_indices(
+    fused_build: Dict[str, Any], n_copy1: int,
+) -> Tuple[List[int], List[int]]:
+    """Split the merged topology's SOLUTE heavy-atom indices by copy.
+
+    The merge places copy-1 at ``[0, n_copy1)`` and copy-2 at ``[n_copy1, N)``.
+    Solute = any atom whose residue is NOT in ``_SOLVENT_RESNAMES`` (the shared
+    water/ion bath is excluded — the two copies share one solvent shell, so a
+    solvent atom near both copies is expected and must not trip the guard).
+    Hydrogens are dropped (heavy-atom min distance is the clash-relevant metric
+    and keeps the pairwise distance matrix small).
+
+    Returns ``(copy1_solute_heavy, copy2_solute_heavy)`` as MERGED indices.
+    """
+    top = fused_build["modeller"].topology
+    copy1_idx: List[int] = []
+    copy2_idx: List[int] = []
+    for atom in top.atoms():
+        if atom.residue.name in _SOLVENT_RESNAMES:
+            continue
+        el = atom.element
+        if el is not None and el.symbol == "H":
+            continue
+        if el is None and atom.name.strip().startswith("H"):
+            continue
+        if atom.index < n_copy1:
+            copy1_idx.append(atom.index)
+        else:
+            copy2_idx.append(atom.index)
+    return copy1_idx, copy2_idx
+
+
 def assert_twocopy_separation(
     fused_build: Dict[str, Any], cmap: Dict[str, Any], min_sep_nm: float = 1.0,
 ) -> Dict[str, Any]:
     """C6: the two copies are spatially SEPARATED (no overlay) BEFORE attach.
 
-    Asserts the minimum distance between copy-1's residue-4 NE1 and copy-2's
-    residue-4 NE1 is >= ``min_sep_nm`` (the PME cutoff floor; the real
-    displacement is ~40 Å). This is the structural proof that clash is avoided by
-    d-separation, NOT by exclusion. A small separation means the copies overlap
-    and the build collapsed back toward the (forbidden) overlay design.
+    TWO independent separation gates, both at the ``min_sep_nm`` floor (the PME
+    cutoff; the real displacement is ~40 Å):
+
+      1. residue-4 NE1<->NE1 (the swap attach atoms) — the per-residue check.
+      2. copy-1 SOLUTE <-> copy-2 SOLUTE minimum heavy-atom distance — the
+         WHOLE-MOLECULE check. The NE1<->NE1 gate alone is NECESSARY but NOT
+         SUFFICIENT: when copy-2 was (wrongly) built with its own full receptor,
+         the res-4-local d-vector left the two NE1 atoms far apart while the two
+         receptor BODIES interpenetrated (107 clashes, PE -> +1e15, minimize
+         NaN). The solute-solute heavy-atom min distance catches that
+         interpenetration / under-displacement that NE1<->NE1 is blind to. The
+         shared solvent/ion bath is excluded (the copies share one water shell).
+
+    A small separation on either gate means the copies overlap and the build
+    collapsed back toward the (forbidden) overlay / interpenetrating design.
     """
     positions = np.array([
         v.value_in_unit(unit.nanometer)
@@ -2428,7 +2629,36 @@ def assert_twocopy_separation(
             "apart (< %.3f nm). The two copies must be d-displaced into bulk "
             "(overlay is the FORBIDDEN single-shared-core design — clash must be "
             "avoided by separation, not exclusion)." % (sep, min_sep_nm))
-    return {"ne1_ne1_sep_nm": sep, "min_sep_nm": min_sep_nm, "passed": True}
+
+    # Gate 2: whole-solute min heavy-atom distance (catches receptor-receptor /
+    # under-displacement interpenetration the NE1<->NE1 gate cannot see).
+    c1_heavy, c2_heavy = _twocopy_solute_heavy_indices(fused_build, cmap["n_copy1"])
+    if not c1_heavy or not c2_heavy:
+        raise ValueError(
+            "C6 two-copy separation FAIL: copy-1 (%d) or copy-2 (%d) has no solute "
+            "heavy atoms in the merged topology; cannot verify solute separation."
+            % (len(c1_heavy), len(c2_heavy)))
+    c1_pos = positions[c1_heavy]
+    c2_pos = positions[c2_heavy]
+    deltas = c1_pos[:, None, :] - c2_pos[None, :, :]
+    solute_min_sep = float(np.sqrt((deltas ** 2).sum(axis=-1)).min())
+    if solute_min_sep < min_sep_nm:
+        raise ValueError(
+            "C6 two-copy SOLUTE separation FAIL: copy-1 solute and copy-2 solute "
+            "minimum heavy-atom distance is %.3f nm (< %.3f nm). The copies' bodies "
+            "interpenetrate or copy-2 is under-displaced (a res-4-local d-vector "
+            "cannot clear a full second receptor — canonical ATS uses ONE shared "
+            "receptor + binder-only copy-2). NE1<->NE1 was %.3f nm (passed) but the "
+            "whole-solute check caught the interpenetration."
+            % (solute_min_sep, min_sep_nm, sep))
+    return {
+        "ne1_ne1_sep_nm": sep,
+        "solute_solute_min_sep_nm": solute_min_sep,
+        "min_sep_nm": min_sep_nm,
+        "n_copy1_solute_heavy": len(c1_heavy),
+        "n_copy2_solute_heavy": len(c2_heavy),
+        "passed": True,
+    }
 
 
 def attach_twocopy_swap_atmforce(
@@ -3019,6 +3249,17 @@ def build_inplace_res4_twocopy_system(
     # 1) Endpoint structures (UNSOLVATED; the merge solvates once after the
     #    displacement so both copies + the d-gap share one water shell). copy-1 =
     #    MTR (site), copy-2 = WT (bulk).
+    #
+    #    CANONICAL ATS RBFE (Gallicchio JCIM 2025): there is ONE shared receptor.
+    #    Only the binder/ligand is duplicated and displaced. For the BOUND leg,
+    #    copy-1 carries the receptor + the MTR binder in the equilibrated site pose;
+    #    copy-2 is the WT BINDER ALONE (receptor dropped) displaced into bulk. A
+    #    second full receptor in copy-2 would be displaced into copy-1's receptor
+    #    body (the d-vector is res-4-local, far smaller than the receptor extent),
+    #    producing receptor-receptor interpenetration (PE -> +1e15, minimize NaN).
+    #    The residue-4 dual-topology swap touches only the binder common/var atoms,
+    #    so copy-2 needs the binder only. The FREE leg is binder-only in both copies
+    #    already; here BOTH legs use the binder-only prep for copy-2.
     import tempfile
     tmpdir = tempfile.mkdtemp(prefix="ats_twocopy_%s_" % (leg,))
     mtr_struct = os.path.join(tmpdir, "cp4_%s.pdb" % (leg,))
@@ -3027,8 +3268,10 @@ def build_inplace_res4_twocopy_system(
         prepare_free_peptide_from_final(li["final"]["cp4"], mtr_struct, binder_chain)
         prepare_free_peptide_from_final(li["final"]["wt"], wt_struct, binder_chain)
     else:
+        # copy-1 = receptor + MTR binder (shared inert receptor context).
         prepare_bound_complex_from_final(li["final"]["cp4"], mtr_struct, binder_chain)
-        prepare_bound_complex_from_final(li["final"]["wt"], wt_struct, binder_chain)
+        # copy-2 = WT binder ONLY (receptor dropped) -> displaced into bulk.
+        prepare_free_peptide_from_final(li["final"]["wt"], wt_struct, binder_chain)
 
     # RBFE MTR XML resolution (cross-track isolation): the RBFE build loads the
     # DEDICATED harmonized RBFE XML (Σ|Δq|=0 common core), never the shared

@@ -129,7 +129,7 @@ def _make_two_process_leg(leg_dir, jobname="trackb"):
 
 
 # ---------------------------------------------------------------------------
-# Densified 34-state combined cntl stub (Path λ-densify spec 2026-06-05).
+# Densified 34-state combined cntl stub (λ-densify spec, 2026-06-05).
 # Built from the authoritative v2_asyncre densified34 schedule so the
 # DIRECTION column (17 fwd +1 / 17 bwd -1) drives the state-count-agnostic
 # per-direction split (34 -> 17 + 17).
@@ -188,7 +188,7 @@ def _make_two_process_leg_densified34(leg_dir, jobname="trackb"):
 
 
 # ---------------------------------------------------------------------------
-# REVISED densified 38-state combined cntl stub (Path REVISED LADDER FIX
+# REVISED densified 38-state combined cntl stub (REVISED LADDER FIX,
 # 2026-06-05). Built from the authoritative v2_asyncre densified38 schedule so
 # the DIRECTION column (19 fwd +1 / 19 bwd -1) drives the state-count-agnostic
 # per-direction split (38 -> 19 + 19). This is the PRODUCTION free-leg fixture.
@@ -2034,7 +2034,7 @@ def test_gate_vm_leg_dir_exists_ssh_timeout_handled(prep_module, monkeypatch):
 # _live_launch_all_legs so cohort halts BEFORE stage_per_replica_
 # checkpoints mutates host state when ANY leg fails the VM-FS check.
 # Same failure-class family as Round 3 F3 (structprep) +
-# integrity_vm_lane_self_provisioning_20260529.
+# VM lane self-provisioning (2026-05-29).
 # ===========================================================================
 def test_prod_gate_vm_leg_dir_exists_ssh_test_f_succeeds(prod_module, monkeypatch):
     """Production launcher: when `ssh VM test -f <inputs>` returns rc=0,
@@ -3929,6 +3929,127 @@ def test_stage_per_direction_subdir_rejects_missing(prod_module, tmp_path):
 
 
 # ===========================================================================
+# G2 — bound-leg combined single-system fallback HALT (fail-loud).
+# The bound leg's dplus / dminus systems are physically distinct (binder
+# bound vs dissociated, binding-site pocket re-hydrated in the dminus
+# build, 92855 vs 92804 particles). A combined single-system fallback for
+# the bound leg would collapse those into one topology -> corrupt calc, so
+# staging must HALT. The free leg's combined fallback stays permitted.
+# ===========================================================================
+def _make_combined_only_leg(leg_dir, jobname="trackb"):
+    """Materialize a leg_dir carrying ONLY the combined system / pdb (no
+    per-direction trackb_sys_{tag}.xml / trackb_{tag}.pdb), plus the
+    per-direction base states so the base-state check is satisfied. This is
+    the n=3-bound failure shape (combined-only) AND the legitimate free-leg
+    shape (direction-agnostic single system)."""
+    import pathlib
+    leg = pathlib.Path(leg_dir)
+    leg.mkdir(parents=True, exist_ok=True)
+    (leg / f"{jobname}_asyncre.cntl").write_text(_COMBINED_CNTL_22STATE)
+    (leg / f"{jobname}_0.xml").write_text("BASELINE")
+    # combined system + pdb only.
+    (leg / f"{jobname}_sys.xml").write_text("COMBINED_SYS")
+    (leg / f"{jobname}.pdb").write_text("COMBINED_PDB")
+    for tag in ("dplus", "dminus"):
+        (leg / f"{jobname}_0_{tag}.xml").write_text(f"STATE0_{tag}")
+    (leg / "nodefile").write_text("localhost,0:0,1,CUDA,,/tmp\n")
+    return str(leg)
+
+
+def test_infer_leg_kind_from_basename(prod_module, tmp_path):
+    """_infer_leg_kind reads bound/free from the leg_dir basename; an
+    ambiguous basename returns 'unknown' (gate declines to HALT)."""
+    bound = tmp_path / "cp4" / "bound"
+    free = tmp_path / "cp4" / "free"
+    other = tmp_path / "cp4" / "smoke"
+    assert prod_module._infer_leg_kind(str(bound)) == "bound"
+    assert prod_module._infer_leg_kind(str(free)) == "free"
+    assert prod_module._infer_leg_kind(str(other)) == "unknown"
+
+
+def test_stage_bound_combined_fallback_halts(prod_module, tmp_path):
+    """G2: a BOUND leg with only the combined system (no per-direction sys)
+    must HALT in stage_per_direction_subdir (combined fallback forbidden for
+    the bound leg). Triggered both by explicit leg_kind='bound' and by a
+    'bound' basename."""
+    leg = _make_combined_only_leg(tmp_path / "cp4" / "bound", jobname="trackb")
+    cntl_gen = prod_module.generate_per_direction_cntls(leg, jobname="trackb")
+    # Explicit leg_kind='bound'.
+    with pytest.raises(RuntimeError, match="bound leg resolved a COMBINED"):
+        prod_module.stage_per_direction_subdir(
+            leg_dir=leg, direction_tag="dminus",
+            cntl_info=cntl_gen["directions"]["dminus"], jobname="trackb",
+            leg_kind="bound",
+        )
+    # Inferred from basename ('bound') with leg_kind=None.
+    with pytest.raises(RuntimeError, match="bound leg resolved a COMBINED"):
+        prod_module.stage_per_direction_subdir(
+            leg_dir=leg, direction_tag="dplus",
+            cntl_info=cntl_gen["directions"]["dplus"], jobname="trackb",
+        )
+
+
+def test_stage_free_combined_fallback_permitted(prod_module, tmp_path):
+    """G2 must NOT HALT the FREE leg: the free system is direction-agnostic
+    (same particle count both directions), so the combined fallback is
+    correct. Staging proceeds and records sys_source_kind='combined'."""
+    leg = _make_combined_only_leg(tmp_path / "cp4" / "free", jobname="trackb")
+    cntl_gen = prod_module.generate_per_direction_cntls(leg, jobname="trackb")
+    info = prod_module.stage_per_direction_subdir(
+        leg_dir=leg, direction_tag="dplus",
+        cntl_info=cntl_gen["directions"]["dplus"], jobname="trackb",
+        leg_kind="free",
+    )
+    assert info["sys_source_kind"] == "combined"
+    assert info["pdb_source_kind"] == "combined"
+    assert os.path.isfile(info["sys_xml"])
+
+
+# ===========================================================================
+# G3 — bound-leg 'incomplete' C5 probe surfaces missing per-direction sys.
+# finite_energy_probe_one returns status='missing' when a bound leg lacks
+# its per-direction system; finite_energy_probe_all aggregates that to
+# 'incomplete'. main() promotes 'incomplete' to a HALT for the bound leg
+# (probed dict is bound-only). This test exercises the missing -> incomplete
+# aggregation (the HALT input) without invoking openmm/main.
+# ===========================================================================
+def test_finite_energy_probe_one_missing_per_direction_sys(prod_module,
+                                                           tmp_path):
+    """C5 probe-one returns status='missing' (NOT 'ok') when the bound leg's
+    per-direction system XML is absent — the n=3 combined-only shape. This
+    is what G3 surfaces as 'incomplete' and HALTs on."""
+    leg = _make_combined_only_leg(tmp_path / "cp4" / "bound", jobname="trackb")
+    res = prod_module.finite_energy_probe_one(
+        leg_dir=leg, direction_tag="dminus", jobname="trackb",
+    )
+    assert res["status"] == "missing"
+    assert "trackb_sys_dminus.xml" in res["missing"]
+
+
+def test_finite_energy_probe_all_incomplete_on_missing(prod_module, tmp_path,
+                                                       monkeypatch):
+    """finite_energy_probe_all -> 'incomplete' when any probe is 'missing'
+    and none nonfinite. This is the G3 HALT trigger for the bound leg."""
+    def _fake_probe_one(leg_dir, direction_tag, jobname="trackb",
+                        energy_halt_kj=1e10):
+        # cp4/dminus missing (combined-only bound); rest ok.
+        if "cp4" in leg_dir and direction_tag == "dminus":
+            return {"status": "missing", "direction_tag": direction_tag,
+                    "leg_dir": leg_dir,
+                    "missing": leg_dir + "/trackb_sys_dminus.xml"}
+        return {"status": "ok", "direction_tag": direction_tag,
+                "leg_dir": leg_dir}
+
+    monkeypatch.setattr(prod_module, "finite_energy_probe_one", _fake_probe_one)
+    res = prod_module.finite_energy_probe_all(
+        {"cp4": "/x/cp4/bound", "wt": "/x/wt/bound"}, jobname="trackb",
+    )
+    assert res["status"] == "incomplete"
+    miss = [p for p in res["probes"] if p["status"] == "missing"]
+    assert len(miss) == 1
+
+
+# ===========================================================================
 # C1 — merge per-direction outputs back to r0..r21 with stateid renumber
 # ===========================================================================
 def test_renumber_stateid_out_zero_offset_verbatim(prod_module, tmp_path):
@@ -3969,7 +4090,7 @@ def test_merge_per_direction_outputs_assembles_22(prod_module, tmp_path):
             )
     # Explicit counts (no combined cntl in this fixture). merge now derives
     # counts from the leg cntl when not supplied; passing them keeps the test
-    # focused on merge logic (Path λ-densify state-count-agnostic 2026-06-05).
+    # focused on merge logic (λ-densify state-count-agnostic, 2026-06-05).
     manifest = prod_module.merge_per_direction_outputs(
         str(leg), jobname="trackb",
         fwd_replica_count=11, total_state_count=22,
@@ -4007,8 +4128,8 @@ def test_merge_per_direction_outputs_raises_on_incomplete(prod_module,
 
 
 # ===========================================================================
-# Stage 2 — 22/11 parameterization + densified34 free leg (Path λ-densify
-# spec 2026-06-05; free-leg resampling resolution).
+# Stage 2 — 22/11 parameterization + densified34 free leg (λ-densify
+# spec, 2026-06-05; free-leg resampling resolution).
 # FREE=34(17+17) and BOUND=22(11+11) BOTH work via per-leg DIRECTION-derived
 # counts (no global literal).
 # ===========================================================================
@@ -4184,7 +4305,7 @@ def test_live_launch_replicates_separate_subtrees(prod_module, tmp_path):
 
 
 # ===========================================================================
-# REVISED densified38 PER-DIRECTION free split (Path REVISED LADDER FIX
+# REVISED densified38 PER-DIRECTION free split (REVISED LADDER FIX,
 # 2026-06-05, C.2). The free leg moves from combined-22 to
 # per-direction split (19 fwd dplus + 19 bwd dminus) so backward intermediates
 # equilibrate from a dminus base (Factor-B fix). Half-count=19, NO literal 11.
@@ -4338,7 +4459,7 @@ def test_live_launch_replicates_records_velocity_seed(prod_module, tmp_path):
 
 # ===========================================================================
 # Stage 1 — densified34 schedule arrays (v2_asyncre). Symmetry, INTERMEDIATE
-# pattern, W0 ramp monotonic (Path λ-densify spec 2026-06-05).
+# pattern, W0 ramp monotonic (λ-densify spec, 2026-06-05).
 # ===========================================================================
 @pytest.fixture(scope="module")
 def v2_module():
@@ -4390,7 +4511,7 @@ def test_densified34_symmetry(v2_module):
 
 def test_densified34_w0_ramp_monotonic(v2_module):
     """The forward ladder W0COEFF ramps 0.2->1.0 monotonically (states 10..16),
-    matching Path's LADDER. Backward mirrors it (1.0->0.2)."""
+    matching the reference LADDER. Backward mirrors it (1.0->0.2)."""
     s = v2_module.get_schedule("densified34")
     fwd_ladder = s["w0"][10:17]
     assert fwd_ladder == [0.20, 0.40, 0.55, 0.70, 0.85, 0.95, 1.00]
@@ -4401,7 +4522,7 @@ def test_densified34_w0_ramp_monotonic(v2_module):
 
 
 def test_densified34_matches_path_explicit_arrays(v2_module):
-    """Exact reproduction of Path's explicit LAMBDA1/LAMBDA2/W0COEFF/
+    """Exact reproduction of the reference explicit LAMBDA1/LAMBDA2/W0COEFF/
     INTERMEDIATE/LAMBDAS arrays (the locked schedule SSOT). Any drift here
     is an integrity gate breach.
     """
@@ -4428,7 +4549,7 @@ def test_densified34_matches_path_explicit_arrays(v2_module):
 
 # ===========================================================================
 # REVISED densified38 schedule arrays (v2_asyncre). The production free-leg
-# ladder. Element-for-element lock vs Path's REVISED arrays
+# ladder. Element-for-element lock vs the REVISED arrays
 # (free-leg revised ladder) + symmetry +
 # W0 monotonic + 18 INTERMEDIATE + densified34 DEPRECATED-but-present.
 # ===========================================================================
@@ -4495,7 +4616,7 @@ def test_densified38_alpha_u0_ramps(v2_module):
 
 
 def test_densified38_matches_path_explicit_arrays(v2_module):
-    """Element-for-element reproduction of Path's REVISED explicit arrays
+    """Element-for-element reproduction of the REVISED explicit arrays
     (the locked LAMBDAS / DIRECTION /
     INTERMEDIATE / LAMBDA1 / LAMBDA2 / ALPHA / U0 / W0COEFF). The locked SSOT —
     any drift here is an integrity gate breach + a silent-bias risk for UWHAM."""
@@ -4957,6 +5078,279 @@ def test_occupancy_cli_no_log_returns_6(prod_module, tmp_path):
 
 
 # ===========================================================================
+# ATM boundary-crossing / round-trip MIXING gate (mid-ladder zero-overlap
+# wall detector). COMPLEMENTS the occupancy gate above — occupancy is blind
+# to a wall where every state is occupied but an adjacent pair never swaps.
+# ===========================================================================
+def _make_trajectory_log(path, trajectories, warmup_cycles=20):
+    """Synthesize an async_re driver log from per-replica STATE TRAJECTORIES.
+
+    ``trajectories`` is {replica: [state_round0, state_round1, ...]} — unlike
+    ``_make_driver_log`` (which is a static per-cycle snapshot) this preserves
+    per-replica transitions across swap rounds so adjacent-index crossings can
+    be exercised. All trajectories must be the same length (one entry per
+    round). A leading ``warmup_cycles`` constant rounds are prepended so the
+    gate's warmup boundary is satisfied and the supplied trajectory is judged
+    in full (post-warmup).
+    """
+    n_rounds = len(next(iter(trajectories.values())))
+    for rep, traj in trajectories.items():
+        assert len(traj) == n_rounds, "all trajectories must be equal length"
+    lines = [
+        "# Command: abfe_production trackb_dplus_asyncre.cntl\n",
+        "# Started: 2026-06-11T00:00:00\n\n",
+    ]
+    round_idx = 0
+    # Warmup rounds: hold every replica at its first trajectory state.
+    for _ in range(warmup_cycles):
+        ts = f"2026-06-11 00:00:{round_idx % 60:02d}"
+        for rep, traj in trajectories.items():
+            lines.append(
+                f"{ts} - INFO     - async_re.openmm_async_re       "
+                f"- Replica {rep} new state {traj[0]}\n"
+            )
+        round_idx += 1
+    # Post-warmup rounds: the actual trajectory.
+    for r in range(n_rounds):
+        ts = f"2026-06-11 00:01:{round_idx % 60:02d}"
+        for rep, traj in trajectories.items():
+            lines.append(
+                f"{ts} - INFO     - async_re.openmm_async_re       "
+                f"- Replica {rep} new state {traj[r]}\n"
+            )
+        round_idx += 1
+    path.write_text("".join(lines))
+    return str(path)
+
+
+_ARCHIVED_COLLAPSE_LOG = os.path.join(
+    _REPO_ROOT, "outputs", "_trackb", "_archive",
+    "v2_1_bound_state0_collapse_20260603", "cp4", "dplus", "_live_launch.log",
+)
+
+
+@pytest.mark.skipif(
+    not os.path.isfile(_ARCHIVED_COLLAPSE_LOG),
+    reason="archived state-0-collapse driver log not present",
+)
+def test_mixing_archived_state0_collapse_fails(prod_module):
+    """(a) The real archived 2026-06-03 bound-leg state-0-collapse driver
+    log -> FAIL. Every replica is pinned to state 0, so no adjacent pair
+    ever crosses and no replica visits both ends."""
+    res = prod_module.check_atm_mixing(
+        _ARCHIVED_COLLAPSE_LOG, schedule_K=11, warmup_cycles=20,
+        min_crossings=1,
+    )
+    assert res["verdict"] == "FAIL"
+    assert res["passed"] is False
+    assert res["both_ends_visited_count"] == 0
+    # All 10 adjacent pairs are walls (nothing ever moved off state 0).
+    assert len(res["walls"]) == 10
+    assert "LADDER-MIXING FAIL" in res["message"]
+
+
+def test_mixing_synthetic_stuck_wall_fails(prod_module, tmp_path):
+    """(b) Synthetic healthy ladder EXCEPT one adjacent pair (6-7) that never
+    swaps -> FAIL. Lower block (replicas 0..6) shuttles within 0..6, upper
+    block (replicas 7..10) shuttles within 7..10; states 0..10 are ALL
+    occupied (occupancy would PASS) but the 6-7 boundary has 0 crossings and
+    no replica spans both ends. This is the false-green occupancy misses."""
+    def _cycled(cycle, off, length):
+        # Phase-shifted cycle of fixed ``length`` via modular indexing
+        # (guarantees equal-length trajectories regardless of cycle period).
+        return [cycle[(off + k) % len(cycle)] for k in range(length)]
+
+    traj = {}
+    # Lower block: 7 replicas sweeping 0->6->0 repeatedly (touches end 0).
+    lower = list(range(0, 7)) + list(range(5, 0, -1))   # 0..6..1 (period 12)
+    for rep in range(0, 7):
+        traj[rep] = _cycled(lower, rep, 40)
+    # Upper block: 4 replicas sweeping 7->10->7 (never touches 6 or 0).
+    upper = list(range(7, 11)) + list(range(9, 7, -1))  # 7..10..8 (period 6)
+    for rep in range(7, 11):
+        traj[rep] = _cycled(upper, rep, 40)
+    log = _make_trajectory_log(tmp_path / "_live_launch.log", traj,
+                               warmup_cycles=20)
+    # Sanity: occupancy alone PASSES (all 11 states seen) — the blind spot.
+    occ = prod_module.check_atm_state_occupancy(log, warmup_cycles=20)
+    assert occ["verdict"] == "PASS"
+    assert occ["occupancy"]["states_seen"] == list(range(11))
+    # Mixing CATCHES the wall.
+    res = prod_module.check_atm_mixing(
+        log, schedule_K=11, warmup_cycles=20, min_crossings=1,
+    )
+    assert res["verdict"] == "FAIL"
+    assert res["passed"] is False
+    assert res["per_pair_crossings"]["6-7"] == 0
+    assert "6-7" in res["walls"]
+    assert res["both_ends_visited_count"] == 0
+
+
+def test_mixing_synthetic_healthy_traversal_passes(prod_module, tmp_path):
+    """(c) Synthetic healthy traversing ladder -> PASS. At least one replica
+    sweeps the full 0..10..0 ladder (every adjacent pair crossed, both ends
+    visited, >=1 round trip)."""
+    traj = {}
+    sweep = list(range(0, 11)) + list(range(9, -1, -1))   # 0..10..0 (round trip)
+    for rep in range(11):
+        off = rep % len(sweep)
+        traj[rep] = (sweep * 3)[off:off + 42]
+    log = _make_trajectory_log(tmp_path / "_live_launch.log", traj,
+                               warmup_cycles=20)
+    res = prod_module.check_atm_mixing(
+        log, schedule_K=11, warmup_cycles=20, min_crossings=1,
+    )
+    assert res["verdict"] == "PASS"
+    assert res["passed"] is True
+    assert res["walls"] == []
+    assert res["both_ends_visited_count"] >= 1
+    # Every declared adjacent pair recorded >= 1 crossing.
+    for i in range(10):
+        assert res["per_pair_crossings"][f"{i}-{i + 1}"] >= 1
+    assert res["total_round_trips"] >= 1
+
+
+def test_mixing_complements_occupancy_not_retire(prod_module, tmp_path):
+    """The mixing gate is additive: the occupancy helper/gate is untouched
+    and still callable independently (no retirement)."""
+    assert hasattr(prod_module, "check_atm_state_occupancy")
+    assert hasattr(prod_module, "parse_state_occupancy_from_log")
+    assert hasattr(prod_module, "check_atm_mixing")
+    assert hasattr(prod_module, "parse_state_transitions_from_log")
+    # Docstring states necessary-not-sufficient + overlap-pairing intent.
+    doc = prod_module.check_atm_mixing.__doc__
+    assert "NECESSARY, NOT SUFFICIENT" in doc
+    assert "Bhattacharyya" in doc
+
+
+def test_mixing_indeterminate_too_short(prod_module, tmp_path):
+    """Log with no post-warmup samples -> INDETERMINATE (not PASS)."""
+    traj = {r: [r] for r in range(11)}   # 1 post-warmup round only
+    log = _make_trajectory_log(tmp_path / "_live_launch.log", traj,
+                               warmup_cycles=20)
+    # Truncate to < warmup boundary by using a tiny warmup-exceeding request.
+    res = prod_module.check_atm_mixing(
+        log, schedule_K=11, warmup_cycles=200, min_crossings=1,
+    )
+    assert res["verdict"] == "INDETERMINATE"
+    assert res["passed"] is False
+
+
+def test_mixing_missing_log_indeterminate(prod_module, tmp_path):
+    res = prod_module.check_atm_mixing(
+        str(tmp_path / "nope.log"), schedule_K=11, warmup_cycles=20,
+    )
+    assert res["verdict"] == "INDETERMINATE"
+    assert res["passed"] is False
+
+
+def test_mixing_schedule_k_below_two_indeterminate(prod_module, tmp_path):
+    traj = {0: list(range(0, 11)) * 4}
+    log = _make_trajectory_log(tmp_path / "_live_launch.log", traj,
+                               warmup_cycles=20)
+    res = prod_module.check_atm_mixing(log, schedule_K=1, warmup_cycles=20)
+    assert res["verdict"] == "INDETERMINATE"
+
+
+def test_mixing_min_crossings_parameter(prod_module, tmp_path):
+    """min_crossings is honoured: a ladder that crosses every pair exactly
+    once PASSES at min_crossings=1 but FAILS at min_crossings=5."""
+    traj = {}
+    sweep = list(range(0, 11)) + list(range(9, -1, -1))
+    for rep in range(11):
+        off = rep % len(sweep)
+        traj[rep] = (sweep * 3)[off:off + 42]
+    log = _make_trajectory_log(tmp_path / "_live_launch.log", traj,
+                               warmup_cycles=20)
+    p1 = prod_module.check_atm_mixing(log, schedule_K=11, min_crossings=1)
+    assert p1["verdict"] == "PASS"
+    high = prod_module.check_atm_mixing(
+        log, schedule_K=11, min_crossings=10_000,
+    )
+    assert high["verdict"] == "FAIL"
+
+
+def test_mixing_cli_fail_returns_5(prod_module, tmp_path):
+    """--check-mixing CLI returns exit 5 when a leg FAILS (stuck wall)."""
+    leg = tmp_path / "cp4" / "bound"
+    (leg / "dplus").mkdir(parents=True)
+    # Stuck: every replica pinned to state 0 (collapse).
+    traj = {r: [0] * 40 for r in range(11)}
+    _make_trajectory_log(leg / "dplus" / "_live_launch.log", traj,
+                         warmup_cycles=20)
+    rc = prod_module._run_mixing_check_cli(
+        str(leg), warmup_cycles=20, min_crossings=1, schedule_k=11,
+    )
+    assert rc == 5
+
+
+def test_mixing_cli_pass_returns_0(prod_module, tmp_path):
+    """--check-mixing CLI returns exit 0 when the leg PASSES."""
+    leg = tmp_path / "cp4" / "bound"
+    (leg / "dplus").mkdir(parents=True)
+    sweep = list(range(0, 11)) + list(range(9, -1, -1))
+    traj = {rep: (sweep * 3)[(rep % len(sweep)):(rep % len(sweep)) + 42]
+            for rep in range(11)}
+    _make_trajectory_log(leg / "dplus" / "_live_launch.log", traj,
+                         warmup_cycles=20)
+    rc = prod_module._run_mixing_check_cli(
+        str(leg), warmup_cycles=20, min_crossings=1, schedule_k=11,
+    )
+    assert rc == 0
+
+
+def test_mixing_cli_no_log_returns_6(prod_module, tmp_path):
+    leg = tmp_path / "cp4" / "bound"
+    leg.mkdir(parents=True)
+    rc = prod_module._run_mixing_check_cli(str(leg), schedule_k=11)
+    assert rc == 6
+
+
+def test_mixing_cli_resolves_k_from_cntl_when_unset(prod_module, tmp_path):
+    """--check-mixing with no --mixing-schedule-k resolves K from the sibling
+    cntl LAMBDAS (exercises the glob-based _resolve_schedule_k_for_log path)."""
+    leg = tmp_path / "cp4" / "bound"
+    sub = leg / "dplus"
+    sub.mkdir(parents=True)
+    sweep = list(range(0, 11)) + list(range(9, -1, -1))
+    traj = {rep: (sweep * 3)[(rep % len(sweep)):(rep % len(sweep)) + 42]
+            for rep in range(11)}
+    _make_trajectory_log(sub / "_live_launch.log", traj, warmup_cycles=20)
+    (sub / "trackb_dplus_asyncre.cntl").write_text(
+        "BASENAME = 'trackb'\n"
+        "LAMBDAS = '0.0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, "
+        "0.5'\n"
+    )
+    rc = prod_module._run_mixing_check_cli(
+        str(leg), warmup_cycles=20, min_crossings=1, schedule_k=None,
+    )
+    assert rc == 0
+
+
+def test_resolve_schedule_k_from_cntl(prod_module, tmp_path):
+    """_resolve_schedule_k_for_log reads K from the sibling cntl LAMBDAS."""
+    d = tmp_path / "dplus"
+    d.mkdir()
+    log = d / "_live_launch.log"
+    log.write_text("# empty\n")
+    (d / "trackb_dplus_asyncre.cntl").write_text(
+        "BASENAME = 'trackb'\n"
+        "LAMBDAS = '0.0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, "
+        "0.5'\n"
+    )
+    assert prod_module._resolve_schedule_k_for_log(str(log)) == 11
+
+
+def test_resolve_schedule_k_falls_back_to_default(prod_module, tmp_path):
+    """No sibling cntl -> default K (11)."""
+    d = tmp_path / "dplus"
+    d.mkdir()
+    log = d / "_live_launch.log"
+    log.write_text("# empty\n")
+    assert prod_module._resolve_schedule_k_for_log(str(log), default_k=11) == 11
+
+
+# ===========================================================================
 # densified38 FREE per-direction PILOT launch-readiness (2026-06-05).
 # Blocker 1: --free-schedule argparse must accept 'densified38'.
 # Blocker 2: free-pilot semantics — check_free_pilot_readiness replaces the
@@ -5276,3 +5670,481 @@ def test_free_pilot_readiness_fails_missing_sys_pdb(prod_module, tmp_path):
     for tag in ("dplus", "dminus"):
         assert entry["staging_inputs"][tag]["sys_source_kind"] == "missing"
         assert entry["staging_inputs"][tag]["pdb_source_kind"] == "missing"
+
+
+# ---------------------------------------------------------------------------
+# --directions selector (2026-06-11): single-direction dplus-only PILOT
+# capability (per the densified_bound28/30 scope analysis — the dminus bridge
+# is mirror-ASSUMED and must be pilot-validated SEPARATELY). The launch +
+# readiness + C5 gates iterate ONLY
+# the requested direction(s); default 'dplus,dminus' reproduces the prior
+# both-directions behavior byte-for-byte.
+# ---------------------------------------------------------------------------
+def _make_dplus_only_bound_leg(leg_dir, jobname="trackb"):
+    """Materialize a BOUND leg prepped for the dplus direction ONLY: combined
+    cntl + dplus system/pdb/base-state, but NO dminus system / pdb / base
+    state (the state a dplus-only structprep leaves behind). The combined cntl
+    still carries the full 22-state (11+11) DIRECTION column — slicing is
+    direction-agnostic; only the dplus subdir is staged.
+    """
+    import pathlib
+    leg = pathlib.Path(leg_dir)
+    leg.mkdir(parents=True, exist_ok=True)
+    (leg / f"{jobname}_asyncre.cntl").write_text(_COMBINED_CNTL_22STATE)
+    (leg / f"{jobname}_0.xml").write_text("BASELINE")
+    # dplus inputs only.
+    (leg / f"{jobname}_sys_dplus.xml").write_text("SYS_dplus")
+    (leg / f"{jobname}_dplus.pdb").write_text("PDB_dplus")
+    (leg / f"{jobname}_0_dplus.xml").write_text("STATE0_dplus")
+    (leg / f"{jobname}_0_dplus.pdb").write_text("STATE0PDB_dplus")
+    (leg / "nodefile").write_text("localhost,0:0,1,CUDA,,/tmp\n")
+    return str(leg)
+
+
+def test_parse_directions_default_both(prod_module):
+    """The default '--directions dplus,dminus' parses to the canonical ordered
+    both-directions list (byte-for-byte prior behavior)."""
+    assert prod_module._parse_directions_arg("dplus,dminus") == \
+        ["dplus", "dminus"]
+    # Module default constant agrees.
+    assert prod_module._DEFAULT_DIRECTIONS == ["dplus", "dminus"]
+
+
+def test_parse_directions_single(prod_module):
+    """A single direction parses to a one-element list (either tag)."""
+    assert prod_module._parse_directions_arg("dplus") == ["dplus"]
+    assert prod_module._parse_directions_arg("dminus") == ["dminus"]
+    # Whitespace tolerated.
+    assert prod_module._parse_directions_arg(" dplus ") == ["dplus"]
+
+
+def test_parse_directions_dedup_preserves_order(prod_module):
+    """Duplicates collapse to first occurrence; operator order preserved."""
+    assert prod_module._parse_directions_arg("dplus,dplus") == ["dplus"]
+    assert prod_module._parse_directions_arg("dminus,dplus") == \
+        ["dminus", "dplus"]
+
+
+def test_parse_directions_rejects_bogus_fail_loud(prod_module):
+    """(d) '--directions dplus,bogus' fails loud with ValueError (NEVER
+    silently drops the unknown token)."""
+    with pytest.raises(ValueError, match="bogus"):
+        prod_module._parse_directions_arg("dplus,bogus")
+    # Empty / all-whitespace also fails loud.
+    with pytest.raises(ValueError):
+        prod_module._parse_directions_arg("")
+    with pytest.raises(ValueError):
+        prod_module._parse_directions_arg("  , ")
+
+
+def test_directions_argparse_flag_present():
+    """The --directions CLI flag exists with the both-directions default
+    (preserving the prior behavior)."""
+    src = open(os.path.join(_REPO_ROOT, "scripts",
+                            "trackb_per_direction_production.py")).read()
+    assert '"--directions"' in src
+    assert 'default="dplus,dminus"' in src
+
+
+# --- (a) single-direction launch: dplus-only stages + launches ONLY dplus ---
+def test_live_launch_dplus_only_single_dispatch(prod_module, tmp_path,
+                                                monkeypatch):
+    """(a) directions=['dplus'] → each leg launches a SINGLE dplus dispatch;
+    the dminus subdir is never staged. Proves the launch path does not demand
+    the dminus base state / system."""
+    v21_root = tmp_path / "_v21"
+    leg_dir = v21_root / "cp4" / "bound"
+    _make_dplus_only_bound_leg(leg_dir)
+
+    monkeypatch.setattr(
+        prod_module, "_gate_vm_leg_dir_exists",
+        lambda *a, **k: (True, "ok"),
+    )
+    rsynced = []
+    monkeypatch.setattr(
+        prod_module, "_rsync_subdir_to_vm",
+        lambda subdir, **k: rsynced.append(subdir) or
+        {"status": "rsynced", "bytes_sent_estimate": 100},
+    )
+
+    class _Completed:
+        returncode = 0
+
+    monkeypatch.setattr(
+        prod_module.subprocess, "run", lambda *a, **k: _Completed(),
+    )
+    orig = prod_module._PROJ_ROOT
+    prod_module._PROJ_ROOT = str(tmp_path)
+    try:
+        results = prod_module._live_launch_all_legs(
+            v21_out_root="_v21",
+            endpoints=["cp4"],
+            legs=["bound"],
+            jobname="trackb",
+            gpu_host="vm",
+            dry_run=False,
+            directions=["dplus"],
+        )
+    finally:
+        prod_module._PROJ_ROOT = orig
+    assert len(results) == 1
+    r = results[0]
+    assert r["status"] == "complete"
+    # SINGLE dispatch (dplus only) — NOT the 2-process split.
+    assert r["n_dispatches"] == 1
+    tags = {d["direction_tag"] for d in r["dispatches"]}
+    assert tags == {"dplus"}
+    # The dplus subdir is STAGED (carries the staging nodefile artifact).
+    assert (leg_dir / "dplus" / "nodefile").is_file()
+    # The dminus subdir was NEVER STAGED — generate_per_direction_cntls writes
+    # a cntl for both directions (cheap), but stage_per_direction_subdir (which
+    # writes nodefile + sys + r-dirs) was only run for dplus. So no dminus
+    # staging artifacts exist (the dminus system / base were never required).
+    assert not (leg_dir / "dminus" / "nodefile").exists()
+    assert not (leg_dir / "dminus" / "trackb_dminus_sys.xml").exists()
+    # Only the dplus subdir was rsynced to the VM.
+    assert all("dminus" not in s for s in rsynced)
+    assert any(s.endswith("dplus") for s in rsynced)
+
+
+def test_live_launch_dplus_only_dry_run_single_dispatch(prod_module, tmp_path):
+    """(a) dry-run with directions=['dplus'] renders a single dplus dispatch
+    per leg and never references dminus."""
+    v21_root = tmp_path / "_v21"
+    _make_dplus_only_bound_leg(v21_root / "cp4" / "bound")
+    orig = prod_module._PROJ_ROOT
+    prod_module._PROJ_ROOT = str(tmp_path)
+    try:
+        results = prod_module._live_launch_all_legs(
+            v21_out_root="_v21",
+            endpoints=["cp4"],
+            legs=["bound"],
+            jobname="trackb",
+            gpu_host="local",
+            dry_run=True,
+            directions=["dplus"],
+        )
+    finally:
+        prod_module._PROJ_ROOT = orig
+    assert len(results) == 1
+    r = results[0]
+    assert r["n_dispatches"] == 1
+    assert {d["direction_tag"] for d in r["dispatches"]} == {"dplus"}
+    assert "trackb_dplus_asyncre.cntl" in r["dispatches"][0]["cmd"]
+
+
+# --- (c) single-direction launch: dminus-only stages + launches ONLY dminus -
+def _make_dminus_only_bound_leg(leg_dir, jobname="trackb"):
+    """BOUND leg prepped for the dminus direction ONLY (mirror of the dplus
+    fixture)."""
+    import pathlib
+    leg = pathlib.Path(leg_dir)
+    leg.mkdir(parents=True, exist_ok=True)
+    (leg / f"{jobname}_asyncre.cntl").write_text(_COMBINED_CNTL_22STATE)
+    (leg / f"{jobname}_0.xml").write_text("BASELINE")
+    (leg / f"{jobname}_sys_dminus.xml").write_text("SYS_dminus")
+    (leg / f"{jobname}_dminus.pdb").write_text("PDB_dminus")
+    (leg / f"{jobname}_0_dminus.xml").write_text("STATE0_dminus")
+    (leg / f"{jobname}_0_dminus.pdb").write_text("STATE0PDB_dminus")
+    (leg / "nodefile").write_text("localhost,0:0,1,CUDA,,/tmp\n")
+    return str(leg)
+
+
+def test_live_launch_dminus_only_single_dispatch(prod_module, tmp_path,
+                                                 monkeypatch):
+    """(c) directions=['dminus'] → single dminus dispatch; dplus untouched."""
+    v21_root = tmp_path / "_v21"
+    leg_dir = v21_root / "cp4" / "bound"
+    _make_dminus_only_bound_leg(leg_dir)
+
+    monkeypatch.setattr(
+        prod_module, "_gate_vm_leg_dir_exists", lambda *a, **k: (True, "ok"),
+    )
+    monkeypatch.setattr(
+        prod_module, "_rsync_subdir_to_vm",
+        lambda *a, **k: {"status": "rsynced", "bytes_sent_estimate": 100},
+    )
+
+    class _Completed:
+        returncode = 0
+
+    monkeypatch.setattr(
+        prod_module.subprocess, "run", lambda *a, **k: _Completed(),
+    )
+    orig = prod_module._PROJ_ROOT
+    prod_module._PROJ_ROOT = str(tmp_path)
+    try:
+        results = prod_module._live_launch_all_legs(
+            v21_out_root="_v21",
+            endpoints=["cp4"],
+            legs=["bound"],
+            jobname="trackb",
+            gpu_host="vm",
+            dry_run=False,
+            directions=["dminus"],
+        )
+    finally:
+        prod_module._PROJ_ROOT = orig
+    r = results[0]
+    assert r["n_dispatches"] == 1
+    assert {d["direction_tag"] for d in r["dispatches"]} == {"dminus"}
+    # dminus STAGED (nodefile artifact present); dplus NEVER staged.
+    assert (leg_dir / "dminus" / "nodefile").is_file()
+    assert not (leg_dir / "dplus" / "nodefile").exists()
+
+
+# --- (b) default (no directions arg) reproduces the both-directions path ----
+def test_live_launch_default_directions_both_unchanged(prod_module, tmp_path):
+    """(b) Omitting the directions arg (None) reproduces the prior
+    both-directions 2-process split exactly: 2 dispatches, {dplus, dminus},
+    dry-run rendering identical to the explicit both-directions call."""
+    v21_root = tmp_path / "_v21"
+    for endpoint in ("cp4", "wt"):
+        _make_two_process_leg(v21_root / endpoint / "bound")
+    orig = prod_module._PROJ_ROOT
+    prod_module._PROJ_ROOT = str(tmp_path)
+    try:
+        # default (directions omitted == None)
+        res_default = prod_module._live_launch_all_legs(
+            v21_out_root="_v21", endpoints=["cp4", "wt"], legs=["bound"],
+            jobname="trackb", gpu_host="local", dry_run=True,
+        )
+        # explicit both
+        res_explicit = prod_module._live_launch_all_legs(
+            v21_out_root="_v21", endpoints=["cp4", "wt"], legs=["bound"],
+            jobname="trackb", gpu_host="local", dry_run=True,
+            directions=["dplus", "dminus"],
+        )
+    finally:
+        prod_module._PROJ_ROOT = orig
+    for res in (res_default, res_explicit):
+        assert len(res) == 2
+        for r in res:
+            assert r["n_dispatches"] == 2
+            assert {d["direction_tag"] for d in r["dispatches"]} == \
+                {"dplus", "dminus"}
+    # The two renderings are identical command-for-command (default == both).
+    def _cmds(res):
+        return [
+            (r["endpoint"], r["leg"], d["direction_tag"], d["cmd"])
+            for r in res for d in r["dispatches"]
+        ]
+    assert _cmds(res_default) == _cmds(res_explicit)
+
+
+def test_readiness_default_both_identical_gate_set(prod_module, tmp_path):
+    """(b) check_free_pilot_readiness with directions omitted (None) yields the
+    SAME gate verdict + staging-input keys as the explicit both-directions
+    call — proving the both-dir path is unchanged."""
+    leg = _make_two_process_leg_densified38(tmp_path / "cp4" / "free")
+    orig = prod_module._PROJ_ROOT
+    prod_module._PROJ_ROOT = str(tmp_path)
+    try:
+        r_default = prod_module.check_free_pilot_readiness(
+            v21_out_root="", endpoints=["cp4"], legs=["free"], jobname="trackb",
+        )
+        r_explicit = prod_module.check_free_pilot_readiness(
+            v21_out_root="", endpoints=["cp4"], legs=["free"], jobname="trackb",
+            directions=["dplus", "dminus"],
+        )
+    finally:
+        prod_module._PROJ_ROOT = orig
+    assert r_default["pass"] is True
+    assert r_explicit["pass"] is True
+    e_default, e_explicit = r_default["legs"][0], r_explicit["legs"][0]
+    # Both directions present in staging inputs for the default (both) path.
+    assert set(e_default["staging_inputs"].keys()) == {"dplus", "dminus"}
+    assert set(e_explicit["staging_inputs"].keys()) == {"dplus", "dminus"}
+    assert e_default["dplus_xml_present"] is True
+    assert e_default["dminus_xml_present"] is True
+    assert e_default["staging_inputs_ok"] is True
+
+
+# --- (a) readiness: dplus-only requires ONLY dplus (no dminus base demanded) -
+def test_readiness_dplus_only_does_not_demand_dminus(prod_module, tmp_path):
+    """(a) A dplus-only-prepped leg (no dminus base / system) PASSES the
+    readiness gate when directions=['dplus']; the same leg FAILS under the
+    default both-directions gate (proving the gate genuinely drops the dminus
+    requirement, not that the dminus state is incidentally present)."""
+    leg_dir = _make_dplus_only_bound_leg(tmp_path / "cp4" / "bound")
+    orig = prod_module._PROJ_ROOT
+    prod_module._PROJ_ROOT = str(tmp_path)
+    try:
+        r_dplus = prod_module.check_free_pilot_readiness(
+            v21_out_root="", endpoints=["cp4"], legs=["bound"],
+            jobname="trackb", directions=["dplus"],
+        )
+        r_both = prod_module.check_free_pilot_readiness(
+            v21_out_root="", endpoints=["cp4"], legs=["bound"],
+            jobname="trackb",
+        )
+    finally:
+        prod_module._PROJ_ROOT = orig
+    # dplus-only: PASSES (only dplus staging required).
+    assert r_dplus["pass"] is True
+    assert r_dplus["directions"] == ["dplus"]
+    e = r_dplus["legs"][0]
+    assert set(e["staging_inputs"].keys()) == {"dplus"}
+    assert e["staging_inputs"]["dplus"]["pass"] is True
+    assert e["dplus_xml_present"] is True
+    # dminus base genuinely absent — reported but not gated.
+    assert e["dminus_xml_present"] is False
+    # default both-directions: FAILS (dminus base / system absent).
+    assert r_both["pass"] is False
+    assert "dminus" in r_both["legs"][0]["staging_inputs"]
+    assert r_both["legs"][0]["staging_inputs"]["dminus"]["pass"] is False
+
+
+def test_finite_energy_probe_all_honors_directions(prod_module, tmp_path,
+                                                   monkeypatch):
+    """C5 probe iterates ONLY the requested directions. ``finite_energy_probe_
+    one`` is stubbed (the real probe needs the atm-env openmm + atom_openmm,
+    unavailable in the qmmm test env) so the test isolates the per-direction
+    ITERATION — the dplus-only pilot must not probe (and thus not demand) the
+    dminus system."""
+    leg_dir = str(tmp_path / "cp4" / "bound")
+    probed = []
+
+    def _stub_probe_one(leg_dir, direction_tag, jobname, energy_halt_kj):
+        probed.append(direction_tag)
+        return {"status": "ok", "base_energy_kj": -1.2e6,
+                "direction_tag": direction_tag}
+
+    monkeypatch.setattr(prod_module, "finite_energy_probe_one",
+                        _stub_probe_one)
+
+    # default both → 2 probes (dplus + dminus)
+    both = prod_module.finite_energy_probe_all(
+        {"cp4": leg_dir}, jobname="trackb",
+    )
+    assert both["directions"] == ["dplus", "dminus"]
+    assert {p["direction_tag"] for p in both["probes"]} == {"dplus", "dminus"}
+    assert probed == ["dplus", "dminus"]
+
+    # dplus-only → exactly ONE probe, dplus; dminus is NEVER probed.
+    probed.clear()
+    single = prod_module.finite_energy_probe_all(
+        {"cp4": leg_dir}, jobname="trackb", directions=["dplus"],
+    )
+    assert single["directions"] == ["dplus"]
+    assert {p["direction_tag"] for p in single["probes"]} == {"dplus"}
+    assert probed == ["dplus"]
+    assert all(p["direction_tag"] != "dminus" for p in single["probes"])
+
+
+# ===========================================================================
+# A5: REXEE second-eigenvalue / relaxation-time mixing metric (ADDITIVE).
+# Hsu & Shirts 2024 JCTC 20:6062 (DOI 10.1021/acs.jctc.4c00484); lineage
+# Abraham & Gready 2008 (DOI 10.1021/ct800016r). Pure diagnostic on the
+# existing per-replica state sequences — does NOT gate, does NOT touch any
+# estimator. lambda2 ~= 1 ⇒ slow mixing (wall); lambda2 << 1 ⇒ fast.
+# ===========================================================================
+def _nn_random_walk(seed, n, K):
+    """Deterministic nearest-neighbour random walk over states 0..K-1.
+
+    A genuinely well-mixed sequence (reflecting boundaries) — unlike a
+    ballistic sweep, its transition matrix has a clearly sub-unity second
+    eigenvalue. Seeded for reproducibility (no AI-trail, just a fixed RNG).
+    """
+    import random
+    rnd = random.Random(seed)
+    s = rnd.randrange(K)
+    out = [s]
+    for _ in range(n - 1):
+        s = min(K - 1, max(0, s + rnd.choice([-1, 1])))
+        out.append(s)
+    return out
+
+
+def test_a5_mixing_eigenvalue_healthy_low_lambda2(prod_module):
+    """(a) A healthy, fully-mixing ladder (independent nearest-neighbour random
+    walks visiting the whole ladder) → lambda2 well below 1 and a small
+    relaxation time tau_r (a handful of exchange attempts)."""
+    seq = {r: _nn_random_walk(1000 + r, 200, K=5) for r in range(5)}
+    res = prod_module._mixing_eigenvalue_metric(seq)
+    assert res["status"] == "ok"
+    assert res["lambda1"] == pytest.approx(1.0, abs=1e-6)   # stationary sanity
+    assert res["lambda2"] < 0.95          # clearly below 1 (fast mixing)
+    assert res["tau_r_attempts"] < 30.0   # small relaxation time
+    assert res["unit"] == "exchange_attempts"
+    assert res["matrix_shape"] == [5, 5]
+    assert res["n_active_states"] == 5
+    assert res["n_transitions"] == 5 * 199
+
+
+def test_a5_mixing_eigenvalue_decoupled_wall_lambda2_near_one(prod_module):
+    """(b) A two-block DECOUPLED ladder (a wall at 6↔7: lower replicas shuttle
+    within 0..6, upper within 7..10, the boundary never crosses) → lambda2 ≈ 1
+    and a very large (here infinite) tau_r — the formal signature of a
+    non-mixing ladder that aggregate occupancy is blind to."""
+    lower = list(range(0, 7)) + list(range(5, 0, -1))    # 0..6..1
+    upper = list(range(7, 11)) + list(range(9, 7, -1))   # 7..10..8
+    seq = {}
+    for r in range(0, 7):
+        seq[r] = [lower[(r + k) % len(lower)] for k in range(40)]
+    for r in range(7, 11):
+        seq[r] = [upper[(r + k) % len(upper)] for k in range(40)]
+    res = prod_module._mixing_eigenvalue_metric(seq)
+    assert res["status"] == "ok"
+    # Two disjoint blocks ⇒ algebraic multiplicity 2 at eigenvalue 1 ⇒
+    # lambda2 ≈ 1 (slow mixing). Much larger than the healthy case's lambda2.
+    assert res["lambda2"] == pytest.approx(1.0, abs=1e-6)
+    assert res["tau_r_attempts"] == float("inf")
+    # And it is unambiguously slower than a healthy fully-mixing ladder.
+    healthy = prod_module._mixing_eigenvalue_metric(
+        {r: _nn_random_walk(2000 + r, 200, K=5) for r in range(5)}
+    )
+    assert res["lambda2"] > healthy["lambda2"]
+
+
+def test_a5_mixing_eigenvalue_edge_cases_do_not_crash(prod_module):
+    """(c) Degenerate inputs degrade gracefully (status:'unavailable'), never
+    raise: an empty sequence, a single-state pinned replica (zero usable rows),
+    and a single-transition two-state log that yields a zero-row absorbing
+    state handled by the row-skip rule."""
+    # Empty — no transitions at all.
+    empty = prod_module._mixing_eigenvalue_metric({})
+    assert empty["status"] == "unavailable"
+    assert empty["unit"] == "exchange_attempts"
+    # Single state pinned (state-0-collapse class): one active state, < 2 → n/a.
+    pinned = prod_module._mixing_eigenvalue_metric({0: [3, 3, 3, 3]})
+    assert pinned["status"] == "unavailable"
+    assert pinned["n_active_states"] == 1
+    assert pinned["matrix_shape"] == [1, 1]
+    # Two states but the target (state 1) never transitions OUT (zero-row): it
+    # is skipped from normalization; only one active row remains → unavailable
+    # rather than a crash.
+    one_hop = prod_module._mixing_eigenvalue_metric({0: [0, 1]})
+    assert one_hop["status"] == "unavailable"
+    assert one_hop["n_zero_rows"] == 1   # state 1 has no outgoing transition
+
+
+def test_a5_mixing_metric_surfaced_in_check_atm_mixing(prod_module, tmp_path):
+    """The eigenvalue metric is surfaced into the check_atm_mixing result next
+    to total_round_trips (ADDITIVE — the PASS/FAIL gate logic is unchanged).
+    A healthy traversing ladder still PASSES and now also reports lambda2 +
+    tau_r_attempts; the full transition_mixing block rides under
+    ['transitions']['transition_mixing'] too."""
+    traj = {}
+    sweep = list(range(0, 11)) + list(range(9, -1, -1))
+    for rep in range(11):
+        off = rep % len(sweep)
+        traj[rep] = (sweep * 3)[off:off + 42]
+    log = _make_trajectory_log(tmp_path / "_live_launch.log", traj,
+                               warmup_cycles=20)
+    res = prod_module.check_atm_mixing(
+        log, schedule_K=11, warmup_cycles=20, min_crossings=1,
+    )
+    # Gate verdict unchanged by the additive metric.
+    assert res["verdict"] == "PASS"
+    assert res["passed"] is True
+    # Additive eigenvalue fields present next to total_round_trips.
+    assert "lambda2" in res
+    assert "tau_r_attempts" in res
+    assert res["lambda2"] is not None
+    assert 0.0 <= res["lambda2"] <= 1.0 + 1e-9
+    # Full block also threaded through the transitions payload.
+    tmix = res["transitions"]["transition_mixing"]
+    assert tmix["status"] == "ok"
+    assert tmix["unit"] == "exchange_attempts"
+    assert tmix["lambda2"] == res["lambda2"]

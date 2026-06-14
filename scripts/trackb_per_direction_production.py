@@ -43,6 +43,7 @@ the hard launch conditions, S1-S4 the soft conditions.
 from __future__ import annotations
 
 import argparse
+import glob
 import hashlib
 import json
 import os
@@ -129,6 +130,57 @@ PRE_REGISTER_OUTCOMES = [
 
 EIGHT_SEED_COHORT = ["s7", "s19", "s23", "s101", "s127", "s163", "s199", "s251"]
 
+# ---------------------------------------------------------------------------
+# Per-direction transfer tags + --directions selector (2026-06-11).
+#
+# The two thermodynamic transfer directions of the ATM per-direction split.
+# CANONICAL ORDER = (dplus, dminus); the default of --directions reproduces
+# this exact order so the both-directions launch path is byte-for-byte
+# unchanged. A SINGLE-direction launch (e.g. --directions dplus) is the
+# scientifically-required dplus-only PILOT capability: per the
+# densified_bound28/30 scope analysis, the dminus bridge is mirror-ASSUMED and
+# must be pilot-validated SEPARATELY from dplus (overlap symmetry != index
+# reverse-symmetry). Running both directions before dplus is validated is
+# premature, so the launcher must be able to drive ONE direction at a time.
+# ---------------------------------------------------------------------------
+_DIRECTION_TAGS = ("dplus", "dminus")
+_DEFAULT_DIRECTIONS = list(_DIRECTION_TAGS)
+
+
+def _parse_directions_arg(raw: str) -> List[str]:
+    """Parse a ``--directions`` comma-list into an ordered, validated list.
+
+    Splits on commas, strips whitespace, drops empties, and validates each
+    token against ``{"dplus", "dminus"}`` (fail-loud ``ValueError`` on any
+    other token — NEVER silently drops an unknown direction). Order is the
+    operator-supplied order (preserved); duplicates are collapsed to the
+    first occurrence so ``dplus,dplus`` -> ``["dplus"]`` rather than
+    launching the same direction twice. An empty / all-whitespace input
+    raises (the caller must pass at least one direction).
+
+    Returns the ordered de-duplicated direction list. The default CLI value
+    ``"dplus,dminus"`` yields ``["dplus", "dminus"]`` (canonical order),
+    reproducing the prior both-directions behavior exactly.
+    """
+    tokens = [t.strip() for t in raw.split(",") if t.strip()]
+    if not tokens:
+        raise ValueError(
+            "--directions is empty; pass at least one of "
+            f"{', '.join(_DIRECTION_TAGS)} (e.g. --directions dplus for the "
+            "dplus-only pilot, or the default dplus,dminus for both)."
+        )
+    ordered: List[str] = []
+    for tok in tokens:
+        if tok not in _DIRECTION_TAGS:
+            raise ValueError(
+                f"--directions: unknown direction {tok!r}; valid tokens are "
+                f"{', '.join(_DIRECTION_TAGS)} (comma-separated, e.g. "
+                "'dplus' or 'dplus,dminus')."
+            )
+        if tok not in ordered:
+            ordered.append(tok)
+    return ordered
+
 
 def check_c1_free_leg_complete(
     free_leg_pid: int,
@@ -137,7 +189,7 @@ def check_c1_free_leg_complete(
 ) -> Dict[str, Any]:
     """C1 auto-check: free leg PID has terminated AND results exist.
 
-    ``expected_replicas`` (Path λ-densify 2026-06-05) is the COMBINED free-leg
+    ``expected_replicas`` (λ-densify, 2026-06-05) is the COMBINED free-leg
     replica count: 22 for canonical, 38 for the REVISED densified ladder (34
     for the DEPRECATED densified34). Defaults to 22 (the canonical free leg).
     When the leg dir holds a ``trackb_asyncre.cntl`` its DIRECTION column
@@ -210,8 +262,18 @@ def check_free_pilot_readiness(
     endpoints: List[str],
     legs: List[str],
     jobname: str = "trackb",
+    directions: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Free-pilot readiness gate (replaces bound C1-C4 for a fresh FREE run).
+
+    ``directions`` selects which per-direction transfer(s) this run will
+    launch (default ``["dplus", "dminus"]`` = the prior both-directions
+    behavior, byte-for-byte). The readiness criterion is evaluated ONLY for
+    the REQUESTED directions: a ``--directions dplus`` pilot requires the
+    dplus base state + dplus staging inputs and does NOT demand
+    ``<jobname>_0_dminus.xml`` / the dminus staging inputs (which a
+    dplus-only structprep never produces). When BOTH directions are
+    requested the gate is identical to the prior implementation.
 
     For each requested (endpoint, leg), require:
       1. ``<leg_dir>/<jobname>_asyncre.cntl`` present + parseable, with a
@@ -238,14 +300,13 @@ def check_free_pilot_readiness(
     structprep or point at the right out-root. ``v21_out_root`` is
     project-relative (joined against ``_PROJ_ROOT`` like the rest of ``main``).
     """
+    req_dirs = list(directions) if directions else list(_DEFAULT_DIRECTIONS)
     legs_report: List[Dict[str, Any]] = []
     all_ok = True
     for endpoint in endpoints:
         for leg in legs:
             leg_dir = os.path.join(_PROJ_ROOT, v21_out_root, endpoint, leg)
             cntl_path = os.path.join(leg_dir, jobname + "_asyncre.cntl")
-            dplus = os.path.join(leg_dir, jobname + "_0_dplus.xml")
-            dminus = os.path.join(leg_dir, jobname + "_0_dminus.xml")
 
             cntl_ok = os.path.isfile(cntl_path)
             n_states: Optional[int] = None
@@ -261,15 +322,26 @@ def check_free_pilot_readiness(
                 except (ValueError, OSError):
                     direction_ok = False
 
-            dplus_ok = os.path.isfile(dplus)
-            dminus_ok = os.path.isfile(dminus)
+            # Per-direction base-state presence (reported for BOTH directions
+            # for audit visibility, but only the REQUESTED directions gate the
+            # leg). A dplus-only pilot must not be blocked on a missing dminus
+            # base state that a dplus-only structprep never produces.
+            base_present = {
+                tag: os.path.isfile(
+                    os.path.join(leg_dir, jobname + "_0_" + tag + ".xml")
+                )
+                for tag in _DIRECTION_TAGS
+            }
+            dplus_ok = base_present["dplus"]
+            dminus_ok = base_present["dminus"]
 
-            # (3) Full staging-input resolvability for BOTH directions. Mirror
-            # stage_per_direction_subdir's _resolve_staging_source logic so the
-            # gate's verdict matches what staging will actually find.
+            # (3) Full staging-input resolvability for the REQUESTED directions.
+            # Mirror stage_per_direction_subdir's _resolve_staging_source logic
+            # so the gate's verdict matches what staging will actually find.
+            # Only the requested directions contribute to ``staging_ok``.
             staging: Dict[str, Any] = {}
             staging_ok = True
-            for tag in ("dplus", "dminus"):
+            for tag in req_dirs:
                 _sys_path, sys_kind = _resolve_staging_source(
                     leg_dir,
                     per_direction_name=jobname + "_sys_" + tag + ".xml",
@@ -280,25 +352,26 @@ def check_free_pilot_readiness(
                     per_direction_name=jobname + "_" + tag + ".pdb",
                     combined_name=jobname + ".pdb",
                 )
-                base_state = os.path.join(
-                    leg_dir, jobname + "_0_" + tag + ".xml"
-                )
                 tag_ok = (
                     sys_kind != "missing"
                     and pdb_kind != "missing"
-                    and os.path.isfile(base_state)
+                    and base_present[tag]
                 )
                 if not tag_ok:
                     staging_ok = False
                 staging[tag] = {
                     "sys_source_kind": sys_kind,
                     "pdb_source_kind": pdb_kind,
-                    "base_state_present": os.path.isfile(base_state),
+                    "base_state_present": base_present[tag],
                     "pass": tag_ok,
                 }
 
+            # Only the REQUESTED directions' base states gate the leg. With the
+            # default (both) this is ``dplus_ok and dminus_ok`` exactly as
+            # before; a single-direction pilot drops the unrequested check.
+            requested_base_ok = all(base_present[tag] for tag in req_dirs)
             leg_ok = (
-                cntl_ok and direction_ok and dplus_ok and dminus_ok
+                cntl_ok and direction_ok and requested_base_ok
                 and staging_ok
             )
             if not leg_ok:
@@ -310,6 +383,7 @@ def check_free_pilot_readiness(
                 "cntl_present": cntl_ok,
                 "direction_contiguous": direction_ok,
                 "n_states": n_states,
+                "directions_requested": list(req_dirs),
                 "dplus_xml_present": dplus_ok,
                 "dminus_xml_present": dminus_ok,
                 "staging_inputs": staging,
@@ -327,14 +401,16 @@ def check_free_pilot_readiness(
             "Free-pilot readiness FAILED for leg(s): "
             + ", ".join(missing)
             + ". Each requires <jobname>_asyncre.cntl (contiguous +1/-1 "
-            "DIRECTION) + <jobname>_0_dplus.xml + <jobname>_0_dminus.xml + the "
-            "full per-direction staging inputs (per-direction OR combined "
-            "<jobname>_sys.xml and <jobname>.pdb) for BOTH directions. "
-            "Run trackb_per_direction_structprep.py for the free leg first."
+            "DIRECTION) + <jobname>_0_<tag>.xml + the full per-direction "
+            "staging inputs (per-direction OR combined <jobname>_sys.xml and "
+            "<jobname>.pdb) for the requested direction(s) "
+            + str(req_dirs)
+            + ". Run trackb_per_direction_structprep.py for the free leg first."
         )
     return {
         "condition": "FREE_PILOT_readiness",
         "v21_out_root": v21_out_root,
+        "directions": list(req_dirs),
         "legs": legs_report,
         "pass": all_ok,
         **({"reason": reason} if reason else {}),
@@ -504,30 +580,102 @@ def check_c2_dminus_equilibration(prep_report_path: str) -> Dict[str, Any]:
     }
 
 
+def _c3_direction_ready(dir_entry: Any) -> bool:
+    """Return True when a per-direction sanity entry reports 'ok'.
+
+    The sanity_audit ``directions`` map is emitted in two shapes:
+    bound legs store a bare status string ("ok"), free legs store a
+    dict carrying {"status": "ok", ...}. Normalise both.
+    """
+    if isinstance(dir_entry, str):
+        return dir_entry == "ok"
+    if isinstance(dir_entry, dict):
+        return dir_entry.get("status") == "ok"
+    return False
+
+
 def check_c3_ommreplica_dryrun(prep_report_path: str) -> Dict[str, Any]:
-    """C3 check: per-direction binder centroid diff approx +/-displacement."""
+    """C3 check: per-direction structprep state is ready for both transfers.
+
+    The pass criterion is leg-dependent because the displacement that
+    separates the two transfer directions is applied at *production*
+    runtime (the cntl DISPLACEMENT vector is realised by the ATMForce as
+    a per-particle FixedDisplacement), not in the structprep coordinates:
+
+      * free leg — the structprep already separates the binder from the
+        binding site toward bulk, so the two per-direction states differ
+        by roughly the displacement. Require
+        ``binder_centroid_diff_magnitude_nm > 0.5`` (site -> bulk).
+
+      * bound leg — the binder is retained at the binding site in both
+        per-direction states (the displacement is only realised inside
+        the ATMForce at production time), so a small dplus/dminus centroid
+        diff is physically expected and must NOT gate. Instead verify the
+        structural integrity that the per-direction prep must preserve:
+        the cyclic disulfide is intact in both directions and both
+        directions reached a usable base state. The actual displacement is
+        verified later by the production per-state occupancy gate.
+    """
     if not os.path.isfile(prep_report_path):
         return {"condition": "C3_ommreplica_dryrun", "pass": False,
                 "reason": "missing prep report"}
     with open(prep_report_path) as fh:
         report = json.load(fh)
     sanity = report.get("sanity_audit", [])
-    centroid_diffs: List[float] = []
+
+    centroid_diffs: List[float] = []      # free-leg gate inputs
+    free_entry_pass: List[bool] = []      # free-leg per-entry results
+    bound_entry_pass: List[bool] = []     # bound-leg per-entry results
+    bound_audit: List[Dict[str, Any]] = []
+
     for sr in sanity:
-        if "binder_centroid_diff_magnitude_nm" in sr:
-            centroid_diffs.append(sr["binder_centroid_diff_magnitude_nm"])
-    # Expect diff approx 2 * displacement (one displacement from binding
-    # site to bulk, then equilibration; reverse for d=-1). Threshold:
-    # 0.5 nm minimum (very loose — manual visual inspection recommended).
-    pass_ = len(centroid_diffs) > 0 and all(d > 0.5 for d in centroid_diffs)
+        leg = sr.get("leg")
+        diff = sr.get("binder_centroid_diff_magnitude_nm")
+        if leg == "bound":
+            # Structural-integrity gate (displacement is a runtime ATMForce
+            # property; centroid diff is informational only for bound).
+            cyclic_ok = bool(sr.get("cyclic_ss_intact_both_directions", False))
+            dirs = sr.get("directions") or {}
+            both_dir_ready = bool(dirs) and all(
+                _c3_direction_ready(dirs.get(tag)) for tag in ("d=+1", "d=-1")
+            )
+            entry_ok = cyclic_ok and both_dir_ready
+            bound_entry_pass.append(entry_ok)
+            bound_audit.append({
+                "endpoint": sr.get("endpoint"),
+                "cyclic_ss_intact_both_directions": cyclic_ok,
+                "both_directions_ready": both_dir_ready,
+                "binder_centroid_diff_magnitude_nm": diff,  # informational
+                "pass": entry_ok,
+            })
+        else:
+            # free leg (or legacy entry without a leg label): displacement
+            # separates the binder from the site toward bulk.
+            if diff is not None:
+                centroid_diffs.append(diff)
+                free_entry_pass.append(diff > 0.5)
+
+    n_audited = len(free_entry_pass) + len(bound_entry_pass)
+    # Pass requires at least one audited entry AND every audited entry
+    # meeting its leg-appropriate criterion.
+    pass_ = (
+        n_audited > 0
+        and all(free_entry_pass)
+        and all(bound_entry_pass)
+    )
     return {
         "condition": "C3_ommreplica_dryrun",
-        "n_legs_audited": len(centroid_diffs),
+        "n_legs_audited": n_audited,
         "centroid_diffs_nm": centroid_diffs,
+        "bound_structural_audit": bound_audit,
         "pass": pass_,
         "note": (
-            "Manually verify that r0 loads _dplus.xml and "
-            "r11 loads _dminus.xml via dry-run before launch."
+            "free leg: r0 loads _dplus.xml and r11 loads _dminus.xml "
+            "(centroid diff > 0.5 nm). bound leg: binder is site-retained "
+            "in both per-direction states (displacement realised by the "
+            "production ATMForce), so structural integrity is gated here "
+            "and the displacement itself is verified by the production "
+            "per-state occupancy gate."
         ),
     }
 
@@ -676,7 +824,7 @@ def _ckpt_matches_expected_direction(ckpt_path: str, expected_src_xml: str) -> b
 # cntl keywords whose value is a comma-separated PER-STATE array (length =
 # number of states). These get sliced [0:fwd] (forward) / [fwd:total]
 # (backward), where fwd/total are DERIVED per-leg from the DIRECTION column
-# (canonical bound leg = 11/22; densified free leg = 17/34, Path 2026-06-05).
+# (canonical bound leg = 11/22; densified free leg = 17/34, 2026-06-05).
 _PER_STATE_CNTL_KEYS = (
     "LAMBDAS",
     "DIRECTION",
@@ -692,7 +840,7 @@ _PER_STATE_CNTL_KEYS = (
 # symmetric: 11 forward + 11 backward). These remain the defaults for callers
 # / tests that do not pass an explicit count, but the per-state slicing +
 # subdir staging + merge now DERIVE the actual counts per-leg from the
-# combined cntl's DIRECTION column (Path λ-densify spec 2026-06-05): FREE leg
+# combined cntl's DIRECTION column (λ-densify spec, 2026-06-05): FREE leg
 # may be densified34 (17 fwd + 17 bwd), BOUND leg stays 22 (11+11). NO global
 # literal drives the split — these are fall-backs only.
 _FWD_STATE_COUNT = 11
@@ -797,7 +945,7 @@ def _slice_per_state_value(
 
     ``total_state_count`` defaults to the canonical 22 but is DERIVED per-leg
     by ``generate_per_direction_cntls`` from the cntl's DIRECTION column
-    (densified free leg = 34; bound leg = 22 — Path λ-densify spec
+    (densified free leg = 34; bound leg = 22 — λ-densify spec,
     2026-06-05). NO global literal is assumed.
     """
     quoted = False
@@ -1087,7 +1235,7 @@ def generate_per_direction_cntls(
     entries = _parse_cntl(combined_path)
 
     # Derive the per-leg state counts from the cntl's DIRECTION column rather
-    # than the module literal (Path λ-densify spec 2026-06-05): bound leg = 22
+    # than the module literal (λ-densify spec, 2026-06-05): bound leg = 22
     # (11 fwd + 11 bwd), densified free leg = 34 (17 fwd + 17 bwd). The slice
     # boundaries follow from sum(DIRECTION==+1), never a global 11/22.
     total_state_count, fwd_state_count = _derive_state_counts_from_cntl(
@@ -1527,8 +1675,8 @@ def stage_per_replica_checkpoints(
 # silently degrading Track B v2.2 to the v2.1 single-direction architecture
 # (NaN-architectural-blocker class). This is the 5th member of the failure
 # family:
-#   - integrity_vm_lane_self_provisioning_20260529
-#   - integrity_vm_conda_path_noninteractive_20260528
+#   - VM lane self-provisioning (2026-05-29)
+#   - VM conda path non-interactive (2026-05-28)
 #   - Round 2 F3 (VM abfe_bin missing)
 #   - Round 3 F3 (VM env install)
 #   - Round 6 G38 (VM leg-dir missing on dispatch)
@@ -2211,21 +2359,27 @@ def finite_energy_probe_all(
     leg_dirs: Dict[str, str],
     jobname: str = "trackb",
     energy_halt_kj: float = _C5_ENERGY_HALT_KJ,
+    directions: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
-    """C5 probe across all endpoints x both directions (4 probes).
+    """C5 probe across all endpoints x the requested directions.
 
     ``leg_dirs`` maps endpoint name -> leg_dir (e.g. ``{"cp4": ".../cp4/
     bound", "wt": ".../wt/bound"}``). Runs ``finite_energy_probe_one`` for
-    each (endpoint, tag in {dplus, dminus}). Returns ``status`` ``ok`` iff
-    ALL probes are finite (``missing`` probes are surfaced as a separate
-    ``incomplete`` status so a partially-prepped cohort does not silently
-    pass). Caller HALTs on ``nonfinite``.
+    each (endpoint, tag in ``directions``). ``directions`` defaults to
+    ``["dplus", "dminus"]`` (both — identical to the prior 4-probe sweep
+    for a 2-endpoint cohort). A single-direction pilot (e.g.
+    ``["dplus"]``) probes ONLY that direction, so a not-yet-prepped dminus
+    system does NOT make the cohort ``incomplete``. Returns ``status``
+    ``ok`` iff ALL probes are finite (``missing`` probes are surfaced as a
+    separate ``incomplete`` status so a partially-prepped cohort does not
+    silently pass). Caller HALTs on ``nonfinite``.
     """
+    req_dirs = list(directions) if directions else list(_DEFAULT_DIRECTIONS)
     probes: List[Dict[str, Any]] = []
     any_nonfinite = False
     any_missing = False
     for endpoint, leg_dir in leg_dirs.items():
-        for tag in ("dplus", "dminus"):
+        for tag in req_dirs:
             probe = finite_energy_probe_one(
                 leg_dir=leg_dir, direction_tag=tag,
                 jobname=jobname, energy_halt_kj=energy_halt_kj,
@@ -2244,6 +2398,7 @@ def finite_energy_probe_all(
         status = "ok"
     return {
         "status": status,
+        "directions": list(req_dirs),
         "probes": probes,
         "threshold_kj": energy_halt_kj,
         "note": (
@@ -2291,6 +2446,29 @@ def _resolve_staging_source(
     return per_dir_path, "missing"
 
 
+def _infer_leg_kind(leg_dir: str) -> str:
+    """Infer the leg kind ('bound' / 'free' / 'unknown') from the leg_dir
+    path basename.
+
+    Used by the bound-leg combined-fallback gate (G2): the bound leg's
+    dplus / dminus systems describe physically distinct solvation states
+    (binder bound vs dissociated, binding-site pocket re-hydrated in the
+    dminus build), so a combined single-system fallback is INVALID for the
+    bound leg. The free leg is direction-agnostic (no binding pocket, same
+    particle count both directions) so the combined fallback is correct.
+
+    Returns 'bound' / 'free' when the basename is unambiguous, else
+    'unknown' (the gate then declines to HALT — it never fabricates a
+    leg-kind it cannot read).
+    """
+    base = os.path.basename(os.path.normpath(leg_dir)).lower()
+    if base == "bound":
+        return "bound"
+    if base == "free":
+        return "free"
+    return "unknown"
+
+
 def stage_per_direction_subdir(
     leg_dir: str,
     direction_tag: str,
@@ -2298,6 +2476,7 @@ def stage_per_direction_subdir(
     jobname: str = "trackb",
     fwd_replica_count: int = 11,
     total_state_count: int = 22,
+    leg_kind: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Materialize a fully self-contained per-direction work subdir.
 
@@ -2391,6 +2570,41 @@ def stage_per_direction_subdir(
         per_direction_name=jobname + "_" + direction_tag + ".pdb",
         combined_name=jobname + ".pdb",
     )
+
+    # G2 — bound-leg combined-fallback HALT (fail-loud, cohort-safe).
+    # The bound leg's dplus / dminus systems describe physically DISTINCT
+    # solvation environments: dplus = binder at the binding site (~92855
+    # particles), dminus = binder pre-displaced to bulk solvent with the
+    # binding-site pocket re-hydrated by addSolvent (~92804 particles,
+    # -17 waters). A combined single-system fallback (only trackb_sys.xml
+    # present, no per-direction trackb_sys_{tag}.xml) would stage the SAME
+    # topology for both walker directions, collapsing the dissociated-state
+    # base into the bound-state base — the dminus walker would start against
+    # the wrong pocket and the alchemical perturbation would be ill-defined.
+    # The free leg is genuinely direction-agnostic (no binding pocket, same
+    # particle count both directions), so its combined fallback is correct
+    # and remains permitted. We HALT only the bound leg.
+    effective_leg_kind = leg_kind if leg_kind is not None \
+        else _infer_leg_kind(leg_dir)
+    if effective_leg_kind == "bound" and (
+        sys_source_kind == "combined" or pdb_source_kind == "combined"
+    ):
+        raise RuntimeError(
+            "stage_per_direction_subdir: bound leg resolved a COMBINED "
+            "single-system fallback (sys_source_kind="
+            f"{sys_source_kind!r}, pdb_source_kind={pdb_source_kind!r}) "
+            f"in {leg_dir}. The bound leg REQUIRES per-direction systems: "
+            f"{jobname}_sys_dplus.xml (bound-state base) and "
+            f"{jobname}_sys_dminus.xml (dissociated-state base, binding-"
+            "site pocket re-hydrated). These describe physically distinct "
+            "solvation states and are NOT interchangeable. Rebuild the "
+            "bound system with per-direction directions, e.g. "
+            "scripts/phase4_trackB_v2_make_system.py --bound-directions "
+            "dplus,dminus  (or trackb_production_v2_1_upstream.py whose "
+            "default --bound-directions is dplus,dminus), then re-run "
+            "structprep. Cohort halted BEFORE staging (no subdir written)."
+        )
+
     # Base state is ALWAYS per-direction (structprep's direction-patched
     # annealing produces a distinct `trackb_0_{tag}.xml` per direction — the
     # free leg's dplus/dminus States differ by ~25.7k lines / distinct box
@@ -2492,7 +2706,7 @@ def merge_per_direction_outputs(
     """Merge the two per-direction subdir outputs into the parent leg's
     ``r0..r{N-1}/{jobname}.out`` for UWHAM (C1 verdict).
 
-    State-count-agnostic (Path λ-densify spec 2026-06-05). When
+    State-count-agnostic (λ-densify spec, 2026-06-05). When
     ``fwd_replica_count`` / ``total_state_count`` are None they are DERIVED
     from the leg's combined cntl DIRECTION column (bound leg = 11/22;
     densified free leg = 17/34). NO global 11/22 literal is assumed. The
@@ -2654,8 +2868,18 @@ def _live_launch_all_legs(
     dry_run: bool = False,
     abfe_bin: Optional[str] = None,
     vm_ssh_host: str = "san@192.168.122.155",
+    directions: Optional[List[str]] = None,
 ) -> List[Dict[str, Any]]:
     """Per-leg ``abfe_production`` orchestrator.
+
+    ``directions`` selects which per-direction transfer(s) are staged +
+    launched per leg (default ``["dplus", "dminus"]`` = the prior
+    both-directions 2-process split, unchanged byte-for-byte). A
+    single-direction pilot (e.g. ``["dplus"]``) stages + launches ONLY that
+    direction's subdir, never touching / requiring the other direction's
+    system, base state, or VM rsync — the scientifically-required dplus-only
+    pilot capability (the dminus bridge is mirror-ASSUMED and must be
+    pilot-validated separately).
 
     Iterates ``(endpoint, leg)`` pairs in ``endpoints x legs`` order. For
     each leg:
@@ -2702,6 +2926,7 @@ def _live_launch_all_legs(
     """
     if abfe_bin is None:
         abfe_bin = "/home/san/miniconda3/envs/atm/bin/abfe_production"
+    req_dirs = list(directions) if directions else list(_DEFAULT_DIRECTIONS)
 
     # 1) Plan + validate cntls up front so an early-leg failure does not
     # leave later legs in unstaged state.
@@ -2727,9 +2952,9 @@ def _live_launch_all_legs(
     # host-side leg_dirs over SSH; it requires trackb.pdb / trackb_sys.xml
     # / trackb_asyncre.cntl to exist at the SAME path on the VM filesystem.
     # If any leg fails the gate, halt the cohort BEFORE stage_per_replica_
-    # checkpoints runs (cohort-safe). Same failure-class family as
-    # integrity_vm_lane_self_provisioning_20260529 + integrity_vm_conda_
-    # path_noninteractive_20260528 + Round 2/3 F3 gates.
+    # checkpoints runs (cohort-safe). Same failure-class family as the
+    # VM lane self-provisioning (2026-05-29) + VM conda path non-interactive
+    # (2026-05-28) + Round 2/3 F3 gates.
     if gpu_host == "vm" and not dry_run:
         gate_failures: List[str] = []
         for item in plan:
@@ -2780,7 +3005,7 @@ def _live_launch_all_legs(
                 leg_dir=item["leg_dir"], jobname=jobname,
             )
         item["cntl_gen"] = cntl_gen
-        # Derived per-leg counts (Path λ-densify 2026-06-05): bound=22/11,
+        # Derived per-leg counts (λ-densify, 2026-06-05): bound=22/11,
         # densified free=34/17. Passed to subdir staging so the replica-index
         # mapping (local r0..r{fwd-1} → source leg replica) is correct for
         # both schedules without a global 11/22 literal.
@@ -2788,7 +3013,7 @@ def _live_launch_all_legs(
         leg_fwd = cntl_gen.get("fwd_state_count", _FWD_STATE_COUNT)
         if not dry_run:
             subdirs: Dict[str, Dict[str, Any]] = {}
-            for tag in ("dplus", "dminus"):
+            for tag in req_dirs:
                 try:
                     subdirs[tag] = stage_per_direction_subdir(
                         leg_dir=item["leg_dir"],
@@ -2797,6 +3022,7 @@ def _live_launch_all_legs(
                         jobname=jobname,
                         fwd_replica_count=leg_fwd,
                         total_state_count=leg_total,
+                        leg_kind=item["leg"],
                     )
                 except RuntimeError as exc:
                     raise RuntimeError(
@@ -2804,11 +3030,17 @@ def _live_launch_all_legs(
                         f"{item['endpoint']}/{item['leg']} {tag}: {exc}"
                     ) from exc
             item["subdirs"] = subdirs
+            stage_summary = " + ".join(
+                f"{tag}={subdirs[tag]['n_replicas']} replicas"
+                for tag in req_dirs
+            )
+            split_label = (
+                "2-process split" if len(req_dirs) > 1
+                else f"single-direction ({req_dirs[0]})"
+            )
             print(
                 f"  [stage] {item['endpoint']}/{item['leg']}: "
-                f"dplus={subdirs['dplus']['n_replicas']} replicas + "
-                f"dminus={subdirs['dminus']['n_replicas']} replicas "
-                f"(2-process split)"
+                f"{stage_summary} ({split_label})"
             )
 
     # 2b) G45 fix — VM-PER-REPLICA-CKPT-MISSING-01,
@@ -2821,7 +3053,7 @@ def _live_launch_all_legs(
     # Round 7 G45 (single-dispatch) — generalized to per-direction subdirs.
     if gpu_host == "vm" and not dry_run:
         for item in plan:
-            for tag in ("dplus", "dminus"):
+            for tag in req_dirs:
                 sub = item["subdirs"][tag]
                 try:
                     rsync_info = _rsync_subdir_to_vm(
@@ -2841,15 +3073,18 @@ def _live_launch_all_legs(
                 sub["rsync_status"] = rsync_info["status"]
                 sub["rsync_bytes"] = rsync_info["bytes_sent_estimate"]
 
-    # 3) Per-leg launch — TWO processes per leg (forward dplus + backward
-    # dminus). Both must succeed for the leg to be considered complete;
-    # UWHAM merges the two subdir outputs back to r0..r21 afterwards
-    # (merge_per_direction_outputs, C1).
+    # 3) Per-leg launch — one process per REQUESTED direction (default both:
+    # forward dplus + backward dminus, which must both succeed for the leg to
+    # be considered complete; UWHAM then merges the two subdir outputs back to
+    # r0..r21 via merge_per_direction_outputs, C1). For a single-direction
+    # pilot only that direction's process is dispatched (the post-hoc merge /
+    # UWHAM step is run once the second direction's pilot has been validated +
+    # launched separately).
     results: List[Dict[str, Any]] = []
     for item in plan:
         cntl_gen = item["cntl_gen"]
         dispatches: List[Dict[str, Any]] = []
-        for tag in ("dplus", "dminus"):
+        for tag in req_dirs:
             dspec = cntl_gen["directions"][tag]
             if dry_run:
                 # The cntl was derived into a temp leg (no host mutation);
@@ -2956,9 +3191,10 @@ def _live_launch_replicates(
     dry_run: bool = False,
     abfe_bin: Optional[str] = None,
     vm_ssh_host: str = "san@192.168.122.155",
+    directions: Optional[List[str]] = None,
 ) -> List[Dict[str, Any]]:
     """Launch ``n_replicates`` independent-seed replicates, each into its own
-    ``rep{i}`` output subtree (Stage 2, Path λ-densify campaign 2026-06-05).
+    ``rep{i}`` output subtree (Stage 2, λ-densify campaign, 2026-06-05).
 
     Thin orchestration wrapper over ``_live_launch_all_legs`` — calls it once
     per replicate with the per-replicate subtree (``_replicate_out_root``).
@@ -2968,6 +3204,9 @@ def _live_launch_replicates(
     by structprep with a matching ``--replicates``). When a subtree's leg cntl
     is absent, ``_live_launch_all_legs`` raises FileNotFoundError (cohort-safe
     — no partial-state launch).
+
+    ``directions`` is forwarded verbatim to ``_live_launch_all_legs`` (default
+    both directions); a single-direction pilot replicates only that direction.
 
     Returns the flattened list of per-leg result dicts across all replicates,
     each annotated with ``replicate_index`` + ``seed`` + ``replicate_out_root``.
@@ -2986,6 +3225,7 @@ def _live_launch_replicates(
             dry_run=dry_run,
             abfe_bin=abfe_bin,
             vm_ssh_host=vm_ssh_host,
+            directions=directions,
         )
         for r in rep_results:
             r["replicate_index"] = ridx
@@ -3261,6 +3501,476 @@ def parse_state_occupancy_from_log(
     }
 
 
+def parse_state_transitions_from_log(
+    log_path: str,
+    warmup_cycles: int = 20,
+) -> Dict[str, Any]:
+    """Parse an async_re driver log into per-replica ladder-traversal stats.
+
+    Sibling of ``parse_state_occupancy_from_log``: it reuses the SAME
+    ``Replica N new state M`` line loop and the SAME distinct-timestamp
+    warmup boundary, but instead of collapsing every sample into a per-state
+    occupancy histogram it preserves the per-replica STATE SEQUENCE. From
+    that sequence it derives the lambda-ladder TRANSPORT diagnostics that an
+    aggregate occupancy count is structurally blind to:
+
+      * ``adjacent_crossings`` — {"i-j": count} of post-warmup state changes
+        where a single replica moved between adjacent ladder indices i and
+        j == i+1 (in either direction). A mid-ladder zero-overlap wall shows
+        up here as a pair with count 0 even when both i and j are occupied
+        by *different* replicas (so aggregate occupancy looks healthy).
+      * ``visited_states``  — {replica: sorted distinct states} post-warmup.
+      * ``both_ends_replicas`` — replicas that visited BOTH end states
+        (0 and K-1); end-to-end transport requires at least one.
+      * ``round_trips`` — {replica: completed end-to-end-and-back traversals}.
+        A round trip = reaching one end, then the opposite end, then the
+        first end again (two end-to-end legs). Counts only fully closed
+        excursions.
+
+    ``schedule_K`` (the ladder length) is NOT inferred here — the caller
+    passes it to ``check_atm_mixing`` so the adjacent-pair set is the
+    DECLARED ladder, not merely the observed states (a wall that pins every
+    replica below it would otherwise hide the un-visited upper pairs).
+
+    Returns ``n_samples == 0`` when the log has no parseable ``new state``
+    lines (caller treats as INDETERMINATE, not PASS). Identical not-found /
+    error contract to ``parse_state_occupancy_from_log``.
+    """
+    seq: Dict[int, List[int]] = {}
+    n_samples = 0
+    seen_ts: List[str] = []
+    seen_ts_set: set = set()
+
+    if not os.path.isfile(log_path):
+        return {
+            "log_path": log_path,
+            "adjacent_crossings": {},
+            "visited_states": {},
+            "both_ends_replicas": [],
+            "round_trips": {},
+            "n_samples": 0,
+            "n_cycles_total": 0,
+            "replicas_seen": [],
+            "warmup_cycles": warmup_cycles,
+            "error": "log file not found",
+        }
+
+    with open(log_path, "r", errors="replace") as fh:
+        for line in fh:
+            m = _NEW_STATE_RE.search(line)
+            if m is None:
+                continue
+            ts_m = _LOG_TS_RE.match(line)
+            ts = ts_m.group(1) if ts_m else ""
+            if ts and ts not in seen_ts_set:
+                seen_ts_set.add(ts)
+                seen_ts.append(ts)
+            # Same warmup boundary as the occupancy parser: skip samples
+            # until ``warmup_cycles`` distinct timestamp groups have passed.
+            if ts and len(seen_ts) <= warmup_cycles:
+                continue
+            try:
+                replica = int(m.group(1))
+                state = int(m.group(2))
+            except (ValueError, IndexError):
+                continue
+            seq.setdefault(replica, []).append(state)
+            n_samples += 1
+
+    return _summarize_state_transitions(
+        seq=seq,
+        n_samples=n_samples,
+        n_cycles_total=len(seen_ts),
+        warmup_cycles=warmup_cycles,
+        log_path=log_path,
+    )
+
+
+def _mixing_eigenvalue_metric(
+    seq: Dict[int, List[int]],
+) -> Dict[str, Any]:
+    """Second-eigenvalue / relaxation-time mixing metric for the ladder.
+
+    A formal complement to the adjacent-crossing / round-trip counts: those
+    answer "did the boundary ever open?" whereas this answers "how SLOWLY does
+    the replica-exchange random walk decorrelate across the ladder?". Builds an
+    empirical state-to-state transition COUNT matrix by pooling every
+    consecutive (s_t -> s_{t+1}) pair from all per-replica post-warmup state
+    sequences, row-normalizes it to a transition-probability matrix T, and
+    reports:
+
+      * ``lambda2``         — the SECOND-largest |eigenvalue| of T. The largest
+                              is ~1 (stationary distribution); lambda2 close to
+                              1 means slow mixing (a near-decoupled ladder with
+                              a mid-ladder wall yields lambda2 ~= 1), lambda2
+                              well below 1 means fast decorrelation.
+      * ``tau_r_attempts``  — relaxation time tau_r = 1/(1 - lambda2), in units
+                              of EXCHANGE ATTEMPTS (rows of the count matrix /
+                              swap rounds). NOT a wall-clock time: this code has
+                              no per-attempt tau_exch, so reporting seconds would
+                              be a fabricated number — attempts is the honest
+                              unit. tau_r -> inf as lambda2 -> 1.
+
+    Zero-row handling: a state that is observed but never has a recorded
+    OUTGOING transition (an absorbing/terminal row in this finite sample) is
+    left as an all-zero row and EXCLUDED from the eigen-decomposition (the row
+    set is restricted to states with >=1 outgoing transition), so it does not
+    inject a spurious eigenvalue. This is documented as a sampling artifact of
+    a finite log, not a physical absorbing state.
+
+    PURE additive diagnostic. Does NOT change the mixing PASS/FAIL gate, does
+    NOT touch any free-energy estimator, and is wrapped in try/except so a
+    missing numpy or a degenerate matrix degrades to status:"unavailable"
+    rather than raising on the (numpy-free) launcher path.
+
+    Method ref: Hsu & Shirts 2024, J. Chem. Theory Comput. 20:6062 (DOI
+    10.1021/acs.jctc.4c00484), "Replica exchange ... mixing"; lineage Abraham &
+    Gready 2008, J. Chem. Theory Comput. 4:1119 (DOI 10.1021/ct800016r),
+    transition-matrix eigenvalue mixing diagnostics for replica exchange.
+    """
+    try:
+        import numpy as np
+
+        # Pooled (from, to) consecutive transitions across all replicas.
+        pairs: List[Tuple[int, int]] = []
+        states_set: set = set()
+        for states in seq.values():
+            for s in states:
+                states_set.add(int(s))
+            for a, b in zip(states, states[1:]):
+                pairs.append((int(a), int(b)))
+                states_set.add(int(a))
+                states_set.add(int(b))
+
+        if not pairs:
+            return {
+                "status": "unavailable",
+                "reason": "no consecutive transitions to build a matrix",
+                "unit": "exchange_attempts",
+            }
+
+        # Index by sorted observed state so the matrix is deterministic.
+        ordered = sorted(states_set)
+        idx = {s: i for i, s in enumerate(ordered)}
+        k = len(ordered)
+        counts = np.zeros((k, k), dtype=float)
+        for a, b in pairs:
+            counts[idx[a], idx[b]] += 1.0
+
+        # Row-normalize. A zero-row (no outgoing transition in this finite
+        # sample) is left zero and dropped from the eigen-decomposition rather
+        # than normalized (normalizing 0/0 would be undefined / inject noise).
+        row_sums = counts.sum(axis=1)
+        active = np.where(row_sums > 0)[0]
+        n_active = int(active.shape[0])
+        n_zero_rows = int(k - n_active)
+        if n_active < 2:
+            return {
+                "status": "unavailable",
+                "reason": (
+                    f"only {n_active} state(s) with an outgoing transition "
+                    f"(need >=2 for a second eigenvalue)"
+                ),
+                "matrix_shape": [k, k],
+                "n_active_states": n_active,
+                "n_zero_rows": n_zero_rows,
+                "n_transitions": int(len(pairs)),
+                "unit": "exchange_attempts",
+            }
+
+        sub = counts[np.ix_(active, active)]
+        sub_row_sums = sub.sum(axis=1)
+        # Some active rows may have transitioned only INTO a dropped zero-row
+        # state; guard those sub-rows too (skip-from-normalization → leave 0).
+        nz = sub_row_sums > 0
+        T = np.zeros_like(sub)
+        T[nz] = sub[nz] / sub_row_sums[nz][:, None]
+
+        eig = np.linalg.eigvals(T)
+        mags = np.sort(np.abs(eig))[::-1]
+        lambda1 = float(mags[0])
+        lambda2 = float(mags[1])
+        # tau_r in exchange attempts; lambda2 -> 1 ⇒ tau_r -> inf.
+        if lambda2 < 1.0:
+            tau_r = 1.0 / (1.0 - lambda2)
+        else:
+            tau_r = float("inf")
+
+        return {
+            "status": "ok",
+            "lambda1": lambda1,                 # ~1 stationary (sanity)
+            "lambda2": lambda2,                 # second-largest |eigenvalue|
+            "tau_r_attempts": tau_r,            # 1/(1-lambda2), in attempts
+            "unit": "exchange_attempts",
+            "matrix_shape": [k, k],
+            "n_active_states": n_active,
+            "n_zero_rows": n_zero_rows,
+            "n_transitions": int(len(pairs)),
+            "method_ref": "Hsu_Shirts_2024_JCTC_20_6062_DOI_10.1021_acs.jctc.4c00484",
+        }
+    except Exception as exc:  # numpy missing / degenerate matrix → graceful
+        return {
+            "status": "unavailable",
+            "reason": f"{type(exc).__name__}: {exc}",
+            "unit": "exchange_attempts",
+        }
+
+
+def _summarize_state_transitions(
+    seq: Dict[int, List[int]],
+    n_samples: int,
+    n_cycles_total: int,
+    warmup_cycles: int,
+    log_path: str,
+) -> Dict[str, Any]:
+    """Reduce per-replica post-warmup state sequences to transport stats.
+
+    Pure / side-effect-free (kept off the free-energy estimator call-path).
+    Factored out so a future overlap (Bhattacharyya / MBAR-O) check can
+    reuse the same per-replica sequence reduction.
+    """
+    adjacent_crossings: Dict[str, int] = {}
+    visited_states: Dict[int, List[int]] = {}
+    round_trips: Dict[int, int] = {}
+
+    end_lo = 0
+    # Upper end is replica-relative (max observed state); the DECLARED ladder
+    # end (K-1) is enforced separately by check_atm_mixing against schedule_K.
+    observed_max = -1
+    for states in seq.values():
+        for s in states:
+            if s > observed_max:
+                observed_max = s
+
+    for replica, states in seq.items():
+        visited_states[replica] = sorted(set(states))
+        prev: Optional[int] = None
+        # Round-trip bookkeeping: track which ends have been touched and the
+        # last end reached, counting a round trip each time the replica
+        # returns to an end opposite to the one that started the excursion.
+        last_end: Optional[int] = None
+        excursion_started_at: Optional[int] = None
+        for s in states:
+            if prev is not None and abs(s - prev) == 1:
+                lo, hi = (prev, s) if prev < s else (s, prev)
+                key = f"{lo}-{hi}"
+                adjacent_crossings[key] = adjacent_crossings.get(key, 0) + 1
+            # End-touch / round-trip accounting against the OBSERVED upper
+            # end (per-replica relative). check_atm_mixing additionally
+            # requires the DECLARED upper end for both_ends.
+            if s == end_lo or s == observed_max:
+                this_end = end_lo if s == end_lo else observed_max
+                if last_end is not None and this_end != last_end:
+                    if excursion_started_at is None:
+                        excursion_started_at = last_end
+                    elif this_end == excursion_started_at:
+                        round_trips[replica] = round_trips.get(replica, 0) + 1
+                        excursion_started_at = None
+                last_end = this_end
+            prev = s
+        round_trips.setdefault(replica, 0)
+
+    # Formal second-eigenvalue / relaxation-time mixing metric on top of the
+    # crossing counts (Hsu & Shirts 2024). Pure additive diagnostic; degrades
+    # to status:"unavailable" if numpy is absent or the matrix is degenerate.
+    transition_mixing = _mixing_eigenvalue_metric(seq)
+
+    return {
+        "log_path": log_path,
+        "adjacent_crossings": adjacent_crossings,
+        "visited_states": {int(k): v for k, v in sorted(visited_states.items())},
+        "round_trips": {int(k): v for k, v in sorted(round_trips.items())},
+        "observed_max_state": observed_max,
+        "transition_mixing": transition_mixing,
+        "n_samples": n_samples,
+        "n_cycles_total": n_cycles_total,
+        "replicas_seen": sorted(seq.keys()),
+        "warmup_cycles": warmup_cycles,
+    }
+
+
+def check_atm_mixing(
+    log_path: str,
+    schedule_K: int,
+    warmup_cycles: int = 20,
+    min_crossings: int = 1,
+) -> Dict[str, Any]:
+    """Boundary-crossing / round-trip MIXING gate for the lambda-ladder.
+
+    COMPLEMENT to ``check_atm_state_occupancy`` — it does NOT replace it.
+    Aggregate per-state occupancy is structurally blind to a mid-ladder
+    zero-overlap wall: a ladder can have every state occupied (occupancy
+    PASS) while a single adjacent pair never exchanges, so no replica ever
+    crosses that boundary and end-to-end transport is zero. This gate reads
+    the SAME ``Replica N new state M`` lines (via
+    ``parse_state_transitions_from_log``) using the SAME warmup boundary, and
+    asserts ladder TRANSPORT rather than mere coverage.
+
+    PASS  iff, after ``warmup_cycles`` swap rounds, EVERY declared adjacent
+          ladder pair (0-1, 1-2, ..., (K-2)-(K-1)) recorded at least
+          ``min_crossings`` post-warmup crossings AND at least one replica
+          visited BOTH end states (0 and K-1).
+    FAIL  if ANY adjacent pair has < ``min_crossings`` post-warmup crossings
+          (a wall — including a pair whose upper state was never reached),
+          OR if zero replicas visited both ends.
+    INDETERMINATE (a non-PASS) when there are no post-warmup samples yet
+          (log too short / run just started) or the log is missing.
+
+    NECESSARY, NOT SUFFICIENT. A wall that opens once and then re-closes
+    still records a non-zero crossing and can false-PASS this gate; a single
+    crossing does not prove sustained two-way exchange. For the full pilot
+    acceptance conjunction this gate MUST be paired with a per-adjacent-pair
+    phase-space OVERLAP check (Bhattacharyya coefficient / MBAR-O >= 0.30)
+    and the occupancy gate — all three together, not any one alone. Set
+    ``min_crossings`` higher (and inspect ``round_trips``) to harden against
+    the open-once-then-close failure mode.
+
+    ``min_crossings`` and ``warmup_cycles`` are parameters; pass the SAME
+    ``warmup_cycles`` the occupancy gate uses so the two gates judge the same
+    post-equilibration window. Pure diagnostic — entirely off the
+    free-energy estimator call-path.
+
+    Returns a dict with ``verdict`` ("PASS"/"FAIL"/"INDETERMINATE"),
+    ``passed`` (bool, True only for PASS), a human ``message``, the
+    ``schedule_K`` / ``min_crossings`` used, ``per_pair_crossings`` (declared
+    adjacent pairs with their post-warmup counts), the list of
+    ``walls`` (pairs below threshold), ``both_ends_visited_count`` /
+    ``both_ends_replicas``, and ``round_trips`` per replica.
+    """
+    if schedule_K < 2:
+        return {
+            "verdict": "INDETERMINATE",
+            "passed": False,
+            "message": (
+                f"schedule_K={schedule_K} < 2: a ladder needs >=2 states to "
+                f"have an adjacent pair to cross. Nothing to judge."
+            ),
+            "schedule_K": schedule_K,
+            "min_crossings": min_crossings,
+            "warmup_cycles": warmup_cycles,
+        }
+
+    tr = parse_state_transitions_from_log(log_path, warmup_cycles=warmup_cycles)
+
+    if tr.get("error"):
+        return {
+            "verdict": "INDETERMINATE",
+            "passed": False,
+            "message": (
+                f"Cannot evaluate mixing for {log_path}: {tr['error']}."
+            ),
+            "schedule_K": schedule_K,
+            "min_crossings": min_crossings,
+            "warmup_cycles": warmup_cycles,
+            "transitions": tr,
+        }
+
+    if tr["n_samples"] == 0:
+        return {
+            "verdict": "INDETERMINATE",
+            "passed": False,
+            "message": (
+                f"No post-warmup 'new state' samples in {log_path} "
+                f"(n_cycles_total={tr['n_cycles_total']}, "
+                f"warmup_cycles={warmup_cycles}). Run too short to judge "
+                f"ladder transport; re-check after more cycles."
+            ),
+            "schedule_K": schedule_K,
+            "min_crossings": min_crossings,
+            "warmup_cycles": warmup_cycles,
+            "transitions": tr,
+        }
+
+    crossings = tr["adjacent_crossings"]
+    per_pair: Dict[str, int] = {}
+    walls: List[str] = []
+    for i in range(schedule_K - 1):
+        key = f"{i}-{i + 1}"
+        cnt = crossings.get(key, 0)
+        per_pair[key] = cnt
+        if cnt < min_crossings:
+            walls.append(key)
+
+    top = schedule_K - 1
+    both_ends = [
+        rep for rep, states in tr["visited_states"].items()
+        if 0 in states and top in states
+    ]
+    round_trips = tr["round_trips"]
+    total_round_trips = sum(round_trips.values())
+
+    # Formal eigenvalue mixing metric (ADDITIVE diagnostic; does NOT gate).
+    # Surfaced here next to the round-trip counts for discoverability. Hsu &
+    # Shirts 2024 (DOI 10.1021/acs.jctc.4c00484): lambda2 ~= 1 ⇒ slow mixing
+    # (decoupled ladder), tau_r in exchange ATTEMPTS = 1/(1-lambda2).
+    tmix = tr.get("transition_mixing") or {}
+    lambda2 = tmix.get("lambda2") if tmix.get("status") == "ok" else None
+    tau_r_attempts = (
+        tmix.get("tau_r_attempts") if tmix.get("status") == "ok" else None
+    )
+
+    common = {
+        "schedule_K": schedule_K,
+        "min_crossings": min_crossings,
+        "warmup_cycles": warmup_cycles,
+        "per_pair_crossings": per_pair,
+        "walls": walls,
+        "both_ends_visited_count": len(both_ends),
+        "both_ends_replicas": sorted(both_ends),
+        "round_trips": round_trips,
+        "total_round_trips": total_round_trips,
+        # Eigenvalue mixing metric (additive; None when numpy/matrix degrades).
+        "lambda2": lambda2,
+        "tau_r_attempts": tau_r_attempts,
+        "transition_mixing": tmix,
+        "n_samples": tr["n_samples"],
+        "transitions": tr,
+    }
+
+    if walls or not both_ends:
+        reasons = []
+        if walls:
+            reasons.append(
+                f"adjacent pair(s) below {min_crossings} post-warmup "
+                f"crossing(s): {walls} "
+                f"(per_pair={per_pair})"
+            )
+        if not both_ends:
+            reasons.append(
+                f"0 replicas visited BOTH end states (0 and {top}) — "
+                f"no end-to-end ladder transport"
+            )
+        return {
+            "verdict": "FAIL",
+            "passed": False,
+            "message": (
+                f"LADDER-MIXING FAIL in {log_path}: " + "; ".join(reasons)
+                + ". This is a mid-ladder zero-overlap WALL: aggregate "
+                "occupancy can still PASS while replicas never exchange "
+                "across the wall, so UWHAM/MBAR overlap is broken and any "
+                "ΔΔG is INVALID. NOTE necessary-not-sufficient: pair with a "
+                "Bhattacharyya/MBAR-O>=0.30 overlap check + the occupancy "
+                "gate for full acceptance."
+            ),
+            **common,
+        }
+
+    return {
+        "verdict": "PASS",
+        "passed": True,
+        "message": (
+            f"Ladder transport OK in {log_path}: all {schedule_K - 1} "
+            f"adjacent pairs crossed >= {min_crossings}x post-warmup "
+            f"(per_pair={per_pair}); {len(both_ends)} replica(s) visited "
+            f"both ends (0 and {top}); total round-trips={total_round_trips}. "
+            f"NECESSARY-NOT-SUFFICIENT: a wall that opens once then re-closes "
+            f"can still pass — pair with a Bhattacharyya/MBAR-O>=0.30 overlap "
+            f"check + the occupancy gate before declaring acceptance."
+        ),
+        **common,
+    }
+
+
 def check_atm_state_occupancy(
     log_path: str,
     warmup_cycles: int = 20,
@@ -3395,6 +4105,98 @@ def _run_occupancy_check_cli(
     return 0
 
 
+def _resolve_schedule_k_for_log(log_path: str, default_k: int = 11) -> int:
+    """Resolve the ladder length K for a driver log from its sibling cntl.
+
+    Reuses ``_parse_cntl`` to read the ``LAMBDAS`` array of the per-direction
+    ``*_asyncre.cntl`` next to the log (the SSOT). Falls back to ``default_k``
+    (11 = per-direction subdir) when no parseable cntl is found, so the CLI
+    still runs on archived logs whose cntl was not retained. Pure read-only.
+    """
+    log_dir = os.path.dirname(os.path.abspath(log_path))
+    try:
+        cntls = sorted(glob.glob(os.path.join(log_dir, "*_asyncre.cntl")))
+    except Exception:
+        cntls = []
+    for cntl in cntls:
+        try:
+            for kind, key, value in _parse_cntl(cntl):
+                if kind == "kv" and key == "LAMBDAS":
+                    inner = value.strip().strip("'").strip('"')
+                    n = len([x for x in inner.split(",") if x.strip() != ""])
+                    if n >= 2:
+                        return n
+        except Exception:
+            continue
+    return default_k
+
+
+def _run_mixing_check_cli(
+    leg_dir: str,
+    warmup_cycles: int = 20,
+    min_crossings: int = 1,
+    schedule_k: Optional[int] = None,
+    jobname: str = "trackb",
+) -> int:
+    """CLI entry for ``--check-mixing <leg_dir>``.
+
+    Mirrors ``_run_occupancy_check_cli``: resolves the same driver log(s)
+    under ``leg_dir`` and runs ``check_atm_mixing`` on each. K (ladder
+    length) is taken from ``schedule_k`` when given, else resolved per-log
+    from the sibling per-direction cntl (default 11). Returns 0 iff EVERY
+    discovered log PASSES; 5 if any FAILS; 6 if none could be evaluated
+    (no log found / all INDETERMINATE).
+
+    COMPLEMENTS ``--check-occupancy`` (does not replace it); the two gates
+    plus a Bhattacharyya/MBAR-O overlap check form the full acceptance
+    conjunction.
+    """
+    candidates = [
+        os.path.join(leg_dir, "dplus", "_live_launch.log"),
+        os.path.join(leg_dir, "dminus", "_live_launch.log"),
+        os.path.join(leg_dir, "_live_launch.log"),
+        os.path.join(leg_dir, "_production.log"),
+    ]
+    logs = [c for c in candidates if os.path.isfile(c)]
+    if not logs:
+        print(
+            f"ERROR: no driver log found under {leg_dir} "
+            f"(looked for dplus/dminus/_live_launch.log + "
+            f"_live_launch.log + _production.log)",
+            file=sys.stderr,
+        )
+        return 6
+
+    any_fail = False
+    any_pass = False
+    for log in logs:
+        k = schedule_k if schedule_k is not None else \
+            _resolve_schedule_k_for_log(log)
+        res = check_atm_mixing(
+            log, schedule_K=k, warmup_cycles=warmup_cycles,
+            min_crossings=min_crossings,
+        )
+        print(f"[{res['verdict']}] {log} (K={k})")
+        print(f"    {res['message']}")
+        if "per_pair_crossings" in res:
+            print(f"    per_pair_crossings={res['per_pair_crossings']}")
+            print(f"    both_ends_visited={res['both_ends_visited_count']} "
+                  f"round_trips_total={res.get('total_round_trips')}")
+        if res["verdict"] == "FAIL":
+            any_fail = True
+        elif res["verdict"] == "PASS":
+            any_pass = True
+
+    if any_fail:
+        print("\nMIXING GATE: FAIL")
+        return 5
+    if not any_pass:
+        print("\nMIXING GATE: INDETERMINATE (no PASS, no FAIL)")
+        return 6
+    print("\nMIXING GATE: PASS")
+    return 0
+
+
 def main() -> int:
     p = argparse.ArgumentParser(
         description=(
@@ -3419,6 +4221,51 @@ def main() -> int:
         type=int,
         default=20,
         help="warmup swap-rounds excluded before judging occupancy (default 20).",
+    )
+    p.add_argument(
+        "--check-mixing",
+        metavar="LEG_DIR",
+        default=None,
+        help=(
+            "Standalone ATM boundary-crossing / round-trip MIXING gate. "
+            "COMPLEMENTS --check-occupancy (does not replace it): catches a "
+            "mid-ladder zero-overlap wall that aggregate occupancy is blind "
+            "to. FAILs if any adjacent ladder pair has < --mixing-min-"
+            "crossings post-warmup crossings or no replica visited both "
+            "ends. Necessary-not-sufficient (pair with a Bhattacharyya/"
+            "MBAR-O>=0.30 overlap check). Does NOT launch anything; exits "
+            "0=PASS / 5=FAIL / 6=INDETERMINATE."
+        ),
+    )
+    p.add_argument(
+        "--mixing-warmup-cycles",
+        type=int,
+        default=20,
+        help=(
+            "warmup swap-rounds excluded before judging mixing (default 20; "
+            "keep equal to --occupancy-warmup-cycles so both gates judge the "
+            "same post-equilibration window)."
+        ),
+    )
+    p.add_argument(
+        "--mixing-min-crossings",
+        type=int,
+        default=1,
+        help=(
+            "minimum post-warmup crossings required for EVERY adjacent ladder "
+            "pair (default 1). Raise to harden against an open-once-then-"
+            "close wall."
+        ),
+    )
+    p.add_argument(
+        "--mixing-schedule-k",
+        type=int,
+        default=None,
+        help=(
+            "ladder length K for the mixing gate. Default: resolved per-log "
+            "from the sibling *_asyncre.cntl LAMBDAS (falls back to 11 = "
+            "per-direction subdir)."
+        ),
     )
     p.add_argument(
         "--i-have-confirmed-c1-through-c8",
@@ -3462,6 +4309,23 @@ def main() -> int:
         ),
     )
     p.add_argument(
+        "--directions",
+        default="dplus,dminus",
+        help=(
+            "comma-list per-direction transfer(s) to stage + launch per leg "
+            "(default 'dplus,dminus' = BOTH directions, byte-for-byte the "
+            "prior 2-process split). Pass a SINGLE direction (e.g. "
+            "'--directions dplus') for the dplus-only PILOT: per the "
+            "densified_bound28/30 scope analysis the dminus bridge is "
+            "mirror-ASSUMED and must be pilot-validated SEPARATELY (overlap "
+            "symmetry != index "
+            "reverse-symmetry). The readiness / C5 / staging / launch gates "
+            "are evaluated ONLY for the requested direction(s); the "
+            "unrequested direction's base state / system is neither required "
+            "nor touched. Valid tokens: dplus, dminus."
+        ),
+    )
+    p.add_argument(
         "--seeds",
         default=",".join(EIGHT_SEED_COHORT),
         help=f"8-seed cohort (canonical: {','.join(EIGHT_SEED_COHORT)})",
@@ -3476,7 +4340,7 @@ def main() -> int:
         "--enable-replicate-subtrees",
         action="store_true",
         help=(
-            "Stage 2 (Path λ-densify campaign 2026-06-05): launch N "
+            "Stage 2 (λ-densify campaign, 2026-06-05): launch N "
             "independent-seed replicates into SEPARATE output subtrees "
             "(<v21-out-root>/rep{0..N-1}/<endpoint>/<leg>). OFF by default "
             "(single-run path unchanged). Each replicate = independent "
@@ -3492,7 +4356,7 @@ def main() -> int:
         choices=["canonical22", "densified38", "densified38v2",
                  "densified38v3", "densified38v4", "densified34"],
         help=(
-            "λ ladder for the FREE leg only (Path λ-densify spec 2026-06-05). "
+            "λ ladder for the FREE leg only (λ-densify spec, 2026-06-05). "
             "Recorded in this launcher's metadata for cross-stage audit; the "
             "actual densified cntl is emitted by the production launcher "
             "(trackb_production_v2_1_upstream.py --free-schedule). This "
@@ -3650,6 +4514,17 @@ def main() -> int:
             jobname=args.jobname,
         )
 
+    # Standalone mixing gate — same read-only short-circuit. COMPLEMENTS the
+    # occupancy gate (catches a mid-ladder wall occupancy is blind to).
+    if args.check_mixing is not None:
+        return _run_mixing_check_cli(
+            leg_dir=args.check_mixing,
+            warmup_cycles=args.mixing_warmup_cycles,
+            min_crossings=args.mixing_min_crossings,
+            schedule_k=args.mixing_schedule_k,
+            jobname=args.jobname,
+        )
+
     print("\n" + "=" * 70)
     print("Track B per-direction production (Option B Phase 4 TEMPLATE)")
     print("=" * 70)
@@ -3672,6 +4547,23 @@ def main() -> int:
     seeds = [s.strip() for s in args.seeds.split(",") if s.strip()]
     endpoints = [e.strip() for e in args.endpoints.split(",") if e.strip()]
     legs = [l.strip() for l in args.legs.split(",") if l.strip()]
+    # --directions selector (default both = byte-for-byte prior behavior).
+    # Fail-loud on an invalid token (returns exit code 2 before any gate /
+    # launch so an operator typo can never silently drop a direction).
+    try:
+        directions = _parse_directions_arg(args.directions)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    if directions != _DEFAULT_DIRECTIONS:
+        print(
+            f"\n--- SINGLE-DIRECTION MODE: --directions={directions} ---\n"
+            "  Only the requested direction(s) will be staged + launched; the "
+            "readiness / C5 / staging / rsync gates evaluate ONLY these "
+            "direction(s) (dplus-only pilot). The complementary "
+            "direction must be pilot-validated + launched in a SEPARATE run "
+            "before the per-direction outputs are merged (UWHAM)."
+        )
 
     # ----- --free-schedule-file (additive λ override) ----------
     # SSOT single write point: re-emit the FREE leg's COMBINED cntl per-state
@@ -3728,6 +4620,7 @@ def main() -> int:
                 endpoints=endpoints,
                 legs=legs,
                 jobname=args.jobname,
+                directions=directions,
             ),
             check_c6_seed_cohort(seeds),
         ]
@@ -3766,6 +4659,7 @@ def main() -> int:
         "free_pilot": bool(args.free_pilot),
         "endpoints": endpoints,
         "legs": legs,
+        "directions": list(directions),
         "method_ref": "per-direction structprep (Option B), 2026-05-31",
         "lambda_densify_ref": "free-leg λ-resampling resolution, 2026-06-05",
         "registered_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
@@ -3785,6 +4679,15 @@ def main() -> int:
             for field in ("legs", "endpoints", "seeds", "replicates"):
                 if existing.get(field) != pre_reg[field]:
                     divergent_fields.append(field)
+            # ``directions`` is a 2026-06-11 addition. An OLD pre_reg written
+            # before this field existed has no ``directions`` key; treat its
+            # absence as NON-divergent on the default both-directions path so
+            # the existing-matched bookkeeping is byte-for-byte unchanged. Only
+            # a PRESENT-and-different value flags divergence (a genuine
+            # single-direction vs both-directions change).
+            if ("directions" in existing
+                    and existing.get("directions") != pre_reg["directions"]):
+                divergent_fields.append("directions")
             if divergent_fields and args.i_have_confirmed_c1_through_c8:
                 # Operator has authority + audit trail integrity: regenerate
                 # but preserve old as _stale_<ts> alongside (never delete).
@@ -3886,6 +4789,7 @@ def main() -> int:
                     dry_run=True,
                     abfe_bin=args.abfe_bin,
                     vm_ssh_host=args.vm_ssh_host,
+                    directions=directions,
                 )
             except (FileNotFoundError, RuntimeError, ValueError) as e:
                 print(f"  dry-run plan WARN: {e}")
@@ -3953,10 +4857,12 @@ def main() -> int:
     c4_report: Dict[str, Any] = {"status": "skipped"}
     if bound_endpoint_legs:
         print("  C5 finite-energy probe (PBC-wrap clash) — "
-              f"{len(bound_endpoint_legs)} endpoint(s) x 2 directions ...")
+              f"{len(bound_endpoint_legs)} endpoint(s) x "
+              f"{len(directions)} direction(s) {directions} ...")
         try:
             c5_report = finite_energy_probe_all(
                 bound_endpoint_legs, jobname=args.jobname,
+                directions=directions,
             )
         except ImportError as exc:
             c5_report = {"status": "skipped_no_openmm", "error": str(exc)}
@@ -3972,6 +4878,39 @@ def main() -> int:
                 "(PBC-wrap clash; energy > 1e10 kJ/mol or NaN). No "
                 "dispatch occurred. Remediation: shrink DISPLACEMENT "
                 "(2.5 -> 1.0 nm) or increase box padding, then re-prep.",
+                file=sys.stderr,
+            )
+            return 1
+        # G3 — bound-leg 'incomplete' HALT. `bound_endpoint_legs` is keyed
+        # on bound legs only, so an 'incomplete' status here means a bound
+        # leg is missing at least one per-direction system / base state
+        # (trackb_sys_{tag}.xml / trackb_{tag}.pdb / trackb_0_{tag}.xml).
+        # For the bound leg the per-direction dminus system (dissociated-
+        # state base, binding-site pocket re-hydrated) is mandatory and has
+        # no valid combined substitute — a missing probe is NOT a benign
+        # skip, it is an unprepared cohort. Surface the missing inputs and
+        # HALT before any dispatch (cohort-safe). The free leg is probed
+        # elsewhere (it has no per-direction systems) and is never in this
+        # bound-only dict.
+        if c5_report["status"] == "incomplete":
+            missing_probes = [
+                f"  {pr.get('endpoint')}/{pr.get('direction_tag')}: "
+                f"missing {pr.get('missing')}"
+                for pr in c5_report.get("probes", [])
+                if pr.get("status") == "missing"
+            ]
+            print(
+                "  LAUNCH BLOCKED — C5 probe INCOMPLETE on the bound leg "
+                "(at least one per-direction system / base state absent). "
+                "The bound leg requires both trackb_sys_dplus.xml "
+                "(bound-state base) and trackb_sys_dminus.xml "
+                "(dissociated-state base, binding-site pocket re-hydrated) "
+                "plus their per-direction base states; no combined "
+                "substitute is valid. No dispatch occurred. Missing:\n"
+                + "\n".join(missing_probes)
+                + "\n  Remediation: rebuild per-direction systems "
+                "(scripts/phase4_trackB_v2_make_system.py --bound-directions "
+                "dplus,dminus) and re-run structprep, then relaunch.",
                 file=sys.stderr,
             )
             return 1
@@ -4010,7 +4949,7 @@ def main() -> int:
     # through-c8 + gate_gpu_host) MUST have passed to reach this point.
     try:
         if args.enable_replicate_subtrees:
-            # Stage 2 (Path λ-densify campaign 2026-06-05): N independent-seed
+            # Stage 2 (λ-densify campaign, 2026-06-05): N independent-seed
             # replicates into separate rep{i} subtrees for σ_btwn.
             print(f"  authorized — launching {args.replicates} independent-"
                   f"seed replicate(s) via _live_launch_replicates "
@@ -4026,8 +4965,13 @@ def main() -> int:
                 dry_run=False,
                 abfe_bin=args.abfe_bin,
                 vm_ssh_host=args.vm_ssh_host,
+                directions=directions,
             )
-            execution_model = "per_direction_2process_split_replicated"
+            execution_model = (
+                "per_direction_2process_split_replicated"
+                if len(directions) > 1
+                else f"per_direction_single_{directions[0]}_replicated"
+            )
         else:
             print("  authorized — launching per-leg abfe_production via "
                   "_live_launch_all_legs (single subtree)")
@@ -4040,8 +4984,13 @@ def main() -> int:
                 dry_run=False,
                 abfe_bin=args.abfe_bin,
                 vm_ssh_host=args.vm_ssh_host,
+                directions=directions,
             )
-            execution_model = "per_direction_2process_split"
+            execution_model = (
+                "per_direction_2process_split"
+                if len(directions) > 1
+                else f"per_direction_single_{directions[0]}"
+            )
     except (FileNotFoundError, RuntimeError, ValueError) as exc:
         print(f"  LAUNCH FAILED: {exc}", file=sys.stderr)
         return 1
@@ -4055,6 +5004,7 @@ def main() -> int:
             "gpu_host": args.gpu_host,
             "regime": "ranking_only_R11",
             "execution_model": execution_model,
+            "directions": list(directions),
             "free_schedule": args.free_schedule,
             "n_replicates": args.replicates,
             "replicate_subtrees_enabled": bool(args.enable_replicate_subtrees),

@@ -126,9 +126,85 @@ class MutationSpec:
                             templates, no extra XML — the canonical path).
       bonded_heavy_appearing : the appearing-state HEAVY var atom that bonds the
                             common attach atom directly (CM for MTR, CD1 for
-                            Ile). Used by the MC2 bonded-term assert.
+                            Ile). Used by the MC2 bonded-term assert. ``None`` when
+                            the appearing side grows NO heavy atom (the
+                            disappearing-heavy mirror, e.g. Ala->Gly).
       appearing_h_prefix  : the atom-name prefix of the appearing-state methyl
-                            hydrogens (HM for MTR, HD for Ile). Used by MC2.
+                            hydrogens (HM for MTR, HD for Ile). Used by MC2. ``None``
+                            when the appearing side grows no methyl H group.
+      bonded_heavy_disappearing : the DISAPPEARING-state HEAVY var atom that bonds
+                            the common attach atom directly (CB for Ala in the
+                            Ala->Gly mirror). The symmetric counterpart of
+                            ``bonded_heavy_appearing``; ``None`` for the
+                            appearing-heavy shapes (MTR / V3I disappear only an H).
+                            Used by the MC2 bonded-term assert (disappearing branch).
+      disappearing_h_prefix : the atom-name prefix of the disappearing-state methyl
+                            hydrogens (HB for Ala). ``None`` for shapes that
+                            disappear no methyl H group. Used by MC2.
+      multiheavy_star_certified : explicit opt-in attestation that this spec is an
+                            ACYCLIC "star" multi-methyl perturbation — two or more
+                            var HEAVY atoms each bonded DIRECTLY to the common
+                            attach atom (e.g. Val3->Ala deletes CG1 AND CG2, both
+                            bonded to CB) — that the two-copy coordinate-swap engine
+                            can build. Defaults ``False``: every multi-heavy spec is
+                            ``unsupported`` UNLESS it is explicitly certified here
+                            (fail-safe whitelist — an un-attested multi-heavy spec is
+                            never silently treated as buildable). Ring / fused-ring /
+                            chained-heavy / multi-branch (heavy on BOTH sides)
+                            perturbations are NOT in scope for this attestation
+                            (W4A indole fusion is Phase B's connected-subgraph shape,
+                            W4F ring contraction stays unsupported) and must remain
+                            ``False``; the MC2 backstop additionally fail-louds on any
+                            certified heavy that does not in fact bond the attach atom
+                            by a real bond.
+      ring_closure_bonds : (Phase B) tuple of (atomA, atomB) NAME pairs that close a
+                            ring ENTIRELY inside the perturbation's var group (the
+                            indole 5/6 fusion bond CD2-CE2 for W4A). EMPTY ``()`` for
+                            every ACYCLIC shape (MTR / V3I / A9G / V3A): with no ring
+                            bonds the classifier is byte-identical to the legacy
+                            single-heavy + multi-star paths. Non-empty => the
+                            perturbation is a connected-subgraph RING shape and is
+                            gated FIRST (before any heavy-count branch), so a ring spec
+                            can NEVER edge into a heavy-count shape (star or single) by
+                            accident — the load-bearing silent-build backstop.
+      connected_group_certified : (Phase B) explicit opt-in that the var group is a
+                            SINGLE-ATTACH connected subgraph — one attach-bonded root
+                            heavy (CG->CB for W4A) + the rest reachable by intra-group
+                            bonds + the declared ring-closure bonds. A DEDICATED flag,
+                            INTENTIONALLY distinct from ``multiheavy_star_certified``: a
+                            ring spec is buildable ONLY when THIS flag is set, never via
+                            the star flag (a ring author who sets only the star flag
+                            STILL lands at ``unsupported``). Defaults ``False``: an
+                            un-certified ring spec is ``unsupported`` (fail-safe).
+
+    Two single-heavy SHAPES are supported (see :pyattr:`shape`):
+      * ``appearing_heavy``    : exactly one appearing heavy + its H's, no
+                                 disappearing heavy (MTR: CM+HM; V3I: CD1+HD).
+      * ``disappearing_heavy`` : exactly one disappearing heavy + its H's, no
+                                 appearing heavy (A9G mirror: CB+HB disappear,
+                                 Gly grows only a backbone H, no heavy).
+    Two acyclic-star multi-heavy SHAPES are supported ONLY when explicitly
+    certified via ``multiheavy_star_certified`` (see :pyattr:`shape`):
+      * ``multi_appearing_heavy``    : two or more appearing heavies (each star-
+                                       bonded to the attach atom), no disappearing
+                                       heavy.
+      * ``multi_disappearing_heavy`` : two or more disappearing heavies (each star-
+                                       bonded to the attach atom), no appearing heavy
+                                       (V3A Val->Ala mirror: CG1+CG2 disappear).
+    One connected-subgraph RING SHAPE is supported (Phase B) ONLY when explicitly
+    certified via ``connected_group_certified`` + a non-empty ``ring_closure_bonds``
+    (see :pyattr:`shape`):
+      * ``single_attach_connected_group`` : a one-sided var group (all-disappearing OR
+                                       all-appearing heavy) forming a connected subgraph
+                                       rooted at ONE attach-bonded heavy, with the ring
+                                       closed by the declared ``ring_closure_bonds``
+                                       (W4A Trp->Ala deletes the 9-heavy fused indole;
+                                       root CG bonds CB, the 5/6 fusion bond CD2-CE2
+                                       closes the bicyclic system inside the var group).
+    Any other shape (uncertified multi-heavy, an un-certified ring, or both sides
+    growing/deleting a heavy => ring contraction / multi-branch) is ``unsupported``
+    and the MC2 / R2 asserts FAIL-LOUD on it (W4F/Q5A must hit this, never
+    silent-build).
     """
     name: str
     resnum: int
@@ -140,6 +216,107 @@ class MutationSpec:
     hybrid_xml: Optional[str] = None
     bonded_heavy_appearing: Optional[str] = None
     appearing_h_prefix: Optional[str] = None
+    bonded_heavy_disappearing: Optional[str] = None
+    disappearing_h_prefix: Optional[str] = None
+    multiheavy_star_certified: bool = False
+    ring_closure_bonds: Tuple[Tuple[str, str], ...] = ()
+    connected_group_certified: bool = False
+
+    @staticmethod
+    def _heavy_names(atom_names: Tuple[str, ...]) -> List[str]:
+        """Heavy (non-hydrogen) atom names in a var set, by name convention.
+
+        Hydrogens are named with a leading ``H`` (optionally after a numeric
+        wyckoff digit, e.g. ``1HB`` — handled defensively). Anything else is a
+        heavy atom. Used only for shape classification, never for the partition.
+        """
+        heavy: List[str] = []
+        for n in atom_names:
+            s = n.strip()
+            base = s.lstrip("0123456789")
+            if base[:1].upper() == "H":
+                continue
+            heavy.append(s)
+        return heavy
+
+    @property
+    def shape(self) -> str:
+        """Classify the single-residue perturbation SHAPE for the MC2 / R2 asserts.
+
+        Returns one of:
+          ``appearing_heavy``         -> exactly one appearing heavy, zero
+                                         disappearing heavy (MTR / V3I).
+          ``disappearing_heavy``      -> exactly one disappearing heavy, zero
+                                         appearing heavy (A9G Ala->Gly mirror).
+          ``multi_appearing_heavy``   -> two or more appearing heavies, zero
+                                         disappearing heavy, AND the spec is
+                                         explicitly ``multiheavy_star_certified``
+                                         (acyclic star multi-methyl).
+          ``multi_disappearing_heavy``-> two or more disappearing heavies, zero
+                                         appearing heavy, AND the spec is explicitly
+                                         ``multiheavy_star_certified`` (V3A mirror).
+          ``single_attach_connected_group`` -> (Phase B, ring-FIRST) a NON-EMPTY
+                                         ``ring_closure_bonds`` AND a one-sided var
+                                         group (all-disappearing OR all-appearing heavy)
+                                         AND ``connected_group_certified`` is True (W4A
+                                         certified fused indole: one attach-bonded root
+                                         + BFS-reachable ring heavies + the declared
+                                         ring-closure bond). Gated FIRST, before any
+                                         heavy-count branch.
+          ``unsupported``             -> anything else: a heavy on BOTH sides
+                                         (ring contraction / multi-branch), zero heavy on
+                                         either side, an UN-certified multi-heavy spec,
+                                         OR a RING spec (``ring_closure_bonds`` non-empty)
+                                         that is either un-certified or heavy-both-sides
+                                         (a ring author who sets only
+                                         ``multiheavy_star_certified`` STILL lands here —
+                                         the star flag is NEVER honoured for a ring
+                                         shape). The classification is a FAIL-SAFE
+                                         WHITELIST: a multi-heavy / ring spec is only
+                                         buildable when it has opted in via the
+                                         APPROPRIATE attestation (``multiheavy_star_
+                                         certified`` for acyclic stars, ``connected_
+                                         group_certified`` for rings) — omitting the
+                                         flag keeps it ``unsupported`` (so a spec
+                                         author who forgets the flag, or a ring/fused/
+                                         chained-heavy spec, can never be silently
+                                         mis-classified as supported). The MC2 / R2
+                                         asserts FAIL-LOUD on ``unsupported`` rather
+                                         than silent-build a wrong endpoint.
+        """
+        n_app_heavy = len(self._heavy_names(self.stateB_only_atoms))
+        n_dis_heavy = len(self._heavy_names(self.stateA_only_atoms))
+        # RING-FIRST gate (Phase B, load-bearing silent-build backstop): a ring-closure
+        # spec is classified by the DEDICATED connected-group attestation, evaluated
+        # BEFORE the heavy-count opt-in branches so the star flag can never silent-build
+        # a ring. A heavy growing AND deleting (W4F ring CONTRACTION / multi-branch)
+        # stays unsupported even WITH the ring attestation: a single-attach connected
+        # group has a one-sided var group (all-disappearing OR all-appearing), so a heavy
+        # on BOTH sides is a dual swap the engine cannot construct. With NO ring bonds
+        # the classification falls through to the byte-identical legacy paths below.
+        if self.ring_closure_bonds:
+            if n_app_heavy >= 1 and n_dis_heavy >= 1:
+                return "unsupported"
+            if self.connected_group_certified:
+                return "single_attach_connected_group"
+            return "unsupported"
+        # A heavy growing AND deleting => multi-branch / ring rewiring (W4F): never
+        # buildable here, regardless of the opt-in attestation.
+        if n_app_heavy >= 1 and n_dis_heavy >= 1:
+            return "unsupported"
+        # Single-heavy shapes (byte-identical to the legacy classifier).
+        if n_app_heavy == 1 and n_dis_heavy == 0:
+            return "appearing_heavy"
+        if n_dis_heavy == 1 and n_app_heavy == 0:
+            return "disappearing_heavy"
+        # Acyclic-star multi-heavy shapes — ONLY when explicitly opted in
+        # (fail-safe whitelist; an un-certified multi-heavy spec stays unsupported).
+        if self.multiheavy_star_certified:
+            if n_app_heavy >= 2 and n_dis_heavy == 0:
+                return "multi_appearing_heavy"
+            if n_dis_heavy >= 2 and n_app_heavy == 0:
+                return "multi_disappearing_heavy"
+        return "unsupported"
 
 
 # DEFAULT spec — residue-4 Cp4(MTR) <-> WT(Trp). Byte-identical to the legacy
@@ -181,10 +358,48 @@ MUTATION_VAL_ILE_RES3 = MutationSpec(
     appearing_h_prefix="HD",
 )
 
+# A9G spec — residue-9 Ala(WT) <-> Gly (engine de-risk of the disappearing-heavy
+# MC2/partition extension). The MIRROR of V3I: V3I GROWS a heavy (CD1), A9G DELETES
+# a heavy (CB). amber14 ff14SB atom naming (verified against the amber14-all ALA/GLY
+# templates AND the prepared 2QKI WT binder chain B residue 9):
+#   ALA past CA: HA, CB, HB1, HB2, HB3 ; GLY past CA: HA2, HA3 (NO CB).
+# Ala->Gly DELETES the beta-CH3 (CB+HB1-3) and the appearing Gly grows NO heavy
+# beyond the common attach CA. The alpha hydrogen is RENAMED in the swap (Ala HA vs
+# Gly HA2/HA3): so the alpha-H is NOT a shared common atom by name — it is carried
+# as a disappearing H (Ala HA) paired with the appearing H's (Gly HA2/HA3). This
+# keeps the C4 common-core list NAME-ALIGNED (common = N,H,CA,C,O on BOTH copies,
+# 5 atoms each: ALA 10 - 5 var = 5; GLY 7 - 2 var = 5) — the positional swap requires
+# identical common names in order. The common attach atom is CA (both the disappearing
+# CB and the Gly backbone bond it). stateB=Gly (appears, copy-1), stateA=Ala
+# (disappears, copy-2). hybrid_xml=None (canonical amber14 — Ala/Gly are both net-0,
+# parity-identical: R-15/R-16 pass trivially; the full-residue net-charge sanity gate
+# sees net=0 both copies). The appearing side has NO heavy, so bonded_heavy_appearing
+# /appearing_h_prefix are None; the single disappearing heavy (CB) + its HB methyl
+# group drive the mirrored MC2/R2 asserts. SHAPE = disappearing_heavy (exactly one
+# disappearing heavy, zero appearing heavy).
+MUTATION_ALA_GLY_RES9 = MutationSpec(
+    name="a9g_ala_gly_res9",
+    resnum=9,
+    common_attach_atom="CA",
+    stateA_resname="ALA",
+    stateB_resname="GLY",
+    # Ala beta-CH3 disappears; Ala alpha-H (HA) is carried as a disappearing H so the
+    # shared common core excludes the renamed alpha-H (C4 name-alignment).
+    stateA_only_atoms=("HA", "CB", "HB1", "HB2", "HB3"),
+    # Gly's two alpha-H's appear (HA2 pairs Ala's HA; HA3 takes the old CB direction).
+    stateB_only_atoms=("HA2", "HA3"),
+    hybrid_xml=None,                                   # canonical amber14
+    bonded_heavy_appearing=None,                       # appearing side has no heavy
+    appearing_h_prefix=None,
+    bonded_heavy_disappearing="CB",
+    disappearing_h_prefix="HB",
+)
+
 # Registry of named mutation specs (CLI / launcher selection).
 MUTATION_SPECS: Dict[str, MutationSpec] = {
     MUTATION_MTR_TRP_RES4.name: MUTATION_MTR_TRP_RES4,
     MUTATION_VAL_ILE_RES3.name: MUTATION_VAL_ILE_RES3,
+    MUTATION_ALA_GLY_RES9.name: MUTATION_ALA_GLY_RES9,
 }
 
 
@@ -3634,37 +3849,10 @@ def _harmonize_twocopy_common_charges(
     return n
 
 
-def assert_twocopy_methyl_bonded(
-    fused_build: Dict[str, Any], cmap: Dict[str, Any],
-) -> Dict[str, Any]:
-    """MC2 (C5): copy-1 (appearing-state) var bonded terms present in the merged
-    box (the appearing heavy atom bonds the attach atom + its H's bond it).
-
-    Two-copy analog of ``assert_methyl_bonded_present`` but reads the merged
-    System: the appearing heavy atom <-> attach internal bond (CM-NE1 for MTR,
-    CD1-CG1 for Ile) must be a true HarmonicBondForce term; the appearing H's
-    bond the appearing heavy atom by a HarmonicBond or a SHAKE constraint under
-    HBonds (presence is the gate). The appearing var lives only in copy-1; copy-2
-    carries the disappearing atom(s) instead.
-
-    The appearing heavy atom + the H prefix come from the build's resolved
-    ``MutationSpec`` (default res-4 MTR: CM heavy, HM prefix; V3I res-3 Ile: CD1
-    heavy, HD prefix).
+def _collect_bond_constraint_pairs(system: mm.System):
+    """All bonded + constrained atom-index pairs in a (possibly ATMForce-nested)
+    System, as two ``frozenset`` sets. Shared by the MC2 / R2 bonded-term gates.
     """
-    system = fused_build["system"]
-    name_by_idx = {a.index: a.name
-                   for a in fused_build["modeller"].topology.atoms()}
-    alch = fused_build["alchemical_atoms"]
-    spec = resolve_mutation_spec(fused_build.get("mutation_spec"))
-    heavy_name = spec.bonded_heavy_appearing
-    h_prefix = spec.appearing_h_prefix
-    ne1 = cmap["copy1_attach"]
-    cm = next((i for i in alch["mtr_only"] if name_by_idx.get(i) == heavy_name),
-              None)
-    hms = ([i for i in alch["mtr_only"]
-            if name_by_idx.get(i, "").startswith(h_prefix)]
-           if h_prefix else [])
-
     bond_pairs = set()
     for f in system.getForces():
         if isinstance(f, mm.HarmonicBondForce):
@@ -3682,27 +3870,430 @@ def assert_twocopy_methyl_bonded(
     for ci in range(system.getNumConstraints()):
         a, b, _ = system.getConstraintParameters(ci)
         constraint_pairs.add(frozenset((a, b)))
+    return bond_pairs, constraint_pairs
+
+
+def _heavy_h_neighbours(
+    heavy_idx: int, var_slot, bond_pairs, constraint_pairs,
+    name_by_idx: Dict[int, str],
+) -> List[int]:
+    """Hydrogen indices (within this copy's var slot) connected to ``heavy_idx``.
+
+    Found by CONNECTIVITY in the merged box (bond OR SHAKE constraint), not by name
+    prefix, so the per-heavy H grouping is robust to multi-heavy specs where two
+    heavies share a methyl-H name prefix (V3A's CG1 HG1x and CG2 HG2x both prefix
+    "HG"). An H is a var atom whose name starts with ``H`` (after any leading
+    wyckoff digit) and that is connected to ``heavy_idx``. BOTH ``bond_pairs`` and
+    ``constraint_pairs`` are searched because under HBonds the C-H bonds are
+    converted to SHAKE constraints and removed from the HarmonicBondForce (the
+    single-heavy MC2 makes the same bond-OR-constraint allowance via ``_connected``).
+    """
+    out: List[int] = []
+    slot = set(var_slot)
+    for pr in (bond_pairs | constraint_pairs):
+        if heavy_idx not in pr:
+            continue
+        other = next(iter(pr - {heavy_idx}))
+        if other not in slot:
+            continue
+        nm = name_by_idx.get(other, "")
+        base = nm.strip().lstrip("0123456789")
+        if base[:1].upper() == "H":
+            out.append(other)
+    return out
+
+
+def _assert_twocopy_multiheavy_bonded(
+    fused_build: Dict[str, Any], cmap: Dict[str, Any], spec, shape: str,
+) -> Dict[str, Any]:
+    """MC2 multi-heavy branch (C5): the acyclic-star multi-methyl var group's bonded
+    terms are present in the merged box.
+
+    For ``multi_appearing_heavy`` the appearing heavies live in copy-1 (``mtr_only``
+    slot, attach = ``copy1_attach``); for ``multi_disappearing_heavy`` they live in
+    copy-2 (``wt_only`` slot, attach = ``copy2_attach``). The heavy NAME list is the
+    SSOT-derived ``spec._heavy_names`` of the corresponding state-only atom set
+    (not a single field), so the per-heavy loop matches the partition exactly.
+
+    For EACH var heavy: (1) it MUST be present in the var slot; (2) it MUST bond the
+    common attach atom by a REAL HarmonicBond (constraint not accepted — this is the
+    star-only scope enforcement and the chained-heavy / ring backstop: a CD that
+    bonds only its parent CG, not the attach, fail-louds here); (3) it MUST carry at
+    least one H connected to it (bond OR constraint), else the build is incomplete.
+    Any missing heavy / attach bond / H => RAISE (fail-loud, never silent-skip).
+    """
+    system = fused_build["system"]
+    name_by_idx = {a.index: a.name
+                   for a in fused_build["modeller"].topology.atoms()}
+    alch = fused_build["alchemical_atoms"]
+
+    if shape == "multi_appearing_heavy":
+        attach_idx = cmap["copy1_attach"]          # appearing var lives in copy-1
+        var_slot = list(alch["mtr_only"])
+        declared_heavies = spec._heavy_names(spec.stateB_only_atoms)
+        side = "appearing"
+    else:  # multi_disappearing_heavy
+        attach_idx = cmap["copy2_attach"]          # disappearing var lives in copy-2
+        var_slot = list(alch["wt_only"])
+        declared_heavies = spec._heavy_names(spec.stateA_only_atoms)
+        side = "disappearing"
+
+    bond_pairs, constraint_pairs = _collect_bond_constraint_pairs(system)
+    attach_name = name_by_idx.get(attach_idx, "attach")
 
     def _connected(i, j):
         return (frozenset((i, j)) in bond_pairs
                 or frozenset((i, j)) in constraint_pairs)
 
-    attach_name = name_by_idx.get(ne1, "attach")
-    cm_ne1_present = cm is not None and frozenset((cm, ne1)) in bond_pairs
-    hm_cm_present = {name_by_idx[h]: _connected(h, cm) for h in hms}
-    if not cm_ne1_present:
+    per_heavy: List[Dict[str, Any]] = []
+    for heavy_name in declared_heavies:
+        heavy_idx = next(
+            (i for i in var_slot if name_by_idx.get(i) == heavy_name), None)
+        if heavy_idx is None:
+            raise ValueError(
+                "MC2 two-copy FAIL: declared %s heavy %r absent from the merged "
+                "box's %s var slot (cannot certify a heavy that was not built)."
+                % (side, heavy_name, side))
+        # heavy<->attach MUST be a REAL HarmonicBond (not a constraint): this is the
+        # acyclic-star scope enforcement + the chained-heavy / ring fail-loud
+        # backstop (a heavy that bonds only its parent heavy, not the attach, fails).
+        heavy_attach_bond = frozenset((heavy_idx, attach_idx)) in bond_pairs
+        if not heavy_attach_bond:
+            raise ValueError(
+                "MC2 two-copy FAIL: %s-%s internal bond absent from the merged "
+                "box's HarmonicBondForce (each %s star heavy var atom must bond the "
+                "attach atom by a real bond; a heavy that bonds only another heavy "
+                "is a chained/ring shape NOT in the acyclic-star scope)."
+                % (heavy_name, attach_name, side))
+        h_idxs = _heavy_h_neighbours(
+            heavy_idx, var_slot, bond_pairs, constraint_pairs, name_by_idx)
+        h_present = {name_by_idx[h]: _connected(h, heavy_idx) for h in h_idxs}
+        missing_h = [k for k, v in h_present.items() if not v]
+        if missing_h:
+            raise ValueError(
+                "MC2 two-copy FAIL: %s-H connectivity to %s absent (neither bond "
+                "nor constraint): %s" % (side, heavy_name, missing_h))
+        if not h_idxs:
+            raise ValueError(
+                "MC2 two-copy FAIL: %s heavy %r has ZERO hydrogens bonded to it in "
+                "the %s var slot — an incomplete side-chain build."
+                % (side, heavy_name, side))
+        per_heavy.append({
+            "heavy": heavy_name,
+            "heavy_attach_bond_present": heavy_attach_bond,
+            "h_names": sorted(h_present),
+            "h_connected": h_present,
+        })
+
+    return {
+        "shape": shape,
+        "side": side,
+        "attach": attach_name,
+        "n_heavies_certified": len(per_heavy),
+        "per_heavy": per_heavy,
+        "passed": True,
+    }
+
+
+def _idx_by_name(var_slot, name, name_by_idx) -> Optional[int]:
+    """First var-slot index whose name matches ``name`` (None if absent)."""
+    return next((i for i in var_slot if name_by_idx.get(i) == name), None)
+
+
+def _assert_twocopy_connected_group_bonded(
+    fused_build: Dict[str, Any], cmap: Dict[str, Any], spec,
+) -> Dict[str, Any]:
+    """MC2 connected-subgraph branch (C3): a ``single_attach_connected_group`` var
+    group (W4A fused indole) is built with its full ring topology.
+
+    The Phase A multi-heavy branch requires EACH declared var heavy to bond the
+    common attach atom by a real bond (the acyclic-STAR scope). For a fused ring only
+    the ROOT heavy (CG) bonds the attach (CB); the other ring heavies bond ring
+    neighbours, not the attach — so the star assert would fail-loud at the first
+    non-root heavy (the intended star backstop, NOT a bug). This branch is the
+    connected-subgraph generalization. The declared var-heavy NAME set is the
+    SSOT-derived ``spec._heavy_names`` of the one-sided var group's state-only atoms;
+    the ring-closure bonds + root are read from the spec.
+
+    The disappearing var lives in copy-2 (``wt_only`` slot, attach = ``copy2_attach``);
+    the appearing-side mirror lives in copy-1 (``mtr_only`` slot, ``copy1_attach``).
+    W4A is a disappearing-side connected group (Trp->Ala deletes the indole).
+
+    Certify steps (each fail-loud, never silent-skip):
+      (1) ROOT: exactly ONE declared var heavy bonds the common attach atom by a REAL
+          HarmonicBond. Zero => disconnected from the common boundary; >=2 =>
+          multi-branch (not a single-attach group). Both RAISE. If the spec names a
+          root (``bonded_heavy_disappearing`` / ``bonded_heavy_appearing``) it MUST
+          match the discovered root.
+      (2) BFS: from the root, follow intra-group (var-slot heavy<->heavy) REAL bonds;
+          ALL declared heavies MUST be reached. Any unreached heavy => disconnected
+          subgraph. RAISE.
+      (3) RING: every declared ``ring_closure_bond`` MUST be present as a REAL
+          HarmonicBond between two var-slot atoms (the ring must actually close inside
+          the var group). A missing ring-closure bond => open chain / wrong topology.
+          RAISE.
+      (4) H: each declared heavy's H's are connected (bond OR SHAKE constraint — the
+          SHAKE-aware ``_heavy_h_neighbours`` test). Fully-substituted ring-fusion
+          bridgeheads (CG/CD2/CE2) legitimately carry zero H, so the gate is "at
+          least one declared heavy is H-bearing" (an all-H-stripped build is a defect)
+          + each found H is connectivity-verified; bridgeheads are recorded explicitly.
+
+    Runs at the PRE-ATTACH call site (the merged System still carries a top-level
+    HarmonicBondForce there; after attach the forces migrate INTO the ATMForce and the
+    getForce() downcast loses the HarmonicBondForce subclass — bond_pairs would be 0).
+    """
+    system = fused_build["system"]
+    name_by_idx = {a.index: a.name
+                   for a in fused_build["modeller"].topology.atoms()}
+    alch = fused_build["alchemical_atoms"]
+
+    # One-sided var group: disappearing side (copy-2) or appearing side (copy-1).
+    n_app_heavy = len(spec._heavy_names(spec.stateB_only_atoms))
+    if n_app_heavy >= 1:
+        attach_idx = cmap["copy1_attach"]
+        var_slot = list(alch["mtr_only"])
+        declared_heavies = tuple(spec._heavy_names(spec.stateB_only_atoms))
+        root_heavy = spec.bonded_heavy_appearing
+        side = "appearing"
+    else:
+        attach_idx = cmap["copy2_attach"]
+        var_slot = list(alch["wt_only"])
+        declared_heavies = tuple(spec._heavy_names(spec.stateA_only_atoms))
+        root_heavy = spec.bonded_heavy_disappearing
+        side = "disappearing"
+
+    bond_pairs, constraint_pairs = _collect_bond_constraint_pairs(system)
+    attach_name = name_by_idx.get(attach_idx, "attach")
+    slot_set = set(var_slot)
+
+    # Resolve declared heavy NAMES -> built indices (a declared heavy never built
+    # fails loud — cannot certify a heavy that is not in the box).
+    idx_of: Dict[str, int] = {}
+    for hn in declared_heavies:
+        hi = _idx_by_name(var_slot, hn, name_by_idx)
+        if hi is None:
+            raise ValueError(
+                "MC2 two-copy FAIL (connected-group): declared %s heavy %r absent "
+                "from the merged box's %s var slot (cannot certify a heavy that was "
+                "not built)." % (side, hn, side))
+        idx_of[hn] = hi
+    heavy_idxs = set(idx_of.values())
+
+    # (1) ROOT: exactly one declared heavy bonds the common attach by a REAL bond.
+    attach_bonded_roots = [
+        hn for hn, hi in idx_of.items()
+        if frozenset((hi, attach_idx)) in bond_pairs]
+    if len(attach_bonded_roots) == 0:
+        raise ValueError(
+            "MC2 two-copy FAIL (connected-group): NO declared %s heavy bonds the "
+            "common attach atom %r by a real HarmonicBond — the var group is "
+            "disconnected from the common boundary (no attach-bonded root)."
+            % (side, attach_name))
+    if len(attach_bonded_roots) > 1:
+        raise ValueError(
+            "MC2 two-copy FAIL (connected-group): %d declared %s heavies bond the "
+            "common attach atom %r (%s) — a single-attach connected group must have "
+            "exactly ONE attach-bonded root (>=2 is a multi-branch swap, not in "
+            "scope)." % (len(attach_bonded_roots), side, attach_name,
+                         sorted(attach_bonded_roots)))
+    discovered_root = attach_bonded_roots[0]
+    if root_heavy is not None and discovered_root != root_heavy:
+        raise ValueError(
+            "MC2 two-copy FAIL (connected-group): discovered attach-bonded root %r "
+            "does not match the spec-declared root %r."
+            % (discovered_root, root_heavy))
+    root_idx = idx_of[discovered_root]
+
+    # (2) BFS from the root over INTRA-GROUP (var-slot heavy<->heavy) real bonds; ALL
+    #     declared heavies must be reached.
+    adj: Dict[int, set] = {hi: set() for hi in heavy_idxs}
+    for pr in bond_pairs:
+        a, b = tuple(pr)
+        if a in heavy_idxs and b in heavy_idxs:
+            adj[a].add(b)
+            adj[b].add(a)
+    seen = {root_idx}
+    queue = [root_idx]
+    while queue:
+        cur = queue.pop()
+        for nb in adj.get(cur, ()):
+            if nb not in seen:
+                seen.add(nb)
+                queue.append(nb)
+    unreached = sorted(name_by_idx[hi] for hi in heavy_idxs if hi not in seen)
+    if unreached:
+        raise ValueError(
+            "MC2 two-copy FAIL (connected-group): declared %s heavies NOT reachable "
+            "from the attach-bonded root %r by intra-group bonds (disconnected "
+            "subgraph): %s" % (side, discovered_root, unreached))
+
+    # (3) RING-CLOSURE: each declared ring-closure bond must be a REAL bond between
+    #     two var-slot atoms (the ring must actually close inside the var group).
+    ring_present: List[Dict[str, Any]] = []
+    for (na, nb) in spec.ring_closure_bonds:
+        ia = _idx_by_name(var_slot, na, name_by_idx)
+        ib = _idx_by_name(var_slot, nb, name_by_idx)
+        if ia is None or ib is None:
+            raise ValueError(
+                "MC2 two-copy FAIL (connected-group): ring-closure bond %s-%s names a "
+                "var atom absent from the %s slot (ia=%s ib=%s)."
+                % (na, nb, side, ia, ib))
+        if ia not in slot_set or ib not in slot_set:
+            raise ValueError(
+                "MC2 two-copy FAIL (connected-group): ring-closure bond %s-%s atoms "
+                "are not both in the %s var slot." % (na, nb, side))
+        if frozenset((ia, ib)) not in bond_pairs:
+            raise ValueError(
+                "MC2 two-copy FAIL (connected-group): declared ring-closure bond "
+                "%s-%s is ABSENT from the merged box's HarmonicBondForce — the ring "
+                "did not close (open chain / wrong topology)." % (na, nb))
+        ring_present.append({"bond": (na, nb), "present": True})
+
+    # (4) H connectivity: each declared heavy's H's (bond OR constraint); fully-
+    #     substituted ring-fusion bridgeheads (CG/CD2/CE2) legitimately carry zero H.
+    per_heavy: List[Dict[str, Any]] = []
+    for hn in declared_heavies:
+        hi = idx_of[hn]
+        h_idxs = _heavy_h_neighbours(
+            hi, var_slot, bond_pairs, constraint_pairs, name_by_idx)
+        h_names = sorted(name_by_idx[h] for h in h_idxs)
+        per_heavy.append({
+            "heavy": hn,
+            "n_h": len(h_idxs),
+            "h_names": h_names,
+            "is_bridgehead": (len(h_idxs) == 0),
+        })
+    n_h_bearing = sum(1 for r in per_heavy if r["n_h"] >= 1)
+    if n_h_bearing == 0:
+        raise ValueError(
+            "MC2 two-copy FAIL (connected-group): ZERO declared %s heavies carry a "
+            "hydrogen — an all-H-stripped / incomplete side-chain build." % side)
+
+    return {
+        "shape": "single_attach_connected_group",
+        "side": side,
+        "attach": attach_name,
+        "root_heavy": discovered_root,
+        "n_heavies_certified": len(declared_heavies),
+        "n_h_bearing_heavies": n_h_bearing,
+        "ring_closure_bonds_present": ring_present,
+        "per_heavy": per_heavy,
+        "passed": True,
+    }
+
+
+def assert_twocopy_methyl_bonded(
+    fused_build: Dict[str, Any], cmap: Dict[str, Any],
+) -> Dict[str, Any]:
+    """MC2 (C5): the single-heavy var group's bonded terms are present in the
+    merged box (the var heavy atom bonds the common attach atom + its H's bond it).
+
+    Generalized SYMMETRICALLY over the two supported single-heavy shapes (read
+    from the build's resolved ``MutationSpec.shape``):
+
+      * ``appearing_heavy``    : copy-1 carries the APPEARING heavy var
+                                 (CM for MTR / CD1 for Ile) bonded to copy-1's
+                                 attach atom (NE1 / CG1); the appearing H's
+                                 (HM / HD prefix) bond that heavy atom. The
+                                 disappearing side disappears only an H.
+      * ``disappearing_heavy`` : copy-2 carries the DISAPPEARING heavy var
+                                 (CB for the Ala->Gly mirror) bonded to copy-2's
+                                 attach atom (CA); the disappearing H's (HB prefix)
+                                 bond that heavy atom. The appearing side grows no
+                                 heavy beyond the common attach.
+
+    Each var heavy atom <-> attach internal bond must be a true HarmonicBondForce
+    term; the var H's bond the var heavy atom by a HarmonicBond or a SHAKE
+    constraint under HBonds (presence is the gate).
+
+    The acyclic-star multi-methyl shapes (``multi_appearing_heavy`` /
+    ``multi_disappearing_heavy``, e.g. V3A Val->Ala deletes CG1 AND CG2, both
+    star-bonded to CB) are ALSO supported when the spec is explicitly
+    ``multiheavy_star_certified``; they are certified per-heavy by
+    ``_assert_twocopy_multiheavy_bonded``.
+
+    The connected-subgraph RING shape (``single_attach_connected_group``, e.g. W4A
+    Trp->Ala deletes the 9-heavy FUSED indole) is ALSO supported when the spec is
+    explicitly ``connected_group_certified`` with a non-empty ``ring_closure_bonds``;
+    it is certified by ``_assert_twocopy_connected_group_bonded`` (one attach-bonded
+    root + intra-group BFS to all heavies + ring-closure bonds present + H
+    connectivity).
+
+    FAIL-LOUD on any other shape (un-certified multi-heavy / un-certified ring /
+    chained-heavy / multi-branch — e.g. W4F a ring contraction with heavies on BOTH
+    sides): the builder + asserts have no path for those and must NOT silent-build a
+    wrong soft-core endpoint. ``MutationSpec.shape`` == ``unsupported`` raises here.
+    """
+    system = fused_build["system"]
+    name_by_idx = {a.index: a.name
+                   for a in fused_build["modeller"].topology.atoms()}
+    alch = fused_build["alchemical_atoms"]
+    spec = resolve_mutation_spec(fused_build.get("mutation_spec"))
+    shape = spec.shape
+    if shape in ("multi_appearing_heavy", "multi_disappearing_heavy"):
+        return _assert_twocopy_multiheavy_bonded(fused_build, cmap, spec, shape)
+    if shape == "single_attach_connected_group":
+        return _assert_twocopy_connected_group_bonded(fused_build, cmap, spec)
+    if shape not in ("appearing_heavy", "disappearing_heavy"):
+        raise ValueError(
+            "MC2 two-copy FAIL: unsupported mutation shape %r for spec %r "
+            "(stateA_only=%s, stateB_only=%s). Supported: a single APPEARING heavy + "
+            "its H's (MTR / V3I), a single DISAPPEARING heavy + its H's (Ala->Gly "
+            "mirror), or an ACYCLIC-STAR multi-methyl group (>=2 heavies each bonded "
+            "directly to the common attach atom) when the spec is explicitly "
+            "multiheavy_star_certified (e.g. V3A). Ring-closure / fused-ring / "
+            "chained-heavy / multi-branch mutations (e.g. W4A fused indole, W4F ring "
+            "contraction) require a partition redesign and are NOT buildable here — "
+            "fail loud rather than silent-build a wrong endpoint."
+            % (shape, spec.name, list(spec.stateA_only_atoms),
+               list(spec.stateB_only_atoms)))
+
+    if shape == "appearing_heavy":
+        heavy_name = spec.bonded_heavy_appearing
+        h_prefix = spec.appearing_h_prefix
+        attach_idx = cmap["copy1_attach"]          # copy-1 carries the appearing var
+        var_slot = alch["mtr_only"]                # appearing var lives in copy-1
+        side = "appearing"
+    else:  # disappearing_heavy (A9G mirror)
+        heavy_name = spec.bonded_heavy_disappearing
+        h_prefix = spec.disappearing_h_prefix
+        attach_idx = cmap["copy2_attach"]          # copy-2 carries the disappearing var
+        var_slot = alch["wt_only"]                 # disappearing var lives in copy-2
+        side = "disappearing"
+
+    heavy_idx = next(
+        (i for i in var_slot if name_by_idx.get(i) == heavy_name), None)
+    h_idxs = ([i for i in var_slot
+               if name_by_idx.get(i, "").startswith(h_prefix)]
+              if h_prefix else [])
+
+    bond_pairs, constraint_pairs = _collect_bond_constraint_pairs(system)
+
+    def _connected(i, j):
+        return (frozenset((i, j)) in bond_pairs
+                or frozenset((i, j)) in constraint_pairs)
+
+    attach_name = name_by_idx.get(attach_idx, "attach")
+    heavy_attach_present = (
+        heavy_idx is not None and frozenset((heavy_idx, attach_idx)) in bond_pairs)
+    h_heavy_present = {name_by_idx[h]: _connected(h, heavy_idx) for h in h_idxs}
+    if not heavy_attach_present:
         raise ValueError(
             "MC2 two-copy FAIL: %s-%s internal bond absent from the merged box's "
-            "HarmonicBondForce (the appearing heavy atom is heavy — must be a real "
-            "bond)." % (heavy_name, attach_name))
-    missing_hm = [k for k, v in hm_cm_present.items() if not v]
-    if missing_hm:
+            "HarmonicBondForce (the %s heavy var atom must bond the attach atom by a "
+            "real bond)." % (heavy_name, attach_name, side))
+    missing_h = [k for k, v in h_heavy_present.items() if not v]
+    if missing_h:
         raise ValueError(
-            "MC2 two-copy FAIL: appearing-H %s-%s connectivity absent (neither bond "
-            "nor constraint): %s" % (h_prefix, heavy_name, missing_hm))
+            "MC2 two-copy FAIL: %s-H %s-%s connectivity absent (neither bond nor "
+            "constraint): %s" % (side, h_prefix, heavy_name, missing_h))
     return {
-        "cm_ne1_bond_present": cm_ne1_present,
-        "hm_cm_bonds_present": hm_cm_present,
+        "shape": shape,
+        "heavy_attach_bond_present": heavy_attach_present,
+        "h_heavy_bonds_present": h_heavy_present,
+        # Back-compat keys for the appearing-heavy path (existing tests read these):
+        "cm_ne1_bond_present": heavy_attach_present,
+        "hm_cm_bonds_present": h_heavy_present,
         "passed": True,
     }
 
@@ -3759,12 +4350,18 @@ def assert_twocopy_seed(
     clashing WITHIN their own copy), gates BEFORE the ATMForce attach.
 
     The inter-copy clash is handled by the d-separation (C6 separation assert);
-    this gate covers the per-copy geometry: copy-1's appearing methyl (CM, HM1-3)
-    must not clash copy-1's own common/solvent atoms, and copy-2's disappearing
-    HE1 must not clash copy-2's own atoms. A clashing seed detonates the uncapped
-    bonded base term locally. Each copy's atoms are partitioned by the merge
-    offset so an appearing atom is only checked against ITS OWN copy + solvent
-    (the partner copy is d-displaced and irrelevant here).
+    this gate covers the per-copy geometry: copy-1's appearing var group (CM,HM1-3
+    for MTR / CD1,HD11-13 for Ile) must not clash copy-1's own common/solvent
+    atoms, and copy-2's disappearing var group (HE1 for MTR/V3I; CB,HB1-3,HA for
+    the Ala->Gly mirror) must not clash copy-2's own atoms. A clashing seed
+    detonates the uncapped bonded base term locally. Each copy's atoms are
+    partitioned by the merge offset so a var atom is checked only against ITS OWN
+    copy + solvent (the partner copy is d-displaced and irrelevant here).
+
+    Symmetric over both var groups: each var atom's OWN bonded partners and the
+    other atoms of its OWN var group are excluded (they are bond-length terms /
+    intra-group geometry, not clashes) — generalizes the legacy single-HE1 /
+    single-methyl exclusion to a multi-atom disappearing group (Ala CB methyl).
     """
     positions = np.array([
         v.value_in_unit(unit.nanometer)
@@ -3776,86 +4373,69 @@ def assert_twocopy_seed(
     res_by_idx = {a.index: a.residue.name for a in topology.atoms()}
 
     alch = fused_build["alchemical_atoms"]
-    appearing = list(alch["mtr_only"])     # copy-1 methyl (indices < n_copy1)
-    he1 = alch["wt_only"][0]               # copy-2 HE1 (index >= n_copy1)
+    appearing = list(alch["mtr_only"])     # copy-1 var group (indices < n_copy1)
+    disappearing = list(alch["wt_only"])   # copy-2 var group (indices >= n_copy1)
     ne1_c1 = cmap["copy1_attach"]
     ne1_c2 = cmap["copy2_attach"]
+    resolve_mutation_spec(fused_build.get("mutation_spec"))  # validate the selector
 
     solvent_o = [a.index for a in topology.atoms()
                  if a.residue.name in _SOLVENT_RESNAMES and a.element is not None
                  and a.element.symbol == "O"]
 
-    # HARD targets for the COPY-1 appearing var = copy-1's own non-appearing
-    # atoms (< n_copy1) + solvent O. Exclude the appearing var's own bonded
-    # partners (heavy<->attach, H<->heavy) which are bond-length terms, not
-    # clashes. The appearing heavy atom name comes from the build's MutationSpec
-    # (CM for MTR methyl, CD1 for Ile ethyl).
-    spec = resolve_mutation_spec(fused_build.get("mutation_spec"))
-    heavy_name = spec.bonded_heavy_appearing
-    cm_idx = next((a for a in appearing if name_by_idx.get(a) == heavy_name), None)
-    bonded_partners = {ne1_c1}
-    if cm_idx is not None:
-        bonded_partners.add(cm_idx)
-    copy1_targets = {a.index for a in topology.atoms()
-                     if a.index < n_copy1 and a.index not in appearing
-                     and res_by_idx.get(a.index) not in _SOLVENT_RESNAMES}
-    copy1_targets.update(solvent_o)
+    # System bonds, used to exclude each var atom's true 1-2 bonded partners (the
+    # var-group internal bonds + the attach bond are bond-length terms, NOT clashes;
+    # 1-3 FF-excluded pairs e.g. a ring-N hydrogen sit at a standard ~0.08-0.09 nm).
+    bond_pairs, _ = _collect_bond_constraint_pairs(system)
 
-    min_hard = float("inf")
-    worst_hard = None
-    for ap in appearing:
-        pa = positions[ap]
-        for tgt in copy1_targets:
-            if tgt in bonded_partners:
-                continue
-            d = float(np.linalg.norm(pa - positions[tgt]))
-            if d < min_hard:
-                min_hard = d
-                worst_hard = (name_by_idx.get(ap, ap), name_by_idx.get(tgt, tgt), d)
+    def _bonded_neighbours(idx):
+        out = set()
+        for pr in bond_pairs:
+            if idx in pr:
+                out.update(pr)
+        out.discard(idx)
+        return out
+
+    def _seed_min_dist(var_group, attach_idx, copy_lo, copy_hi):
+        """Min distance from any var-group atom to a non-excluded same-copy /
+        solvent target. Excluded for each var atom = the whole var group + the
+        attach atom + that var atom's 1-2 bonded partners (and the attach's bonded
+        neighbours, the FF-excluded 1-3 ring/methyl pairs)."""
+        group = set(var_group)
+        attach_neighbours = _bonded_neighbours(attach_idx)
+        targets = {a.index for a in topology.atoms()
+                   if copy_lo <= a.index < copy_hi and a.index not in group
+                   and res_by_idx.get(a.index) not in _SOLVENT_RESNAMES}
+        targets.update(solvent_o)
+        min_d = float("inf")
+        worst = None
+        for v in var_group:
+            excluded = group | {attach_idx} | attach_neighbours | _bonded_neighbours(v)
+            pv = positions[v]
+            for tgt in targets:
+                if tgt in excluded:
+                    continue
+                d = float(np.linalg.norm(pv - positions[tgt]))
+                if d < min_d:
+                    min_d = d
+                    worst = (name_by_idx.get(v, v), name_by_idx.get(tgt, tgt), d)
+        return min_d, worst
+
+    # COPY-1 appearing var group: indices [0, n_copy1).
+    min_hard, worst_hard = _seed_min_dist(appearing, ne1_c1, 0, n_copy1)
     if min_hard <= min_dist_nm:
         raise ValueError(
-            "R2 two-copy seed min-dist FAIL: copy-1 appearing methyl too close to "
-            "a copy-1 common/solvent atom (%.4f nm <= %.4f nm) — %s."
+            "R2 two-copy seed min-dist FAIL: copy-1 appearing var group too close "
+            "to a copy-1 common/solvent atom (%.4f nm <= %.4f nm) — %s."
             % (min_hard, min_dist_nm, worst_hard))
 
-    # COPY-2 HE1: check against copy-2's own atoms (>= n_copy1) + solvent O,
-    # EXCLUDING HE1's own 1-2/1-3 neighbours (NE1 bond + the ring atoms CD1/CE2
-    # bonded to NE1). These are nonbonded-EXCLUDED in the FF (1-3 pairs sit at a
-    # standard ~0.08-0.09 nm from a ring-N hydrogen), so counting them as a clash
-    # is a false positive — the legacy seed assert likewise excludes HE1's bonded
-    # partners. We read the System bonds to find NE1's bonded ring neighbours.
-    he1_excluded = {ne1_c2}
-    for f in system.getForces():
-        if isinstance(f, mm.HarmonicBondForce):
-            for bi in range(f.getNumBonds()):
-                p1, p2, _, _ = f.getBondParameters(bi)
-                if ne1_c2 in (p1, p2):
-                    he1_excluded.add(p2 if p1 == ne1_c2 else p1)
-        elif isinstance(f, mm.ATMForce):
-            for j in range(f.getNumForces()):
-                inner = f.getForce(j)
-                if isinstance(inner, mm.HarmonicBondForce):
-                    for bi in range(inner.getNumBonds()):
-                        p1, p2, _, _ = inner.getBondParameters(bi)
-                        if ne1_c2 in (p1, p2):
-                            he1_excluded.add(p2 if p1 == ne1_c2 else p1)
-    copy2_targets = {a.index for a in topology.atoms()
-                     if a.index >= n_copy1 and a.index != he1
-                     and res_by_idx.get(a.index) not in _SOLVENT_RESNAMES}
-    copy2_targets.update(solvent_o)
-    min_he1 = float("inf")
-    worst_he1 = None
-    for tgt in copy2_targets:
-        if tgt in he1_excluded:  # NE1 bond + 1-3 ring neighbours (FF-excluded).
-            continue
-        d = float(np.linalg.norm(positions[he1] - positions[tgt]))
-        if d < min_he1:
-            min_he1 = d
-            worst_he1 = (name_by_idx.get(he1, he1), name_by_idx.get(tgt, tgt), d)
+    # COPY-2 disappearing var group: indices [n_copy1, n_atoms).
+    n_atoms = topology.getNumAtoms()
+    min_he1, worst_he1 = _seed_min_dist(disappearing, ne1_c2, n_copy1, n_atoms)
     if min_he1 <= min_dist_nm:
         raise ValueError(
-            "R2 two-copy seed min-dist FAIL: copy-2 HE1 too close to a copy-2 "
-            "common/solvent atom (%.4f nm <= %.4f nm) — %s."
+            "R2 two-copy seed min-dist FAIL: copy-2 disappearing var group too "
+            "close to a copy-2 common/solvent atom (%.4f nm <= %.4f nm) — %s."
             % (min_he1, min_dist_nm, worst_he1))
 
     return {
@@ -3898,6 +4478,186 @@ def _attach_heavy_neighbor_indices(
     return nbrs
 
 
+# Ideal sp3 tetrahedral dot: the cosine of the angle between any two of the four
+# tetrahedral bond directions (109.4712206... deg). Used by the deterministic
+# common beta-H placement (connected-group / W4A shape only).
+_TET_COS = -1.0 / 3.0
+
+
+def _unit_vec(v: np.ndarray) -> np.ndarray:
+    """Unit vector (return the input unchanged when its norm is ~0)."""
+    n = float(np.linalg.norm(v))
+    return v / n if n > 1e-12 else v
+
+
+def _common_beta_h_indices_for_attach(
+    topology: app.Topology, common_idx_set: set, attach_idx: int,
+    binder_chain: str,
+) -> List[int]:
+    """Common-core H atom indices bonded to the common attach atom (the beta-H pair).
+
+    These are the atoms whose RANDOM PDBFixer placement (inherited via the common
+    overwrite in the registration) can drive the rigid-translated root heavy onto a
+    beta-H vertex (the W4A R2-retry mode). Identified STRUCTURALLY (H, in the common
+    set, bonded to the attach atom on the binder chain) so the correction is robust to
+    naming (HB2/HB3) without hard-coding names.
+    """
+    beta_h: List[int] = []
+    for b in topology.bonds():
+        a0, a1 = b[0], b[1]
+        if a0.index == attach_idx:
+            other = a1
+        elif a1.index == attach_idx:
+            other = a0
+        else:
+            continue
+        if other.index not in common_idx_set:
+            continue
+        if other.residue.chain.id != binder_chain:
+            continue
+        if other.residue.name in _SOLVENT_RESNAMES:
+            continue
+        el = other.element
+        is_h = (el is not None and el.symbol == "H") or (
+            el is None and other.name.strip().startswith("H"))
+        if is_h:
+            beta_h.append(other.index)
+    return sorted(beta_h)
+
+
+def _place_two_tetrahedral_beta_h(
+    cb: np.ndarray, ca: np.ndarray, cg: np.ndarray, bond_nm: float,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Place the TWO remaining sp3 tetrahedral substituents on CB given the two
+    occupied directions CB->CA and CB->CG, at ``bond_nm`` from CB.
+
+    CB is sp3 with four substituents; two are heavy (CA, CG) and two are the beta-H
+    pair to place. The two H directions are the canonical complement of {u_ca, u_cg}:
+    a bisector pointing AWAY from both heavies + a symmetric out-of-plane split, with
+    the in/out split solved from the tetrahedral dot constraint (d . u_ca == d . u_cg
+    == -1/3). The H's AVOID the CG direction BY CONSTRUCTION (they are the complement
+    of CG), which removes the deterministic CG-on-beta-H collision (the W4A R2-retry
+    mode). Returns (h1, h2) absolute positions (nm).
+    """
+    u_ca = _unit_vec(ca - cb)
+    u_cg = _unit_vec(cg - cb)
+    # bisector pointing away from both occupied heavy directions.
+    s = u_ca + u_cg
+    if float(np.linalg.norm(s)) > 1e-9:
+        bis = _unit_vec(-s)
+    else:
+        ref = np.array([1.0, 0.0, 0.0]) if abs(u_ca[0]) < 0.9 else \
+            np.array([0.0, 1.0, 0.0])
+        bis = _unit_vec(np.cross(u_ca, ref))
+    # out-of-plane axis (perpendicular to the CA/CG plane).
+    perp = np.cross(u_ca, u_cg)
+    if float(np.linalg.norm(perp)) < 1e-9:
+        # CA/CG nearly collinear (degenerate) — pick any perpendicular to bis.
+        ref = np.array([1.0, 0.0, 0.0]) if abs(bis[0]) < 0.9 else \
+            np.array([0.0, 1.0, 0.0])
+        perp = np.cross(bis, ref)
+    perp = _unit_vec(perp)
+    # d = a*bis + b*perp (unit). The tetrahedral constraint d . u_ca == d . u_cg ==
+    # -1/3 reduces (perp _|_ both heavy dirs, bis symmetric) to a*(bis . u_ca) = -1/3.
+    bis_dot = float(bis @ u_ca)   # == bis . u_cg by symmetry of bis
+    a = (_TET_COS / bis_dot) if abs(bis_dot) > 1e-6 else 0.0
+    a = float(np.clip(a, -1.0, 1.0))
+    b = float(np.sqrt(max(0.0, 1.0 - a * a)))
+    d1 = _unit_vec(a * bis + b * perp)
+    d2 = _unit_vec(a * bis - b * perp)
+    return cb + bond_nm * d1, cb + bond_nm * d2
+
+
+def _place_deterministic_common_beta_h(
+    copy2_build: Dict[str, Any], ms_reg, binder_chain: str,
+) -> Dict[str, Any]:
+    """SHAPE-GATED (single_attach_connected_group): re-place the COMMON beta-H pair
+    (the H's bonded to the common attach CB) DETERMINISTICALLY by ideal sp3
+    tetrahedral geometry off the REGISTERED CB, complementary to {CA, CG}.
+
+    W4A (Trp4->Ala) is a single-scaffold perturbation: BOTH copies derive from the
+    SAME WT final.pdb, so the registration's common overwrite inherits PDBFixer's
+    RANDOM beta-H vertex pick on the mutated ALA. When PDBFixer happens to place a
+    common beta-H on the SAME CB vertex the rigid-translated indole root (CG) points
+    toward, CG lands on the beta-H (< the R2 floor) => an R2 retry. This correction
+    re-places the two common beta-H's at the tetrahedral complement of {CA, CG}, which
+    AVOIDS the CG direction by construction (deterministic, no RNG), off the REGISTERED
+    CB (so the common register stays exact), at the engine-registered CB->beta-H bond
+    length (direction-only change, harmonic CB-HB term unperturbed).
+
+    Mutates ``copy2_build['modeller'].positions`` in place. Returns a structured
+    bookkeeping dict; on any unexpected geometry (not the canonical CB+CA+CG+2H sp3
+    centre) it leaves the engine placement untouched and reports the skip reason
+    (fail-soft: the R2 seed gate still guards any residual clash).
+    """
+    c2_top = copy2_build["modeller"].topology
+    c2_var = set(copy2_build["alchemical_atoms"]["wt_only"])
+
+    def _is_binder_protein(atom) -> bool:
+        return (atom.residue.chain.id == binder_chain
+                and atom.residue.name not in _SOLVENT_RESNAMES)
+
+    c2_common = set(a.index for a in c2_top.atoms()
+                    if a.index not in c2_var and _is_binder_protein(a))
+    attach_idx = copy2_build["alchemical_atoms"]["common"][0]
+
+    beta_h = _common_beta_h_indices_for_attach(
+        c2_top, c2_common, attach_idx, binder_chain)
+    if len(beta_h) != 2:
+        return {"detbeta_mode": "skipped_unexpected_beta_h_count",
+                "n_common_beta_h": len(beta_h)}
+
+    # CA = the other heavy common neighbour of CB; CG = the rigid-translated indole
+    # root (a disappearing var heavy that bonds CB).
+    name_idx: Dict[str, int] = {}
+    for atom in c2_top.atoms():
+        if atom.index in c2_common and _is_binder_protein(atom) \
+                and atom.name not in name_idx:
+            name_idx[atom.name] = atom.index
+    if "CA" not in name_idx:
+        return {"detbeta_mode": "skipped_no_CA"}
+
+    root_heavy_name = ms_reg.bonded_heavy_disappearing
+    cg_idx = None
+    for atom in c2_top.atoms():
+        if atom.index in c2_var and atom.name == root_heavy_name \
+                and _is_binder_protein(atom):
+            cg_idx = atom.index
+            break
+    if cg_idx is None:
+        return {"detbeta_mode": "skipped_no_root_heavy",
+                "root_heavy_name": root_heavy_name}
+
+    c2_pos = list(copy2_build["modeller"].positions)
+    cb = np.array(c2_pos[attach_idx].value_in_unit(unit.nanometer))
+    ca = np.array(c2_pos[name_idx["CA"]].value_in_unit(unit.nanometer))
+    cg = np.array(c2_pos[cg_idx].value_in_unit(unit.nanometer))
+
+    bond_lengths = [
+        float(np.linalg.norm(
+            np.array(c2_pos[h].value_in_unit(unit.nanometer)) - cb))
+        for h in beta_h]
+    valid_lengths = [b for b in bond_lengths if b > 1e-6]
+    bond_nm = float(np.mean(valid_lengths)) if valid_lengths else 0.109
+
+    h1, h2 = _place_two_tetrahedral_beta_h(cb, ca, cg, bond_nm)
+    c2_pos[beta_h[0]] = mm.Vec3(*h1) * unit.nanometer
+    c2_pos[beta_h[1]] = mm.Vec3(*h2) * unit.nanometer
+    copy2_build["modeller"].positions = c2_pos
+
+    cg_to_h = [float(np.linalg.norm(h - cg)) for h in (h1, h2)]
+    return {
+        "detbeta_mode": "tetrahedral",
+        "n_common_beta_h_replaced": 2,
+        "common_beta_h_indices": beta_h,
+        "attach_index": attach_idx,
+        "root_heavy_name": root_heavy_name,
+        "beta_h_bond_nm": bond_nm,
+        "cg_to_beta_h_nm": cg_to_h,
+        "cg_to_beta_h_min_nm": float(min(cg_to_h)),
+    }
+
+
 def _register_copy2_common_to_copy1(
     copy1_build: Dict[str, Any], copy2_build: Dict[str, Any],
     binder_chain: str = "B", spec: Optional[Any] = None,
@@ -3930,7 +4690,7 @@ def _register_copy2_common_to_copy1(
 
     Returns bookkeeping (n_common_registered, the var offset applied).
     """
-    resolve_mutation_spec(spec)  # validate selector (attach atom carried by build)
+    ms_reg = resolve_mutation_spec(spec)  # validate selector + read the group shape
     c1_top = copy1_build["modeller"].topology
     c2_top = copy2_build["modeller"].topology
     c1_var = set(copy1_build["alchemical_atoms"]["mtr_only"])
@@ -3956,15 +4716,27 @@ def _register_copy2_common_to_copy1(
     c2_ne1 = copy2_build["alchemical_atoms"]["common"][0]
     he1_list = sorted(c2_var)
 
-    # Capture copy-2's original attach->var BOND LENGTH (preserve the bond
-    # magnitude; the DIRECTION is recomputed in the registered frame below so the
-    # var atom does not clash the registered neighbours — using the raw offset
-    # against the differing original conformer would mis-place it).
+    # The disappearing var GROUP can be a single H (MTR HE1 / V3I HG11) or a heavy
+    # methyl group (Ala CB + HB1-3 + the renamed alpha-H HA, the disappearing-heavy
+    # mirror). A SINGLE non-heavy var keeps the legacy single-H repositioning (off
+    # the attach atom, byte-identical). A MULTI-atom group (>1 atom OR a heavy var)
+    # is moved RIGIDLY by the attach atom's registration delta so the native
+    # intra-group bond geometry (CB-HB / CB-CA bond lengths + angles) is preserved
+    # exactly — collapsing such a group onto one point would detonate the bonded
+    # base term. The R2 seed assert then gates any residual clash against the
+    # registered backbone (fail-loud, never silent).
+    heavy_in_group = bool(ms_reg.bonded_heavy_disappearing)
+    rigid_group = len(he1_list) > 1 or heavy_in_group
+
+    # copy-2's ORIGINAL attach position (before the common overwrite) — the rigid
+    # translation delta is (registered attach) - (original attach).
+    c2_ne1_orig = np.array(c2_pos[c2_ne1].value_in_unit(unit.nanometer))
+
+    # Capture copy-2's original attach->var BOND LENGTH (single-H legacy path only).
     he1_bond_nm = 0.101
-    if he1_list:
-        ne1_orig = np.array(c2_pos[c2_ne1].value_in_unit(unit.nanometer))
+    if he1_list and not rigid_group:
         he1_orig = np.array(c2_pos[he1_list[0]].value_in_unit(unit.nanometer))
-        he1_bond_nm = float(np.linalg.norm(he1_orig - ne1_orig)) or 0.101
+        he1_bond_nm = float(np.linalg.norm(he1_orig - c2_ne1_orig)) or 0.101
 
     # Overwrite copy-2 commons with copy-1 commons (registered conformation).
     c2_common_set = set(c2_common)
@@ -3972,16 +4744,22 @@ def _register_copy2_common_to_copy1(
         v = c1_pos[c1_i]
         c2_pos[c2_i] = mm.Vec3(v[0], v[1], v[2]) * unit.nanometer
 
-    # Reposition the disappearing var atom(s) in the REGISTERED frame: off the
-    # (now copy-1-framed) attach atom, pointing AWAY from the centroid of the
-    # attach atom's bonded heavy common neighbours, at the preserved bond length.
-    # For NE1 the heavy neighbours are the indole ring (CD1, CE2) -> the legacy
-    # ring-bisector direction; for CG1 the heavy neighbour is CB -> straight off
-    # CB. This lands the H in a non-clashing position relative to the registered
-    # core (byte-identical to the legacy CD1/CE2 bisector when the attach is NE1).
+    ne1_new = np.array(c2_pos[c2_ne1].value_in_unit(unit.nanometer))
     he1_dir = None
-    if he1_list:
-        ne1_new = np.array(c2_pos[c2_ne1].value_in_unit(unit.nanometer))
+    if he1_list and rigid_group:
+        # RIGID translation of the whole disappearing group by the attach delta:
+        # preserves the native (copy-2) intra-group geometry; the group stays bonded
+        # to the now-registered attach atom at its native offset.
+        delta = ne1_new - c2_ne1_orig
+        for var_i in he1_list:
+            v = np.array(c2_pos[var_i].value_in_unit(unit.nanometer)) + delta
+            c2_pos[var_i] = mm.Vec3(*v) * unit.nanometer
+    elif he1_list:
+        # Single-H legacy path (byte-identical): off the (registered) attach atom,
+        # pointing AWAY from the centroid of the attach atom's bonded heavy common
+        # neighbours, at the preserved bond length. For NE1 the heavy neighbours are
+        # the indole ring (CD1, CE2) -> the legacy ring-bisector; for CG1 the heavy
+        # neighbour is CB -> straight off CB.
         heavy_nbrs = _attach_heavy_neighbor_indices(c2_top, c2_ne1, c2_common_set)
         if heavy_nbrs:
             centroid = np.mean(
@@ -3997,12 +4775,26 @@ def _register_copy2_common_to_copy1(
             c2_pos[var_i] = mm.Vec3(*he1_new) * unit.nanometer
 
     copy2_build["modeller"].positions = c2_pos
-    return {
+
+    record: Dict[str, Any] = {
         "n_common_registered": len(c1_common),
         "he1_repositioned": bool(he1_list),
+        "he1_repositioned_rigid": bool(he1_list and rigid_group),
         "he1_bond_nm": he1_bond_nm,
         "he1_dir": (he1_dir.tolist() if he1_dir is not None else None),
     }
+
+    # SHAPE-GATED deterministic COMMON beta-H placement (connected-group / W4A only).
+    # Every other shape is left BYTE-IDENTICAL: the rigid-translate body above already
+    # ran verbatim, and this correction is appended ONLY for the connected-group ring
+    # shape, replacing the two common beta-H's (whose RANDOM PDBFixer placement is the
+    # W4A R2-retry driver) with a deterministic CG-avoiding tetrahedral placement.
+    if ms_reg.shape == "single_attach_connected_group":
+        detbeta = _place_deterministic_common_beta_h(
+            copy2_build, ms_reg, binder_chain)
+        record["detbeta"] = detbeta
+
+    return record
 
 
 def build_inplace_res4_twocopy_system(

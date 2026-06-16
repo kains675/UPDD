@@ -1377,8 +1377,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "alchemical-atom partition). Default None => the legacy "
                         "res-4 MTR<->Trp spec (byte-identical). Use "
                         "'v3i_val_ile_res3' for the canonical res-3 Val<->Ile "
-                        "engine-validation build (all-amber, no ncAA XML). Known "
-                        "names come from atm_trackB_setup.MUTATION_SPECS.")
+                        "engine-validation build (appearing-heavy, all-amber, no "
+                        "ncAA XML), or 'a9g_ala_gly_res9' for the canonical res-9 "
+                        "Ala<->Gly disappearing-heavy engine-DE-RISK build "
+                        "(all-amber). Known names come from "
+                        "atm_trackB_setup.MUTATION_SPECS.")
     p.add_argument("--lambda1-rampdown", default=None,
                    help="Two-copy ONLY: comma list of explicit leg-down λ1 knots "
                         "to densify the leg-switch handoff (each in (0,0.5], "

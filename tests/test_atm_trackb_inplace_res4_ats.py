@@ -1590,6 +1590,646 @@ def test_v3i_twocopy_mc1_finding_production(ats):
     assert abs(mc1["sum_dq_res4_e"]) > 1e-3   # back-compat alias (res-3 common dq)
 
 
+# --- A9G (res-9 Ala<->Gly) real two-copy build (need WT s7 final.pdb + openmm) --
+@pytest.fixture(scope="module")
+def real_a9g_unsolv(ats):
+    """The A9G (res-9 Ala<->Gly) canonical two-copy box, UNSOLVATED, NATIVE charges
+    (Ala/Gly are charge-neutral so no harmonization is needed — MC1 net sanity is
+    net=0 both copies). Engine de-risk of the disappearing-heavy MC2/partition path."""
+    if not _wt_s7_present():
+        pytest.skip("2QKI WT s7 final.pdb not present")
+    return ats.build_inplace_res4_twocopy_system(
+        leg="free", seed="s7", solvate=False,
+        harmonize_common_charges=False, spec="a9g_ala_gly_res9")
+
+
+def test_a9g_twocopy_build_disappearing_heavy(real_a9g_unsolv):
+    """A9G build smoke: the disappearing-heavy mirror builds + attaches. attach=CA;
+    disappearing var = Ala CB+HB1-3+HA (copy-2); appearing var = Gly HA2/HA3
+    (copy-1, no heavy). MC2 (disappearing-heavy branch) + MC3 (2 disulfides) +
+    R2 seed pass; net-charge sanity holds (Ala/Gly both net 0)."""
+    b = real_a9g_unsolv
+    assert b["outcome"] == "twocopy_attached"
+    fused = b["fused_build"]
+    cmap = b["common_map"]
+    name = {a.index: a.name for a in fused["modeller"].topology.atoms()}
+    # Distinct CA attach atoms (NOT a shared core).
+    assert cmap["copy1_attach"] != cmap["copy2_attach"]
+    assert name[cmap["copy1_attach"]] == "CA"
+    assert name[cmap["copy2_attach"]] == "CA"
+    # Disappearing = Ala CB + HB1-3 + HA (copy-2); appearing = Gly HA2/HA3 (copy-1).
+    assert sorted(name[i] for i in cmap["copy2_var"]) == [
+        "CB", "HA", "HB1", "HB2", "HB3"]
+    assert sorted(name[i] for i in cmap["copy1_var"]) == ["HA2", "HA3"]
+    # MC2 took the disappearing-heavy branch.
+    assert b["mc2_methyl_bonded"]["shape"] == "disappearing_heavy"
+    assert b["mc2_methyl_bonded"]["passed"] is True
+    assert b["mc3_disulfide"]["n_disulfides"] == 2
+    assert b["seed_assert"]["passed"] is True
+    # C6 separation + zero inter-copy exclusions.
+    assert b["separation"]["solute_solute_min_sep_nm"] > 1.0
+    assert b["swap"]["inter_copy_exclusions_added"] == 0
+    # C2 net-charge sanity: Ala/Gly are charge-neutral => net 0 both copies.
+    mc1 = b["mc1_param_continuity"]
+    assert mc1["net_sanity_ok"] is True
+    assert abs(mc1["full_resmut_net_diff_e"]) <= mc1["net_dq_tol_e"]
+
+
+def test_a9g_twocopy_rigid_group_register(real_a9g_unsolv):
+    """A9G register: the multi-atom disappearing group (CB+HB+HA) is repositioned
+    RIGIDLY (native intra-group geometry preserved) — the seed assert min-dist is
+    well above the clash floor (the group was NOT collapsed onto one point)."""
+    b = real_a9g_unsolv
+    sa = b["seed_assert"]
+    reg = b["fused_build"].get("register_log") or {}
+    # The disappearing var group (copy-2) min intra-copy distance is non-clashing
+    # (the group was rigidly translated, not collapsed onto one point).
+    assert sa["min_copy2_he1_dist_nm"] > 0.10
+
+
+# ===========================================================================
+# A9G (res-9 Ala<->Gly) disappearing-heavy MUTATION SHAPE generalization
+# (engine de-risk: the MIRROR of V3I; MC2 + partition + fail-loud on bad shapes)
+# ===========================================================================
+def test_a9g_spec_registered_and_shape(ats):
+    """The A9G spec is registered and resolvable; it is the disappearing-heavy
+    MIRROR of V3I (Ala CB methyl deletes, Gly grows no heavy). Common attach = CA;
+    canonical amber14 (no ncAA XML); charge-/parity-neutral."""
+    assert "a9g_ala_gly_res9" in ats.MUTATION_SPECS
+    ms = ats.resolve_mutation_spec("a9g_ala_gly_res9")
+    assert ms is ats.MUTATION_ALA_GLY_RES9
+    assert ms.resnum == 9
+    assert ms.common_attach_atom == "CA"
+    assert ms.stateA_resname == "ALA"
+    assert ms.stateB_resname == "GLY"
+    # Disappearing = Ala beta-CH3 (CB+HB1-3) + the renamed alpha-H (HA, excluded
+    # from the shared common core so the C4 name-order gate aligns). Appearing =
+    # Gly's two alpha-H's (no heavy).
+    assert sorted(ms.stateA_only_atoms) == ["CB", "HA", "HB1", "HB2", "HB3"]
+    assert sorted(ms.stateB_only_atoms) == ["HA2", "HA3"]
+    assert ms.hybrid_xml is None
+    # Mirror fields: appearing side has NO heavy; disappearing heavy = CB / HB.
+    assert ms.bonded_heavy_appearing is None
+    assert ms.appearing_h_prefix is None
+    assert ms.bonded_heavy_disappearing == "CB"
+    assert ms.disappearing_h_prefix == "HB"
+    assert ms.shape == "disappearing_heavy"
+
+
+def test_shape_classification_single_heavy_vs_unsupported(ats):
+    """SHAPE classification: MTR/V3I = appearing_heavy, A9G = disappearing_heavy;
+    any multi-heavy / ring-closure / multi-branch shape = unsupported (the FAIL-
+    LOUD trigger for W4A/W4F/Q5A)."""
+    assert ats.MUTATION_MTR_TRP_RES4.shape == "appearing_heavy"
+    assert ats.MUTATION_VAL_ILE_RES3.shape == "appearing_heavy"
+    assert ats.MUTATION_ALA_GLY_RES9.shape == "disappearing_heavy"
+    # W4A-like: TRP->ALA deletes a 9-heavy fused indole (multi-heavy disappearing).
+    w4a = ats.MutationSpec(
+        name="w4a_x", resnum=4, common_attach_atom="CB",
+        stateA_resname="TRP", stateB_resname="ALA",
+        stateA_only_atoms=("CG", "CD1", "HD1", "CD2", "NE1", "HE1", "CE2",
+                           "CZ2", "HZ2", "CZ3", "HZ3", "CH2", "HH2", "CE3", "HE3"),
+        stateB_only_atoms=("HB1", "HB2", "HB3"))
+    assert w4a.shape == "unsupported"
+    # W4F-like: ring contraction (multi-heavy on BOTH sides).
+    w4f = ats.MutationSpec(
+        name="w4f_x", resnum=4, common_attach_atom="CB",
+        stateA_resname="TRP", stateB_resname="PHE",
+        stateA_only_atoms=("NE1", "HE1", "CE2"),
+        stateB_only_atoms=("CE1", "CZ"))
+    assert w4f.shape == "unsupported"
+
+
+def test_identify_alchemical_atoms_a9g_partition(ats):
+    """identify_alchemical_atoms with the A9G spec classifies CA as common, the
+    Ala beta-CH3 + renamed alpha-H (CB,HB1-3,HA) as disappearing (wt_only slot),
+    and Gly's two alpha-H's (HA2,HA3) as appearing (mtr_only slot)."""
+    names = ["N", "H", "CA", "C", "O",            # common backbone
+             "HA", "CB", "HB1", "HB2", "HB3",     # Ala-only (disappearing)
+             "HA2", "HA3"]                        # Gly-only (appearing)
+    atoms = [_FakeAtom(n, i) for i, n in enumerate(names)]
+    res = _FakeResidue("9", "ALA", atoms)
+    top = _FakeTopology([_FakeChain("B", [res])])
+    idx = {a.name: a.index for a in atoms}
+    part = ats.identify_alchemical_atoms(
+        top, binder_chain="B", spec="a9g_ala_gly_res9")
+    assert part["common"] == [idx["CA"]]
+    assert sorted(part["wt_only"]) == sorted(
+        [idx["CB"], idx["HA"], idx["HB1"], idx["HB2"], idx["HB3"]])
+    assert sorted(part["mtr_only"]) == sorted([idx["HA2"], idx["HA3"]])
+
+
+def _toy_mc2_fused_build(ats, shape):
+    """A MINIMAL synthetic fused_build for the MC2 assert. For ``unsupported`` the
+    MC2 assert raises BEFORE reading the System (so a stub System suffices); for a
+    ``disappearing_heavy`` positive build the System carries the CB-CA bond + the
+    HB-CB bonds in a real HarmonicBondForce."""
+    import openmm as mm
+    from openmm import app
+    import openmm.unit as unit
+
+    if shape == "unsupported":
+        spec = ats.MutationSpec(
+            name="w4a_x", resnum=4, common_attach_atom="CB",
+            stateA_resname="TRP", stateB_resname="ALA",
+            stateA_only_atoms=("CG", "CD1", "NE1", "CE2"),  # multi-heavy disappearing
+            stateB_only_atoms=("HB1", "HB2", "HB3"))
+        system = mm.System()
+        for _ in range(4):
+            system.addParticle(1.0 * unit.dalton)
+        top = app.Topology()
+        ch = top.addChain(id="B")
+        res = top.addResidue("TRP", ch, id="4")
+        for nm in ("CG", "CD1", "NE1", "CE2"):
+            top.addAtom(nm, app.element.carbon, res)
+
+        class _M:
+            pass
+        m = _M(); m.topology = top
+        fused = {"system": system, "modeller": m,
+                 "alchemical_atoms": {"common": [], "wt_only": [0, 1, 2, 3],
+                                      "mtr_only": []},
+                 "mutation_spec": spec}
+        cmap = {"copy1_attach": 0, "copy2_attach": 0}
+        return fused, cmap
+
+    # disappearing_heavy: CA(attach, copy-2) - CB - HB1/HB2/HB3, all bonded.
+    spec = ats.MUTATION_ALA_GLY_RES9
+    system = mm.System()
+    bf = mm.HarmonicBondForce()
+    # indices: 0=CA(copy2 attach), 1=CB, 2=HB1, 3=HB2, 4=HB3, 5=HA
+    for _ in range(6):
+        system.addParticle(12.0 * unit.dalton)
+    bf.addBond(0, 1, 0.15 * unit.nanometer, 1000.0)               # CB-CA
+    for h in (2, 3, 4):
+        bf.addBond(1, h, 0.109 * unit.nanometer, 1000.0)          # HB-CB
+    system.addForce(bf)
+    top = app.Topology()
+    ch = top.addChain(id="B")
+    res = top.addResidue("ALA", ch, id="9")
+    for nm in ("CA", "CB", "HB1", "HB2", "HB3", "HA"):
+        top.addAtom(nm, app.element.carbon, res)
+
+    class _M:
+        pass
+    m = _M(); m.topology = top
+    fused = {"system": system, "modeller": m,
+             "alchemical_atoms": {"common": [0],
+                                  "wt_only": [1, 2, 3, 4, 5],   # CB,HB1-3,HA
+                                  "mtr_only": []},
+             "mutation_spec": spec}
+    cmap = {"copy1_attach": 0, "copy2_attach": 0}  # synthetic single-copy box
+    return fused, cmap
+
+
+def test_mc2_fail_loud_on_unsupported_shape(ats):
+    """MC2 must FAIL-LOUD (raise) on a multi-heavy / ring-closure shape — NEVER
+    silent-build. This is the load-bearing safety: W4A/W4F/Q5A hit this error."""
+    fused, cmap = _toy_mc2_fused_build(ats, "unsupported")
+    with pytest.raises(ValueError) as exc:
+        ats.assert_twocopy_methyl_bonded(fused, cmap)
+    assert "unsupported mutation shape" in str(exc.value)
+
+
+def test_mc2_disappearing_heavy_branch_passes_when_bonded(ats):
+    """MC2 disappearing-heavy branch: asserts the disappearing heavy (CB) bonds the
+    copy-2 attach (CA) + the disappearing H's (HB prefix) bond CB. Mirror of the
+    appearing-heavy CM-NE1 / CD1-CG1 check."""
+    fused, cmap = _toy_mc2_fused_build(ats, "disappearing_heavy")
+    mc2 = ats.assert_twocopy_methyl_bonded(fused, cmap)
+    assert mc2["passed"] is True
+    assert mc2["shape"] == "disappearing_heavy"
+    assert mc2["heavy_attach_bond_present"] is True
+    assert all(mc2["h_heavy_bonds_present"].values())
+    # Back-compat keys still populated for downstream consumers.
+    assert mc2["cm_ne1_bond_present"] is True
+    assert all(mc2["hm_cm_bonds_present"].values())
+
+
+def test_mc2_disappearing_heavy_fails_loud_when_bond_missing(ats):
+    """MC2 disappearing-heavy: if the CB-CA bond is absent the assert raises (no
+    silent pass) — the same fail-loud contract as the appearing-heavy path."""
+    fused, cmap = _toy_mc2_fused_build(ats, "disappearing_heavy")
+    # Strip the CB-CA bond (index 0) from the HarmonicBondForce by rebuilding it
+    # without that bond.
+    import openmm as mm
+    import openmm.unit as unit
+    sys2 = mm.System()
+    for _ in range(6):
+        sys2.addParticle(12.0 * unit.dalton)
+    bf = mm.HarmonicBondForce()
+    for h in (2, 3, 4):
+        bf.addBond(1, h, 0.109 * unit.nanometer, 1000.0)   # HB-CB only, no CB-CA
+    sys2.addForce(bf)
+    fused["system"] = sys2
+    with pytest.raises(ValueError) as exc:
+        ats.assert_twocopy_methyl_bonded(fused, cmap)
+    assert "internal bond absent" in str(exc.value)
+
+
+# ===========================================================================
+# Acyclic-star MULTI-HEAVY mutation shape generalization (V3A-shape de-risk):
+# fail-safe opt-in whitelist (multiheavy_star_certified) + per-heavy MC2 loop.
+# NOTE: no MULTI-heavy spec is registered in the engine (Phase A is code
+# generalization only, not a physics production spec); these tests use synthetic
+# certified specs to exercise the generalized classifier + MC2 branch. The
+# uncertified W4A/W4F regression rows above MUST stay unsupported (fail-safe).
+# ===========================================================================
+def _v3a_certified_spec(ats):
+    """Synthetic V3A-shape spec (Val3->Ala): TWO disappearing heavies (CG1,CG2)
+    each star-bonded to the common attach CB, zero appearing heavy, acyclic.
+    Explicitly multiheavy_star_certified=True (opt-in whitelist)."""
+    return ats.MutationSpec(
+        name="v3a_certified", resnum=3, common_attach_atom="CB",
+        stateA_resname="VAL", stateB_resname="ALA",
+        stateA_only_atoms=("HB", "CG1", "HG11", "HG12", "HG13",
+                           "CG2", "HG21", "HG22", "HG23"),
+        stateB_only_atoms=("HB1", "HB2", "HB3"),
+        hybrid_xml=None,
+        bonded_heavy_disappearing="CG1", disappearing_h_prefix="HG",
+        multiheavy_star_certified=True)
+
+
+def test_shape_multiheavy_certified_classifies(ats):
+    """A CERTIFIED acyclic-star multi-disappearing-heavy spec (V3A: CG1+CG2) is
+    classified as multi_disappearing_heavy. The symmetric certified appearing case
+    classifies as multi_appearing_heavy."""
+    assert _v3a_certified_spec(ats).shape == "multi_disappearing_heavy"
+    app = ats.MutationSpec(
+        name="multi_app_certified", resnum=3, common_attach_atom="CB",
+        stateA_resname="ALA", stateB_resname="VAL",
+        stateA_only_atoms=("HB1", "HB2", "HB3"),
+        stateB_only_atoms=("HB", "CG1", "HG11", "HG12", "HG13",
+                           "CG2", "HG21", "HG22", "HG23"),
+        hybrid_xml=None,
+        bonded_heavy_appearing="CG1", appearing_h_prefix="HG",
+        multiheavy_star_certified=True)
+    assert app.shape == "multi_appearing_heavy"
+
+
+def test_shape_multiheavy_uncertified_is_unsupported(ats):
+    """FAIL-SAFE: the SAME V3A-shape spec WITHOUT the opt-in attestation stays
+    unsupported — omitting multiheavy_star_certified can never silently promote a
+    multi-heavy spec to buildable (whitelist, not blacklist)."""
+    uncert = ats.MutationSpec(
+        name="v3a_uncertified", resnum=3, common_attach_atom="CB",
+        stateA_resname="VAL", stateB_resname="ALA",
+        stateA_only_atoms=("HB", "CG1", "HG11", "HG12", "HG13",
+                           "CG2", "HG21", "HG22", "HG23"),
+        stateB_only_atoms=("HB1", "HB2", "HB3"),
+        hybrid_xml=None,
+        bonded_heavy_disappearing="CG1", disappearing_h_prefix="HG")
+    assert uncert.multiheavy_star_certified is False
+    assert uncert.shape == "unsupported"
+    # Default-constructed MutationSpec has the flag default False (fail-safe).
+    assert ats.MutationSpec(
+        name="d", resnum=1, common_attach_atom="CB",
+        stateA_resname="X", stateB_resname="Y",
+        stateA_only_atoms=(), stateB_only_atoms=()
+    ).multiheavy_star_certified is False
+
+
+def _toy_mc2_multiheavy_build(ats, *, drop_cg2_attach=False,
+                              missing_heavy=False):
+    """Synthetic merged box for the MC2 multi-heavy (V3A) branch: copy-2 attach=CB,
+    two disappearing heavies CG1+CG2 each bonded to CB by a REAL HarmonicBond, each
+    carrying 3 methyl H's (HG1x / HG2x). Toggles inject specific build defects so the
+    per-heavy certify fail-loud paths can be exercised."""
+    import openmm as mm
+    from openmm import app
+    import openmm.unit as unit
+
+    spec = _v3a_certified_spec(ats)
+    # indices: 0=CB(copy2 attach) | 1=CG1 2=HG11 3=HG12 4=HG13
+    #                              | 5=CG2 6=HG21 7=HG22 8=HG23
+    names = ["CB", "CG1", "HG11", "HG12", "HG13", "CG2", "HG21", "HG22", "HG23"]
+    if missing_heavy:
+        names = [n if n != "CG2" else "CGX" for n in names]  # CG2 never built
+    system = mm.System()
+    for _ in range(len(names)):
+        system.addParticle(12.0 * unit.dalton)
+    bf = mm.HarmonicBondForce()
+    bf.addBond(0, 1, 0.15 * unit.nanometer, 1000.0)              # CG1-CB
+    if not (drop_cg2_attach or missing_heavy):
+        bf.addBond(0, 5, 0.15 * unit.nanometer, 1000.0)         # CG2-CB
+    for h in (2, 3, 4):
+        bf.addBond(1, h, 0.109 * unit.nanometer, 1000.0)        # HG1x-CG1
+    if not missing_heavy:
+        for h in (6, 7, 8):
+            bf.addBond(5, h, 0.109 * unit.nanometer, 1000.0)    # HG2x-CG2
+    system.addForce(bf)
+    top = app.Topology()
+    ch = top.addChain(id="B")
+    res = top.addResidue("VAL", ch, id="3")
+    for nm in names:
+        top.addAtom(nm, app.element.carbon, res)
+
+    class _M:
+        pass
+    m = _M(); m.topology = top
+    fused = {"system": system, "modeller": m,
+             "alchemical_atoms": {"common": [0],
+                                  "wt_only": list(range(1, len(names))),
+                                  "mtr_only": []},
+             "mutation_spec": spec}
+    cmap = {"copy1_attach": 0, "copy2_attach": 0}
+    return fused, cmap
+
+
+def test_mc2_multiheavy_branch_certifies_each_heavy(ats):
+    """MC2 multi-heavy branch certifies EACH var heavy (CG1,CG2): each bonds the
+    copy-2 attach CB by a real bond + each carries its methyl H's (bond OR SHAKE
+    constraint)."""
+    fused, cmap = _toy_mc2_multiheavy_build(ats)
+    mc2 = ats.assert_twocopy_methyl_bonded(fused, cmap)
+    assert mc2["passed"] is True
+    assert mc2["shape"] == "multi_disappearing_heavy"
+    assert mc2["side"] == "disappearing"
+    assert mc2["n_heavies_certified"] == 2
+    certified = {h["heavy"] for h in mc2["per_heavy"]}
+    assert certified == {"CG1", "CG2"}
+    for h in mc2["per_heavy"]:
+        assert h["heavy_attach_bond_present"] is True
+        assert all(h["h_connected"].values())
+        assert len(h["h_names"]) == 3
+
+
+def test_mc2_multiheavy_fails_loud_on_missing_attach_bond(ats):
+    """MC2 multi-heavy: if a declared star heavy (CG2) does not bond the attach atom
+    by a real bond the per-heavy certify raises (chained/ring backstop) — no silent
+    skip of the un-bonded heavy."""
+    fused, cmap = _toy_mc2_multiheavy_build(ats, drop_cg2_attach=True)
+    with pytest.raises(ValueError) as exc:
+        ats.assert_twocopy_methyl_bonded(fused, cmap)
+    assert "internal bond absent" in str(exc.value)
+
+
+def test_mc2_multiheavy_fails_loud_on_missing_declared_heavy(ats):
+    """MC2 multi-heavy: a declared heavy (CG2) absent from the var slot raises —
+    cannot certify a heavy that was never built."""
+    fused, cmap = _toy_mc2_multiheavy_build(ats, missing_heavy=True)
+    with pytest.raises(ValueError) as exc:
+        ats.assert_twocopy_methyl_bonded(fused, cmap)
+    assert "absent from the merged" in str(exc.value)
+
+
+# ===========================================================================
+# Phase B: connected-subgraph RING shape (W4A Trp->Ala fused indole) merge.
+#   (1) ring-FIRST classifier (C1): certified ring -> single_attach_connected_group;
+#       un-certified ring (even with the star flag) -> unsupported; W4F (heavy both
+#       sides) -> unsupported; single-heavy + V3A multi-star byte-identical (C4).
+#   (3) MC2 connected-subgraph certify (C3): synthetic indole box passes; ring-open /
+#       disconnected / no-attach-root RAISE.
+#   (4) deterministic common beta-H placement: pure-geometry tetrahedral helper.
+# NOTE: like Phase A, NO ring spec is registered in the engine (capability only,
+# production W4A spec is user-auth); these tests use synthetic certified specs.
+# ===========================================================================
+# amber14 TRP indole: 9 ring heavies (root CG bonds CB) + the 5/6 fusion CD2-CE2.
+_W4A_INDOLE_HEAVIES = ("CG", "CD1", "CD2", "NE1", "CE2",
+                       "CZ2", "CZ3", "CH2", "CE3")
+_W4A_RING_CLOSURE = (("CD2", "CE2"),)
+_W4A_STATEA_ONLY = ("CG", "CD1", "HD1", "CD2", "NE1", "HE1", "CE2",
+                    "CZ2", "HZ2", "CZ3", "HZ3", "CH2", "HH2", "CE3", "HE3")
+
+
+def _w4a_certified_spec(ats):
+    """Synthetic W4A-shape spec (Trp4->Ala): the whole fused indole (9 heavy + ring
+    H) disappears; common attach CB; ONE attach-bonded root (CG). Explicitly
+    connected_group_certified=True + ring_closure_bonds=(CD2-CE2,) (the ring opt-in).
+    The Ala's single extra beta-H (HB1) is the lone appearing atom (no appearing
+    heavy)."""
+    return ats.MutationSpec(
+        name="w4a_certified", resnum=4, common_attach_atom="CB",
+        stateA_resname="TRP", stateB_resname="ALA",
+        stateA_only_atoms=_W4A_STATEA_ONLY,
+        stateB_only_atoms=("HB1",),
+        hybrid_xml=None,
+        bonded_heavy_disappearing="CG", disappearing_h_prefix=None,
+        ring_closure_bonds=_W4A_RING_CLOSURE,
+        connected_group_certified=True)
+
+
+def test_shape_connected_group_certified_classifies(ats):
+    """C1: a CERTIFIED ring spec (ring_closure_bonds + connected_group_certified)
+    classifies as single_attach_connected_group, gated FIRST (before heavy-count)."""
+    assert _w4a_certified_spec(ats).shape == "single_attach_connected_group"
+
+
+def test_shape_uncertified_ring_is_unsupported_even_with_star_flag(ats):
+    """C1 (load-bearing silent-build backstop): a ring spec that is NOT
+    connected_group_certified stays unsupported — EVEN if it sets the Phase A star
+    flag. The star flag must NEVER silent-build a ring shape."""
+    # ring + star flag (the adversary) but NOT ring-certified.
+    adversary = ats.MutationSpec(
+        name="w4a_star_adversary", resnum=4, common_attach_atom="CB",
+        stateA_resname="TRP", stateB_resname="ALA",
+        stateA_only_atoms=_W4A_STATEA_ONLY,
+        stateB_only_atoms=("HB1",),
+        ring_closure_bonds=_W4A_RING_CLOSURE,
+        connected_group_certified=False,
+        multiheavy_star_certified=True)
+    assert adversary.shape == "unsupported"
+    # ring + NEITHER flag also unsupported.
+    plain_ring = ats.MutationSpec(
+        name="w4a_plain_ring", resnum=4, common_attach_atom="CB",
+        stateA_resname="TRP", stateB_resname="ALA",
+        stateA_only_atoms=_W4A_STATEA_ONLY,
+        stateB_only_atoms=("HB1",),
+        ring_closure_bonds=_W4A_RING_CLOSURE)
+    assert plain_ring.shape == "unsupported"
+
+
+def test_shape_ring_heavy_both_sides_is_unsupported(ats):
+    """C1: a ring spec with a heavy on BOTH sides (W4F-like ring contraction) stays
+    unsupported EVEN WHEN connected_group_certified — a dual swap is not in scope."""
+    w4f = ats.MutationSpec(
+        name="w4f_ring", resnum=4, common_attach_atom="CB",
+        stateA_resname="TRP", stateB_resname="PHE",
+        stateA_only_atoms=("NE1", "HE1", "CE2"),
+        stateB_only_atoms=("CE1", "CZ"),
+        ring_closure_bonds=(("CE1", "CZ"),),
+        connected_group_certified=True)
+    assert w4f.shape == "unsupported"
+
+
+def test_shape_acyclic_paths_byte_identical_under_ring_first(ats):
+    """C4: with NO ring bonds the ring-first classifier falls through to the legacy
+    paths byte-identically — single-heavy (MTR/V3I/A9G) + V3A multi-star unchanged.
+    Also: a default-constructed spec has empty ring_closure_bonds + the ring flag
+    default False (fail-safe)."""
+    assert ats.MUTATION_MTR_TRP_RES4.shape == "appearing_heavy"
+    assert ats.MUTATION_VAL_ILE_RES3.shape == "appearing_heavy"
+    assert ats.MUTATION_ALA_GLY_RES9.shape == "disappearing_heavy"
+    assert _v3a_certified_spec(ats).shape == "multi_disappearing_heavy"
+    # New fields default empty/False on every registered spec (acyclic).
+    for spec in (ats.MUTATION_MTR_TRP_RES4, ats.MUTATION_VAL_ILE_RES3,
+                 ats.MUTATION_ALA_GLY_RES9):
+        assert spec.ring_closure_bonds == ()
+        assert spec.connected_group_certified is False
+    d = ats.MutationSpec(
+        name="d", resnum=1, common_attach_atom="CB",
+        stateA_resname="X", stateB_resname="Y",
+        stateA_only_atoms=(), stateB_only_atoms=())
+    assert d.ring_closure_bonds == ()
+    assert d.connected_group_certified is False
+
+
+def _toy_mc2_connected_group_build(ats, *, ring_open=False, drop_bridge=False,
+                                   no_attach_root=False):
+    """Synthetic merged box for the MC2 connected-subgraph (W4A) branch.
+
+    copy-2 attach = CB; the 9 indole heavies in the wt_only slot. Bonds: CG-CB (the
+    single attach-bonded root) + the intra-group ring bonds (5-ring CG-CD1-NE1-CE2,
+    6-ring CG-CD2-CE3-CZ3-CH2-CZ2-CE2) + the CD2-CE2 fusion (ring-closure) + one H on
+    each H-bearing heavy (CD1,NE1,CZ2,CZ3,CH2,CE3). Bridgeheads CG/CD2/CE2 carry no H.
+
+    Toggles inject specific build defects:
+      ring_open      : omit the CD2-CE2 fusion bond (the ring does not close).
+      drop_bridge    : omit the NE1-CE2 bond so CE2/CZ2 are unreachable from CG via
+                       the 5-ring (the 6-ring still reaches them) — combined with
+                       ring_open to truly disconnect; here used to break BFS.
+      no_attach_root : omit the CG-CB bond (no attach-bonded root).
+    """
+    import openmm as mm
+    from openmm import app
+    import openmm.unit as unit
+
+    spec = _w4a_certified_spec(ats)
+    # var-slot atoms: 0=CB(attach) | heavies 1..9 | H's 10..15.
+    heavy_names = list(_W4A_INDOLE_HEAVIES)            # 9 heavies
+    h_map = {"CD1": "HD1", "NE1": "HE1", "CZ2": "HZ2",
+             "CZ3": "HZ3", "CH2": "HH2", "CE3": "HE3"}
+    names = ["CB"] + heavy_names + list(h_map.values())
+    idx = {nm: i for i, nm in enumerate(names)}
+
+    system = mm.System()
+    for _ in range(len(names)):
+        system.addParticle(12.0 * unit.dalton)
+    bf = mm.HarmonicBondForce()
+
+    def _bond(a, b):
+        bf.addBond(idx[a], idx[b], 0.14 * unit.nanometer, 1000.0)
+
+    if not no_attach_root:
+        _bond("CB", "CG")                              # root CG bonds attach CB
+    # intra-group ring skeleton.
+    _bond("CG", "CD1")
+    _bond("CG", "CD2")
+    _bond("CD1", "NE1")
+    if not drop_bridge:
+        _bond("NE1", "CE2")                            # 5-ring closure to CE2
+    _bond("CD2", "CE3")
+    _bond("CE3", "CZ3")
+    _bond("CZ3", "CH2")
+    _bond("CH2", "CZ2")
+    if not drop_bridge:
+        _bond("CZ2", "CE2")                            # 6-ring to CE2
+    if not ring_open:
+        _bond("CD2", "CE2")                            # 5/6 FUSION (ring-closure)
+    for heavy, h in h_map.items():                     # one H per H-bearing heavy
+        _bond(heavy, h)
+    system.addForce(bf)
+
+    top = app.Topology()
+    ch = top.addChain(id="B")
+    res = top.addResidue("TRP", ch, id="4")
+    for nm in names:
+        el = app.element.hydrogen if nm.startswith("H") else app.element.carbon
+        top.addAtom(nm, el, res)
+
+    class _M:
+        pass
+    m = _M(); m.topology = top
+    fused = {"system": system, "modeller": m,
+             "alchemical_atoms": {"common": [idx["CB"]],
+                                  "wt_only": list(range(1, len(names))),
+                                  "mtr_only": []},
+             "mutation_spec": spec}
+    cmap = {"copy1_attach": idx["CB"], "copy2_attach": idx["CB"]}
+    return fused, cmap
+
+
+def test_mc2_connected_group_certifies_indole(ats):
+    """C3: MC2 connected-subgraph certify accepts the correctly-built W4A indole —
+    root CG bonds attach CB, BFS reaches all 9 heavies, the CD2-CE2 ring-closure is
+    present, and the bridgeheads (CG/CD2/CE2) are recorded as 0-H legitimately."""
+    fused, cmap = _toy_mc2_connected_group_build(ats)
+    mc2 = ats.assert_twocopy_methyl_bonded(fused, cmap)
+    assert mc2["passed"] is True
+    assert mc2["shape"] == "single_attach_connected_group"
+    assert mc2["side"] == "disappearing"
+    assert mc2["root_heavy"] == "CG"
+    assert mc2["n_heavies_certified"] == 9
+    assert mc2["n_h_bearing_heavies"] == 6           # CD1,NE1,CZ2,CZ3,CH2,CE3
+    assert [b["bond"] for b in mc2["ring_closure_bonds_present"]] == [("CD2", "CE2")]
+    bridgeheads = {h["heavy"] for h in mc2["per_heavy"] if h["is_bridgehead"]}
+    assert bridgeheads == {"CG", "CD2", "CE2"}
+
+
+def test_mc2_connected_group_fails_loud_on_ring_open(ats):
+    """C3: a declared ring-closure bond (CD2-CE2) absent from the box raises — the
+    ring did not close (open chain / wrong topology). Never silent-pass."""
+    fused, cmap = _toy_mc2_connected_group_build(ats, ring_open=True)
+    with pytest.raises(ValueError) as exc:
+        ats.assert_twocopy_methyl_bonded(fused, cmap)
+    msg = str(exc.value)
+    assert "ring-closure bond" in msg and "ABSENT" in msg
+
+
+def test_mc2_connected_group_fails_loud_on_disconnected(ats):
+    """C3: if the BFS from the root cannot reach a declared heavy (the 5-ring AND
+    6-ring bridges to CE2 are cut) the certify raises (disconnected subgraph)."""
+    fused, cmap = _toy_mc2_connected_group_build(
+        ats, ring_open=True, drop_bridge=True)
+    with pytest.raises(ValueError) as exc:
+        ats.assert_twocopy_methyl_bonded(fused, cmap)
+    assert "NOT reachable" in str(exc.value)
+
+
+def test_mc2_connected_group_fails_loud_on_no_attach_root(ats):
+    """C3: if NO declared heavy bonds the common attach atom (the CG-CB root bond is
+    absent) the certify raises — the var group is disconnected from the common
+    boundary (no attach-bonded root)."""
+    fused, cmap = _toy_mc2_connected_group_build(ats, no_attach_root=True)
+    with pytest.raises(ValueError) as exc:
+        ats.assert_twocopy_methyl_bonded(fused, cmap)
+    assert "no attach-bonded root" in str(exc.value)
+
+
+def test_detbeta_tetrahedral_geometry(ats):
+    """(4) deterministic common beta-H placement: the pure-geometry helper places the
+    two beta-H's at ideal sp3 (~109.47 deg to CA, CG and each other), at the requested
+    bond length, AVOIDING the CG direction by construction (dot ~ -1/3)."""
+    import numpy as np
+
+    cb = np.array([0.0, 0.0, 0.0])
+    u_ca = ats._unit_vec(np.array([1.0, 1.0, 1.0]))
+    u_cg = ats._unit_vec(np.array([1.0, -1.0, -1.0]))
+    ca = cb + 0.153 * u_ca
+    cg = cb + 0.151 * u_cg
+    bond = 0.109
+    h1, h2 = ats._place_two_tetrahedral_beta_h(cb, ca, cg, bond)
+    d1 = ats._unit_vec(h1 - cb)
+    d2 = ats._unit_vec(h2 - cb)
+
+    def ang(a, b):
+        return np.degrees(np.arccos(np.clip(
+            float(ats._unit_vec(a) @ ats._unit_vec(b)), -1.0, 1.0)))
+
+    # bond length preserved (direction-only change).
+    assert abs(float(np.linalg.norm(h1 - cb)) - bond) < 1e-9
+    assert abs(float(np.linalg.norm(h2 - cb)) - bond) < 1e-9
+    # ideal sp3 angles to BOTH heavies and between the two H's.
+    for a in (ang(d1, u_ca), ang(d1, u_cg), ang(d2, u_ca),
+              ang(d2, u_cg), ang(d1, d2)):
+        assert abs(a - 109.4712) < 0.5
+    # beta-H point AWAY from CG (dot ~ -1/3) -> the CG-on-beta-H collision is removed.
+    assert float(d1 @ u_cg) < -0.2
+    assert float(d2 @ u_cg) < -0.2
+    # the sp3 tetrahedral constant is present + correct.
+    assert abs(ats._TET_COS + 1.0 / 3.0) < 1e-12
+
+
 # --- C2 net-charge sanity (synthetic; no openmm endpoint build needed) ---------
 def _toy_twocopy_charge_build(ats, names, q_copy1, q_copy2,
                               var1_q=(), var2_q=(), resnum=4):

@@ -99,6 +99,19 @@ RBFE_UBCORE_KCAL = ats.ATS_UBCORE_KCAL  # 100.0  (global, fixed)
 RBFE_ACORE = ats.ATS_ACORE              # 0.0625 (global, fixed)
 RBFE_TEMP_K = 300.0
 
+# Staged-minimization (OPT-IN, W4A large-box stability). The W4A 9-heavy fused-
+# indole two-copy box (~292k atoms) under-minimizes at the standard small budget:
+# a fresh PME water shell carries close contacts a few-hundred-iter minimize cannot
+# relieve, so the first integration step detonates (cycle-0 NaN). The validated fix
+# (W4A/w4a_bound_smoke.py) is a STAGED relax: minimize FIRST at the reference state
+# (soft-core OFF) with the project production-floor iteration budget, then a short
+# polish at the assigned state, then a brief MD warmup. These constants are the
+# staged-path FLOOR + warmup length; they are used ONLY when staged_min=True (the
+# default-off path never references them), so the non-staged minimize budget is
+# untouched. P1 (CLAUDE.md 2026-04-22 incident): 5000-iter minimum.
+STAGED_MIN_ITERS_FLOOR = 5000
+STAGED_WARMUP_STEPS = 200
+
 # Canonical ATS two-copy U0 (Uh) knee. The two-copy box's swap is a REAL
 # coordinate transfer (copy-2 displaced into bulk -> swapped to the site), so its
 # soft-core perturbation magnitude is in the ABFE-cliff band, not the single-
@@ -1106,13 +1119,30 @@ class InplaceRbfeLadder(object):
                  temperature_K=RBFE_TEMP_K, timestep_fs=1.0,
                  friction_per_ps=1.0, log_path=None, seed=None,
                  minimize_iters=500, backward_equil_steps=500,
-                 out_dir=None, out_basename="trackb"):
+                 out_dir=None, out_basename="trackb",
+                 staged_min=False, staged_min_iters=STAGED_MIN_ITERS_FLOOR,
+                 staged_warmup_steps=STAGED_WARMUP_STEPS):
         import openmm as mm
         import openmm.unit as unit
 
         self.mm = mm
         self.unit = unit
         self.schedule = schedule
+        # OPT-IN staged minimization (W4A 9-heavy fused-indole large-box stability;
+        # validated in W4A/w4a_bound_smoke.py). DEFAULT OFF => the existing single-
+        # stage minimize path runs unchanged (V3I/MTR/A9G/V3A byte-identical). When
+        # ON, each replica is staged-relaxed: (a) >=5000-iter minimize at the
+        # reference state (Lambda1=Lambda2=0, soft-core OFF) to relieve the fresh
+        # PME water shell, (b) a short polish minimize at the assigned state, then
+        # (c) setVelocitiesToTemperature + a short MD warmup. The standard
+        # ``minimize_iters`` default is NOT changed (staged uses its OWN floor so
+        # the non-staged path's iteration count is untouched). See the per-replica
+        # loop below for the staged branch.
+        self.staged_min = bool(staged_min)
+        self.staged_min_iters = max(int(staged_min_iters),
+                                    STAGED_MIN_ITERS_FLOOR) if staged_min else \
+            int(staged_min_iters)
+        self.staged_warmup_steps = int(staged_warmup_steps)
         self.n_states = schedule["n_states"]
         self.temperature_K = temperature_K
         self.kT_kj = (unit.MOLAR_GAS_CONSTANT_R * temperature_K * unit.kelvin
@@ -1211,7 +1241,36 @@ class InplaceRbfeLadder(object):
             state_k = self.replica_state[k]
             is_backward = (self.schedule["directions"][state_k] < 0)
 
-            if is_backward and self._backward_endpoint is not None \
+            vel_seed = (int(seed) + k) if seed is not None else 0
+
+            if self.staged_min:
+                # OPT-IN staged relax (W4A large-box stability). The backward
+                # u1-basin pre-equilibration is preserved (the backward anneal-edge
+                # still relaxes into its endpoint basin first), but the minimization
+                # at EACH state is staged: reference-state (soft-core OFF) >=5000-iter
+                # relax of the fresh PME shell, then a short polish minimize at the
+                # state the context will occupy. This path is reached ONLY when
+                # staged_min=True; default-off leaves the single-stage path below
+                # byte-identical.
+                if is_backward and self._backward_endpoint is not None \
+                        and backward_equil_steps > 0:
+                    self._staged_minimize_replica(ctx, self._backward_endpoint)
+                    ctx.setVelocitiesToTemperature(
+                        temperature_K * unit.kelvin, vel_seed)
+                    integ.step(int(backward_equil_steps))
+                    # Switch to the replica's assigned anneal-edge state and stage-
+                    # relax there too (the assigned state's soft-core is active).
+                    self._staged_minimize_replica(ctx, state_k)
+                else:
+                    self._staged_minimize_replica(ctx, state_k)
+                # Re-seed velocities + a short warmup at the assigned state (a fresh
+                # hot burst on a just-minimized large box is the detonation source,
+                # not the box itself).
+                ctx.setVelocitiesToTemperature(
+                    temperature_K * unit.kelvin, vel_seed)
+                if self.staged_warmup_steps > 0:
+                    integ.step(int(self.staged_warmup_steps))
+            elif is_backward and self._backward_endpoint is not None \
                     and backward_equil_steps > 0:
                 # Relax into the u1 basin at the backward endpoint first.
                 self._set_state(ctx, self._backward_endpoint)
@@ -1219,8 +1278,7 @@ class InplaceRbfeLadder(object):
                     mm.LocalEnergyMinimizer.minimize(
                         ctx, maxIterations=int(minimize_iters))
                 ctx.setVelocitiesToTemperature(
-                    temperature_K * unit.kelvin,
-                    (int(seed) + k) if seed is not None else 0)
+                    temperature_K * unit.kelvin, vel_seed)
                 integ.step(int(backward_equil_steps))
                 # Now switch to the replica's assigned (anneal-edge) state.
                 self._set_state(ctx, state_k)
@@ -1229,9 +1287,9 @@ class InplaceRbfeLadder(object):
                 if minimize_iters and minimize_iters > 0:
                     mm.LocalEnergyMinimizer.minimize(
                         ctx, maxIterations=int(minimize_iters))
-            ctx.setVelocitiesToTemperature(
-                temperature_K * unit.kelvin,
-                (int(seed) + k) if seed is not None else 0)
+            if not self.staged_min:
+                ctx.setVelocitiesToTemperature(
+                    temperature_K * unit.kelvin, vel_seed)
             self.integrators.append(integ)
             self.contexts.append(ctx)
 
@@ -1270,6 +1328,43 @@ class InplaceRbfeLadder(object):
     def _apply_all_states(self):
         for r in range(self.n_states):
             self._set_state(self.contexts[r], self.replica_state[r])
+
+    # -- staged minimization (OPT-IN, W4A large-box stability) -------------
+    def _staged_minimize_replica(self, ctx, state_idx):
+        """Stage-relax one replica context for the assigned ``state_idx`` (OPT-IN).
+
+        Reproduces the validated W4A/w4a_bound_smoke.py staged-minimization:
+
+          (a) set the FULL per-state ATMForce globals for ``state_idx`` (so Uh / W0
+              / Alpha / Direction / Umax / Ubcore / Acore match the assigned state),
+              then OVERRIDE Lambda1=Lambda2=0 to put the context at the REFERENCE
+              state where the ATM potential is the plain physical energy of the two
+              resident copies (soft-core hybrid OFF, well-conditioned), and minimize
+              there with the staged floor (>=5000 iters, tolerance->0) to relieve the
+              fresh PME water-shell contacts;
+          (b) restore the assigned state's Lambda1/Lambda2 (the soft-core hybrid is
+              now active) and do a short polish minimize (max(500, floor//5) iters)
+              to settle the alchemical region WITHOUT re-introducing the large-box
+              fresh-shell strain already relieved in (a).
+
+        The soft-core canon (Umax/Ubcore/Acore) and every other ATM global are the
+        per-state schedule values — this is a MINIMIZATION-QUALITY relax only, it
+        does NOT change the soft-core constants or the decouple physics. Only called
+        when ``self.staged_min`` is True (the default-off ladder never invokes it).
+        """
+        mm = self.mm
+        s = self.schedule
+        # (a) Reference-state relax: assigned per-state globals, but Lambda1=Lambda2=0.
+        self._set_state(ctx, state_idx)
+        ctx.setParameter(self.atmforce.Lambda1(), 0.0)
+        ctx.setParameter(self.atmforce.Lambda2(), 0.0)
+        mm.LocalEnergyMinimizer.minimize(
+            ctx, 0.0, int(self.staged_min_iters))
+        # (b) Polish at the assigned state (restore the state's λ-tuple).
+        ctx.setParameter(self.atmforce.Lambda1(), s["lambdas_1"][state_idx])
+        ctx.setParameter(self.atmforce.Lambda2(), s["lambdas_2"][state_idx])
+        mm.LocalEnergyMinimizer.minimize(
+            ctx, 0.0, max(500, int(self.staged_min_iters) // 5))
 
     # -- per-replica raw perturbation (u0, u1-u0) --------------------------
     def _raw_pert(self, ctx):

@@ -165,6 +165,15 @@ def _load_rbfe():
         os.path.join(_UTILS, "atm_trackB_inplace_rbfe.py"))
 
 
+def _load_ats():
+    """The two-copy build engine (atm_trackB_setup). Loaded only by the bound
+    two-copy receptor-contact pre-flight gate (it reuses the engine's periodic
+    min-image helpers + the solvent-resname set — no reimplementation)."""
+    return _load_module(
+        "atm_trackB_setup",
+        os.path.join(_UTILS, "atm_trackB_setup.py"))
+
+
 def _load_driver():
     """The per-direction driver — REUSED for merge_per_direction_outputs +
     the mixing gate (parse_state_transitions_from_log / check_atm_mixing). This
@@ -495,6 +504,169 @@ def gate_decouple_direction(leg: str, decouple_dir, *, raise_on_fail: bool = Tru
 
 
 # ---------------------------------------------------------------------------
+# Bound two-copy receptor-contact pre-flight gate (C5 false-green safety net).
+#
+# The fixed-displacement (d=6 nm) two-copy build CAN, on an unlucky seed, fail to
+# carry the displaced copy-2 binder fully out of the receptor pocket (the same
+# pocket the disappearing group must vacate). If the displaced binder is still in
+# contact with the receptor the bound leg is a FROZEN PLATEAU — the apex does not
+# physically decouple, yet the run "closes cleanly" with a deterministic-offset
+# ddG (a false-green). The auto-search displacement is out of scope this round; THIS
+# gate is the safety net: after the bound two-copy box is built, fail LOUD (HALT +
+# escalate, NEVER silent-skip) if the displaced binder is not cleanly decoupled.
+#
+# Ported VERBATIM from the validated W4A/w4a_bound_smoke.py
+# `_receptor_vs_displaced_binder_contact` (reusing the engine's periodic min-image
+# helpers + solvent-resname set — no reimplementation): ACCEPT iff n_contacts==0
+# (heavy-atom pair < 0.45 nm) AND the receptor<->displaced-binder min-image
+# distance >= 1.0 nm. Bound two-copy path ONLY (free / single-core unaffected).
+# ---------------------------------------------------------------------------
+RECEPTOR_CONTACT_CUTOFF_NM = 0.45    # heavy-atom contact cutoff (first-shell vdW)
+RECEPTOR_DECOUPLE_MIN_NM = 1.0       # min-image clearance for genuine decouple
+
+
+def measure_receptor_vs_displaced_binder(fused, ats, binder_chain="B"
+                                         ) -> Dict[str, Any]:
+    """Measure the displaced copy-2 binder's heavy-atom min-IMAGE distance + contact
+    count to the copy-1 RECEPTOR (chain != binder). Returns a dict (never raises;
+    the gate decides ACCEPT/HALT). Reuses ``ats._box_lengths_nm_from_vectors`` +
+    ``ats._min_image_min_distance_nm`` + ``ats._SOLVENT_RESNAMES`` (engine helpers,
+    periodic-image safe). Ported from W4A/w4a_bound_smoke.py."""
+    import numpy as np
+    import openmm.unit as unit
+
+    top = fused["modeller"].topology
+    system = fused["system"]
+    n_copy1 = fused["n_copy1"]
+    positions = np.array([
+        v.value_in_unit(unit.nanometer) for v in fused["modeller"].positions])
+
+    def _is_heavy(atom):
+        el = atom.element
+        if el is not None:
+            return el.symbol != "H"
+        return not atom.name.strip().startswith("H")
+
+    receptor_idx: List[int] = []
+    copy2_binder_idx: List[int] = []
+    for atom in top.atoms():
+        if atom.residue.name in ats._SOLVENT_RESNAMES:
+            continue
+        if not _is_heavy(atom):
+            continue
+        if atom.index < n_copy1:
+            if atom.residue.chain.id != binder_chain:
+                receptor_idx.append(atom.index)
+        else:
+            copy2_binder_idx.append(atom.index)
+
+    if not receptor_idx or not copy2_binder_idx:
+        return {
+            "n_receptor_heavy": len(receptor_idx),
+            "n_copy2_binder_heavy": len(copy2_binder_idx),
+            "min_image_dist_nm": None,
+            "n_contacts": None,
+            "contact_cutoff_nm": RECEPTOR_CONTACT_CUTOFF_NM,
+            "decouple_min_nm": RECEPTOR_DECOUPLE_MIN_NM,
+            "decoupled": None,
+            "note": ("could not resolve receptor (%d) or displaced binder (%d) "
+                     "heavy atoms — bound box layout unexpected"
+                     % (len(receptor_idx), len(copy2_binder_idx))),
+        }
+
+    box_lengths = ats._box_lengths_nm_from_vectors(
+        system.getDefaultPeriodicBoxVectors())
+    rec_pos = positions[receptor_idx]
+    bnd_pos = positions[copy2_binder_idx]
+    min_dist = ats._min_image_min_distance_nm(rec_pos, bnd_pos, box_lengths)
+    deltas = rec_pos[:, None, :] - bnd_pos[None, :, :]
+    if box_lengths is not None:
+        safe = np.array(box_lengths, dtype=float)
+        usable = safe > 0.0
+        if np.any(usable):
+            shift = np.zeros_like(deltas)
+            shift[..., usable] = (
+                safe[usable] * np.round(deltas[..., usable] / safe[usable]))
+            deltas = deltas - shift
+    dists = np.sqrt((deltas ** 2).sum(axis=-1))
+    n_contacts = int((dists < RECEPTOR_CONTACT_CUTOFF_NM).sum())
+    decoupled = bool(min_dist >= RECEPTOR_DECOUPLE_MIN_NM and n_contacts == 0)
+    return {
+        "n_receptor_heavy": len(receptor_idx),
+        "n_copy2_binder_heavy": len(copy2_binder_idx),
+        "min_image_dist_nm": float(min_dist),
+        "n_contacts": n_contacts,
+        "contact_cutoff_nm": RECEPTOR_CONTACT_CUTOFF_NM,
+        "decouple_min_nm": RECEPTOR_DECOUPLE_MIN_NM,
+        "decoupled": decoupled,
+        "note": ("displaced copy-2 binder vs copy-1 RECEPTOR (chain != %s) "
+                 "min-image heavy-atom distance + contact count" % binder_chain),
+    }
+
+
+def gate_receptor_contact(leg, construction, fused, ats, *, endpoint=None,
+                          seed=None, binder_chain="B", raise_on_fail=True
+                          ) -> Dict[str, Any]:
+    """C5 safety-net gate: the bound TWO-COPY displaced binder must cleanly decouple
+    from the receptor BEFORE launch. ACCEPT iff n_contacts==0 AND min-image >= 1 nm.
+    HALT (RuntimeError) on violation — NEVER silent-skip (fail-loud, R-18). Applies
+    ONLY to the bound two-copy path; free / single-core pass through (reason set)."""
+    report: Dict[str, Any] = {
+        "leg": leg, "construction": construction,
+        "endpoint": endpoint, "seed": seed,
+        "passed": False, "reason": None, "measurement": None,
+    }
+    if leg != "bound" or construction != "twocopy":
+        report["passed"] = True
+        report["reason"] = ("not applicable: receptor-contact gate is bound "
+                            "two-copy ONLY (leg=%s, construction=%s)"
+                            % (leg, construction))
+        return report
+    if fused is None:
+        report["reason"] = (
+            "C5 receptor-contact gate: the live two-copy build dict is absent "
+            "(cannot measure receptor decouple) — the bound box must be freshly "
+            "built (not box-reuse) to run this pre-flight.")
+        if raise_on_fail:
+            raise RuntimeError(report["reason"])
+        return report
+
+    m = measure_receptor_vs_displaced_binder(fused, ats, binder_chain=binder_chain)
+    report["measurement"] = m
+    if m.get("decoupled") is True:
+        report["passed"] = True
+        report["reason"] = (
+            "C5 OK (bound two-copy): displaced binder is decoupled from the "
+            "receptor (min-image %.3f nm >= %.1f nm, %d contacts < %.2f nm). The "
+            "disappearing group has vacated the pocket — no frozen-plateau risk."
+            % (m["min_image_dist_nm"], m["decouple_min_nm"], m["n_contacts"],
+               m["contact_cutoff_nm"]))
+        return report
+
+    # Violation -> HALT + escalate (fail-loud). The fixed d did NOT carry the
+    # displaced binder out of the pocket for this (endpoint, seed) -> a frozen
+    # plateau / false-green. Escalate (increase --displacement-nm or enable the
+    # auto-search displacement) rather than launching a corrupt bound leg.
+    report["reason"] = (
+        "C5 VIOLATION (bound two-copy %s/%s): the displaced binder is NOT "
+        "decoupled from the receptor (min-image=%s nm, %s contacts < %.2f nm; "
+        "ACCEPT requires 0 contacts AND min-image >= %.1f nm). The fixed "
+        "displacement did NOT carry the disappearing group out of the pocket -> "
+        "this bound leg would be a FROZEN PLATEAU (deterministic-offset "
+        "false-green). HALT + escalate: increase --displacement-nm or enable the "
+        "auto-search displacement before relaunching this (endpoint, seed)."
+        % (endpoint, seed,
+           ("%.3f" % m["min_image_dist_nm"]
+            if m.get("min_image_dist_nm") is not None else "None"),
+           m.get("n_contacts"), m.get("contact_cutoff_nm") or
+           RECEPTOR_CONTACT_CUTOFF_NM, m.get("decouple_min_nm") or
+           RECEPTOR_DECOUPLE_MIN_NM))
+    if raise_on_fail:
+        raise RuntimeError(report["reason"])
+    return report
+
+
+# ---------------------------------------------------------------------------
 # One standalone single-direction ladder run (in-process, the validated adapter).
 # ---------------------------------------------------------------------------
 def run_one_direction(
@@ -517,6 +689,7 @@ def run_one_direction(
     backward_equil_steps: int,
     construction: str = "single_core",
     lambda1_rampdown: Optional[List[float]] = None,
+    staged_min: bool = False,
 ) -> Dict[str, Any]:
     """Run ONE standalone direction ladder and write its per-walker .out tree.
 
@@ -551,7 +724,7 @@ def run_one_direction(
         timestep_fs=timestep_fs, log_path=log_path, seed=rng_seed,
         minimize_iters=minimize_iters,
         backward_equil_steps=backward_equil_steps,
-        out_dir=subdir, out_basename=base)
+        out_dir=subdir, out_basename=base, staged_min=staged_min)
 
     nan_any = False
     nan_states_all: set = set()
@@ -669,6 +842,7 @@ def run_one_replicate(
     displacement_nm: Optional[float] = None,
     lambda1_rampdown: Optional[List[float]] = None,
     mutation_spec: Optional[Any] = None,
+    staged_min: bool = False,
 ) -> Dict[str, Any]:
     """Run one matched-seed replicate of one (endpoint, leg): the requested
     direction(s) + (when BOTH ran) merge into the combined leg dir UWHAM consumes.
@@ -764,6 +938,21 @@ def run_one_replicate(
         c8["source"] = "fresh_serialize"
         loaded = rbfe.load_serialized_system(ser["sys_xml_path"], ser["pdb_path"])
 
+    # 1b) C5 RECEPTOR-CONTACT PRE-FLIGHT (bound two-copy ONLY): the displaced binder
+    #     must cleanly decouple from the receptor BEFORE launch (n_contacts==0 AND
+    #     min-image >= 1 nm). The auto-search displacement is out of scope; this is
+    #     the safety net against a fixed-d frozen-plateau false-green. HALT + escalate
+    #     (fail-loud) on violation — NEVER silent-skip (R-18). Runs on the freshly
+    #     built box (the live `_build` carries modeller/system/n_copy1); on box-reuse
+    #     the producing direction already passed this gate, so it is skipped.
+    contact_gate: Optional[Dict[str, Any]] = None
+    if leg == "bound" and construction == "twocopy" and not reused_box:
+        fused = (ser.get("_build") or {}).get("fused_build")
+        contact_gate = gate_receptor_contact(
+            leg, construction, fused, _load_ats(),
+            endpoint=endpoint, seed=seed, binder_chain=binder_chain,
+            raise_on_fail=True)
+
     # 2) Run each requested direction as a STANDALONE ladder. The per-replicate
     #    velocity/exchange RNG seed differs per replicate (genuine independence).
     rng_seed = 20260613 + 1000 * (replicate_index + 1)
@@ -780,7 +969,8 @@ def run_one_replicate(
             platform_name=platform_name, timestep_fs=timestep_fs,
             rng_seed=rng_seed, minimize_iters=minimize_iters,
             backward_equil_steps=backward_equil_steps,
-            construction=construction, lambda1_rampdown=lambda1_rampdown)
+            construction=construction, lambda1_rampdown=lambda1_rampdown,
+            staged_min=staged_min)
 
     # 3) Write the COMBINED symmetric cntl (the SSOT for merge + UWHAM) +, when
     #    BOTH directions ran, merge the per-direction outputs into r*/trackb.out.
@@ -816,6 +1006,8 @@ def run_one_replicate(
         "rng_seed": rng_seed,
         "directions": list(directions),
         "c8_decouple_gate": c8,
+        "c5_receptor_contact_gate": contact_gate,
+        "staged_min": staged_min,
         "reused_box": reused_box,
         "serialize": {
             "sys_xml_path": ser["sys_xml_path"],
@@ -865,6 +1057,7 @@ def run_leg(
     displacement_nm: Optional[float] = None,
     lambda1_rampdown: Optional[List[float]] = None,
     mutation_spec: Optional[Any] = None,
+    staged_min: bool = False,
 ) -> Dict[str, Any]:
     """Run all matched-seed replicates of one (endpoint, leg)."""
     rbfe = _load_rbfe()
@@ -886,7 +1079,8 @@ def run_leg(
             archive_existing=archive_existing,
             reuse_serialized=reuse_serialized,
             construction=construction, displacement_nm=displacement_nm,
-            lambda1_rampdown=lambda1_rampdown, mutation_spec=mutation_spec))
+            lambda1_rampdown=lambda1_rampdown, mutation_spec=mutation_spec,
+            staged_min=staged_min))
     return {
         "endpoint": endpoint,
         "leg": leg,
@@ -1239,6 +1433,10 @@ def run_pool_local(
         ]
         if ladder_args.get("mtr_ncaa_xml"):
             cmd += ["--mtr-ncaa-xml", ladder_args["mtr_ncaa_xml"]]
+        # Staged minimization (opt-in) — propagate the flag so the worker stages the
+        # SAME large-box relax the dispatcher requested (default off => omitted).
+        if ladder_args.get("staged_min"):
+            cmd.append("--staged-min")
         # Two-copy construction (opt-in) — propagate the flag + displacement so
         # the worker builds the SAME box the dispatcher requested.
         if ladder_args.get("construction") == "twocopy":
@@ -1408,6 +1606,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--platform", default="CUDA")
     p.add_argument("--timestep-fs", type=float, default=1.0)
     p.add_argument("--minimize-iters", type=int, default=500)
+    p.add_argument("--staged-min", action="store_true",
+                   help="OPT-IN staged minimization (W4A 9-heavy fused-indole "
+                        "large-box stability). When set, each replica is "
+                        "stage-relaxed: a >=5000-iter reference-state (soft-core "
+                        "OFF) minimize of the fresh PME water shell, then a short "
+                        "polish minimize at the assigned state, then a brief MD "
+                        "warmup (the validated W4A/w4a_bound_smoke.py path). "
+                        "DEFAULT OFF => the existing single-stage minimize runs "
+                        "unchanged (V3I/MTR/A9G byte-identical). Does NOT change "
+                        "--minimize-iters (staged uses its own >=5000 floor).")
     p.add_argument("--backward-equil-steps", type=int, default=500)
     p.add_argument("--genuine-decouple-nm", type=float, default=1.2)
     p.add_argument("--mtr-ncaa-xml", default=None,
@@ -1524,7 +1732,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                 archive_existing=not args.no_archive_existing,
                 reuse_serialized=args.reuse_serialized,
                 construction=construction, displacement_nm=displacement_nm,
-                lambda1_rampdown=lambda1_rampdown, mutation_spec=mutation_spec)
+                lambda1_rampdown=lambda1_rampdown, mutation_spec=mutation_spec,
+                staged_min=args.staged_min)
         except Exception as exc:  # noqa: BLE001 — surface as non-zero worker exit
             print("WORKER FAILED %s/%s rep%d: %s"
                   % (args.worker_endpoint, leg, args.worker_replicate, exc),
@@ -1611,6 +1820,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             "construction": construction, "displacement_nm": displacement_nm,
             "mutation_spec": mutation_spec,
             "lambda1_rampdown": lambda1_rampdown,
+            "staged_min": args.staged_min,
         }
 
         if args.pool:
@@ -1664,7 +1874,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                     archive_existing=not args.no_archive_existing,
                     reuse_serialized=args.reuse_serialized,
                     construction=construction, displacement_nm=displacement_nm,
-                    lambda1_rampdown=lambda1_rampdown, mutation_spec=mutation_spec)
+                    lambda1_rampdown=lambda1_rampdown, mutation_spec=mutation_spec,
+                    staged_min=args.staged_min)
                 print("[%s/%s] done in %.1f s (%d replicates)"
                       % (endpoint, leg, time.time() - t0,
                          leg_result["n_replicates"]))

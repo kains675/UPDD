@@ -395,11 +395,64 @@ MUTATION_ALA_GLY_RES9 = MutationSpec(
     disappearing_h_prefix="HB",
 )
 
+# W4A spec — residue-4 Trp(WT) -> Ala (connected-subgraph fused-indole knockout).
+# The PRODUCTION promotion of the validated W4A/w4a_spec_draft.ProtoMutationSpec
+# (the exact spec the C5 bound genuine-decouple pre-flight smoke validated). The
+# real MutationSpec already carries the Phase B ring fields (ring_closure_bonds /
+# connected_group_certified) + the ring-FIRST `shape` property, so this is a pure
+# additive registration — the scratch ProtoMutationSpec is no longer needed at
+# build time. amber14 ff14SB indole atom naming (verified against the amber14-all
+# TRP template + W4A/notes.md). TRP res-4 side chain past CB:
+#   CG, CD1(HD1), CD2, NE1(HE1), CE2, CZ2(HZ2), CZ3(HZ3), CH2(HH2), CE3(HE3)
+#   9 ring heavies: CG, CD1, CD2, NE1, CE2, CZ2, CZ3, CH2, CE3
+#   ring-closure (5/6 fusion): CD2-CE2  <-- closes the bicyclic indole INSIDE the
+#                                            disappearing var group.
+# The common attach is CB (present in BOTH TRP and ALA). Trp->Ala DELETES the whole
+# indole (9 heavy + 6 ring H = 15 atoms). The shared beta-H pair HB2/HB3 is COMMON
+# (BOTH residues carry it with identical names -> name-aligned common core); ALA's
+# extra HB1 is the single APPEARING atom (an H, not a heavy => the shape stays a
+# 0-appearing-heavy / 9-disappearing-heavy connected group). Common core (BOTH
+# copies, 9 atoms): N,H,CA,HA,C,O,CB,HB2,HB3. TRP 24 - 15 var = 9 ; ALA 10 - 1 var
+# = 9 (balanced). hybrid_xml=None (canonical amber14; Trp/Ala BOTH net-0 -> R-15/
+# R-16 trivial, MC1 full-residue net-charge sanity passes).
+#
+# The disappearing branch is a connected subgraph rooted at CG (the only indole
+# heavy that bonds the common attach CB). bonded_heavy_disappearing=CG records the
+# root (the MC2 connected-group certify discovers it + the rest by BFS over the
+# built box's real bonds); ring_closure_bonds=(("CD2","CE2"),) +
+# connected_group_certified=True opt the ring shape in (the star flag is left at
+# its default False — it must NEVER certify a ring; the ring-FIRST classifier
+# gates on connected_group_certified before any heavy-count branch). SHAPE =
+# single_attach_connected_group (the detbeta deterministic common beta-H placement
+# is shape-gated to this shape, so it auto-applies for W4A).
+MUTATION_TRP_ALA_RES4 = MutationSpec(
+    name="w4a_trp_ala_res4",
+    resnum=4,
+    common_attach_atom="CB",
+    stateA_resname="TRP",                              # disappearing (copy-2 / WT)
+    stateB_resname="ALA",                              # appearing (copy-1 / site)
+    # The whole fused indole disappears (9 heavy + 6 ring H = 15 atoms).
+    stateA_only_atoms=("CG", "CD1", "HD1", "CD2", "NE1", "HE1", "CE2",
+                       "CZ2", "HZ2", "CZ3", "HZ3", "CH2", "HH2", "CE3", "HE3"),
+    # ALA's extra beta-H (TRP has HB2/HB3 only; ALA has HB1/HB2/HB3) — single
+    # appearing H, no heavy.
+    stateB_only_atoms=("HB1",),
+    hybrid_xml=None,                                   # canonical amber14
+    bonded_heavy_appearing=None,                       # appearing side grows no heavy
+    appearing_h_prefix=None,
+    # Connected-subgraph root: CG (the only indole heavy that bonds CB).
+    bonded_heavy_disappearing="CG",
+    disappearing_h_prefix=None,                        # H's grouped by connectivity
+    ring_closure_bonds=(("CD2", "CE2"),),              # 5/6 indole fusion bond
+    connected_group_certified=True,                    # ring opt-in (NOT the star flag)
+)
+
 # Registry of named mutation specs (CLI / launcher selection).
 MUTATION_SPECS: Dict[str, MutationSpec] = {
     MUTATION_MTR_TRP_RES4.name: MUTATION_MTR_TRP_RES4,
     MUTATION_VAL_ILE_RES3.name: MUTATION_VAL_ILE_RES3,
     MUTATION_ALA_GLY_RES9.name: MUTATION_ALA_GLY_RES9,
+    MUTATION_TRP_ALA_RES4.name: MUTATION_TRP_ALA_RES4,
 }
 
 

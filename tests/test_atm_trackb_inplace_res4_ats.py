@@ -1395,6 +1395,60 @@ def test_v3i_spec_amber_atom_partition(ats):
     assert ms.appearing_h_prefix == "HD"
 
 
+def test_w4a_spec_registered_and_resolvable(ats):
+    """The W4A (Trp4->Ala) spec is registered + resolvable by name, alongside the
+    pre-existing default + V3I + A9G specs (purely additive — no regression)."""
+    assert "w4a_trp_ala_res4" in ats.MUTATION_SPECS
+    assert ats.resolve_mutation_spec("w4a_trp_ala_res4") \
+        is ats.MUTATION_TRP_ALA_RES4
+    # The pre-existing registry rows are untouched.
+    for name in ("mtr_trp_res4", "v3i_val_ile_res3", "a9g_ala_gly_res9"):
+        assert name in ats.MUTATION_SPECS
+
+
+def test_w4a_spec_shape_is_connected_group(ats):
+    """W4A resolves to the connected-subgraph RING shape (ring-first classifier):
+    a non-empty ring_closure_bonds + connected_group_certified=True ->
+    single_attach_connected_group (NOT a star / single-heavy shape)."""
+    ms = ats.MUTATION_TRP_ALA_RES4
+    assert ms.shape == "single_attach_connected_group"
+    # The star flag is NOT used to certify the ring (the silent-build backstop).
+    assert ms.multiheavy_star_certified is False
+    assert ms.connected_group_certified is True
+    assert ms.ring_closure_bonds == (("CD2", "CE2"),)
+
+
+def test_w4a_spec_amber_indole_partition(ats):
+    """W4A res-4 Trp->Ala partition matches the validated W4A/w4a_spec_draft spec:
+    common attach = CB; 9 disappearing indole heavies rooted at CG; single
+    appearing H (ALA HB1); canonical amber14 (Trp/Ala both net-0)."""
+    ms = ats.MUTATION_TRP_ALA_RES4
+    assert ms.resnum == 4
+    assert ms.common_attach_atom == "CB"
+    assert ms.stateA_resname == "TRP"          # disappearing (copy-2 / WT)
+    assert ms.stateB_resname == "ALA"          # appearing (copy-1 / site)
+    assert list(ms.stateA_only_atoms) == [
+        "CG", "CD1", "HD1", "CD2", "NE1", "HE1", "CE2",
+        "CZ2", "HZ2", "CZ3", "HZ3", "CH2", "HH2", "CE3", "HE3"]
+    assert list(ms.stateB_only_atoms) == ["HB1"]
+    assert ms.hybrid_xml is None               # canonical amber14
+    # 9 disappearing heavies, 0 appearing heavy (one-sided connected group).
+    assert ms._heavy_names(ms.stateA_only_atoms) == [
+        "CG", "CD1", "CD2", "NE1", "CE2", "CZ2", "CZ3", "CH2", "CE3"]
+    assert ms._heavy_names(ms.stateB_only_atoms) == []
+    # Connected-subgraph root = CG (the only indole heavy that bonds CB).
+    assert ms.bonded_heavy_disappearing == "CG"
+    assert ms.bonded_heavy_appearing is None
+
+
+def test_w4a_registration_is_additive_other_shapes_unchanged(ats):
+    """Adding W4A does NOT change the resolved shape of any other spec (the
+    ring-first classifier is byte-identical for the acyclic specs)."""
+    assert ats.MUTATION_MTR_TRP_RES4.shape == "appearing_heavy"
+    assert ats.MUTATION_VAL_ILE_RES3.shape == "appearing_heavy"
+    assert ats.MUTATION_ALA_GLY_RES9.shape == "disappearing_heavy"
+
+
 class _FakeAtom:
     def __init__(self, name, index):
         self.name = name

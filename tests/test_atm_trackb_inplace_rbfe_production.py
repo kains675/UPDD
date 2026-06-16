@@ -38,6 +38,15 @@ def _load(name, relpath):
     return mod
 
 
+def _have_openmm_units():
+    try:
+        import openmm.unit  # noqa: F401
+        import openmm.vec3  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
 @pytest.fixture(scope="module")
 def prod():
     return _load("trackb_inplace_rbfe_production",
@@ -88,6 +97,148 @@ def test_c8_bound_leg_non_finite_fails(prod):
 def test_c8_bound_leg_wrong_length_fails(prod):
     with pytest.raises(RuntimeError):
         prod.gate_decouple_direction("bound", (0.0, 1.0), raise_on_fail=True)
+
+
+# ---------------- C5 bound two-copy receptor-contact pre-flight gate ----------
+def _load_ats_mod():
+    if _UTILS not in sys.path:
+        sys.path.insert(0, _UTILS)
+    return _load("atm_trackB_setup", "utils/atm_trackB_setup.py")
+
+
+class _CGAtom:
+    def __init__(self, name, index, chain_id, resname, symbol="C"):
+        self.name = name
+        self.index = index
+        self.element = type("_El", (), {"symbol": symbol})()
+        chain = type("_Ch", (), {"id": chain_id})()
+        self.residue = type("_Res", (), {"name": resname, "chain": chain})()
+
+
+class _CGTopology:
+    def __init__(self, atoms):
+        self._atoms = atoms
+
+    def atoms(self):
+        return iter(self._atoms)
+
+
+class _CGModeller:
+    def __init__(self, topology, positions):
+        self.topology = topology
+        self.positions = positions
+
+
+class _CGSystem:
+    def __init__(self, box_nm):
+        self._box = box_nm
+
+    def getDefaultPeriodicBoxVectors(self):
+        return self._box
+
+
+def _synthetic_bound_fused(separation_nm):
+    """Build a synthetic two-copy BOUND ``fused`` dict: copy-1 = a receptor heavy
+    (chain A) + a binder heavy (chain B), copy-2 = a displaced binder heavy placed
+    ``separation_nm`` from the receptor along +x. A big orthorhombic box so no
+    wrap. Positions are OpenMM nm Quantities (the gate value_in_units them)."""
+    import openmm.unit as unit
+    import openmm.vec3 as _v3
+    nm = unit.nanometer
+    # copy-1: receptor heavy at origin (chain A), binder heavy at +0.3 (chain B).
+    a_rec = _CGAtom("CA", 0, "A", "ALA", "C")
+    a_bnd = _CGAtom("CB", 1, "B", "LEU", "C")
+    # copy-2: displaced binder heavy at +separation along x.
+    c2_bnd = _CGAtom("CB", 2, "B", "LEU", "C")
+    top = _CGTopology([a_rec, a_bnd, c2_bnd])
+    pos = [
+        _v3.Vec3(0.0, 0.0, 0.0) * nm,
+        _v3.Vec3(0.3, 0.0, 0.0) * nm,
+        _v3.Vec3(float(separation_nm), 0.0, 0.0) * nm,
+    ]
+    box = [_v3.Vec3(50.0, 0.0, 0.0) * nm,
+           _v3.Vec3(0.0, 50.0, 0.0) * nm,
+           _v3.Vec3(0.0, 0.0, 50.0) * nm]
+    return {
+        "modeller": _CGModeller(top, pos),
+        "system": _CGSystem(box),
+        "n_copy1": 2,          # copy-1 atoms are indices [0, 2)
+    }
+
+
+@pytest.mark.skipif(not _have_openmm_units(),
+                    reason="openmm not importable in this env")
+def test_c5_contact_gate_not_applicable_for_free(prod):
+    """The contact gate is bound two-copy ONLY: free / single-core pass through
+    (no measurement, no HALT)."""
+    ats = _load_ats_mod()
+    r = prod.gate_receptor_contact("free", "twocopy", None, ats,
+                                   raise_on_fail=True)
+    assert r["passed"] is True and "not applicable" in r["reason"]
+    r2 = prod.gate_receptor_contact("bound", "single_core", None, ats,
+                                    raise_on_fail=True)
+    assert r2["passed"] is True and "not applicable" in r2["reason"]
+
+
+@pytest.mark.skipif(not _have_openmm_units(),
+                    reason="openmm not importable in this env")
+def test_c5_contact_gate_accept_when_decoupled(prod):
+    """ACCEPT: the displaced binder is 5 nm from the receptor -> 0 contacts AND
+    min-image >= 1 nm -> the gate passes (genuine decouple)."""
+    ats = _load_ats_mod()
+    fused = _synthetic_bound_fused(separation_nm=5.0)
+    r = prod.gate_receptor_contact("bound", "twocopy", fused, ats,
+                                   endpoint="wt", seed="s7", raise_on_fail=True)
+    assert r["passed"] is True
+    m = r["measurement"]
+    assert m["n_contacts"] == 0
+    assert m["min_image_dist_nm"] >= prod.RECEPTOR_DECOUPLE_MIN_NM
+    assert m["decoupled"] is True
+
+
+@pytest.mark.skipif(not _have_openmm_units(),
+                    reason="openmm not importable in this env")
+def test_c5_contact_gate_halt_when_in_contact(prod):
+    """HALT (fail-loud): the displaced binder is 0.2 nm from the receptor -> a
+    contact < 0.45 nm -> the gate RAISES (no silent skip)."""
+    ats = _load_ats_mod()
+    fused = _synthetic_bound_fused(separation_nm=0.2)
+    with pytest.raises(RuntimeError) as exc:
+        prod.gate_receptor_contact("bound", "twocopy", fused, ats,
+                                   endpoint="wt", seed="s163",
+                                   raise_on_fail=True)
+    assert "C5 VIOLATION" in str(exc.value)
+    # The non-raising form reports the violation honestly.
+    r = prod.gate_receptor_contact("bound", "twocopy", fused, ats,
+                                   endpoint="wt", seed="s163",
+                                   raise_on_fail=False)
+    assert r["passed"] is False
+    assert r["measurement"]["decoupled"] is False
+    assert r["measurement"]["n_contacts"] >= 1
+
+
+@pytest.mark.skipif(not _have_openmm_units(),
+                    reason="openmm not importable in this env")
+def test_c5_contact_gate_halt_when_under_displaced(prod):
+    """HALT: the displaced binder clears the 0.45 nm contact cutoff but sits at
+    0.7 nm < the 1.0 nm decouple floor (still pocket-coupled) -> RAISES."""
+    ats = _load_ats_mod()
+    fused = _synthetic_bound_fused(separation_nm=0.7)
+    with pytest.raises(RuntimeError):
+        prod.gate_receptor_contact("bound", "twocopy", fused, ats,
+                                   endpoint="wt", seed="s199",
+                                   raise_on_fail=True)
+
+
+@pytest.mark.skipif(not _have_openmm_units(),
+                    reason="openmm not importable in this env")
+def test_c5_contact_gate_missing_build_fails_loud(prod):
+    """A bound two-copy gate with no live build dict (e.g. box-reuse path) fails
+    loud rather than silently passing."""
+    ats = _load_ats_mod()
+    with pytest.raises(RuntimeError):
+        prod.gate_receptor_contact("bound", "twocopy", None, ats,
+                                   raise_on_fail=True)
 
 
 # --------------------------- seed-availability gate ------------------------

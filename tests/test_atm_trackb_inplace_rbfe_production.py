@@ -408,3 +408,32 @@ def test_default_dry_run_is_single_core(prod, tmp_path, capsys):
     assert plan["construction"] == "single_core"
     # the single-core plan does NOT carry the two-copy ATS extras.
     assert "schedule_kind" not in plan
+
+
+# ---------------- git provenance stamping (run_manifest) -------------------
+def test_git_provenance_keys_and_types(prod):
+    # The helper must always return both keys with the right types, regardless
+    # of whether git resolves (this repo IS a git repo, so commit resolves).
+    prov = prod._git_provenance()
+    assert set(prov.keys()) == {"git_commit", "git_dirty"}
+    assert isinstance(prov["git_commit"], str)
+    assert isinstance(prov["git_dirty"], bool)
+    # In a real git checkout the commit is a 40-hex sha (or the 'unknown'
+    # sentinel if git is somehow unavailable) — never empty.
+    assert prov["git_commit"]
+    if prov["git_commit"] != "unknown":
+        assert len(prov["git_commit"]) == 40
+        assert all(c in "0123456789abcdef" for c in prov["git_commit"])
+
+
+def test_git_provenance_swallows_failures(prod, monkeypatch):
+    # A subprocess explosion must degrade to ('unknown', False) and NEVER raise
+    # — the manifest is metadata, it can never break a launch.
+    import subprocess as _sp
+
+    def _boom(*a, **k):
+        raise OSError("git not found")
+
+    monkeypatch.setattr(_sp, "check_output", _boom)
+    prov = prod._git_provenance()
+    assert prov == {"git_commit": "unknown", "git_dirty": False}

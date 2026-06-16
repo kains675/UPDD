@@ -205,6 +205,43 @@ def _csv(vals) -> str:
     return ", ".join(str(v) for v in vals)
 
 
+def _git_provenance() -> Dict[str, Any]:
+    """Return ``{"git_commit": <sha-or-'unknown'>, "git_dirty": <bool>}`` for
+    the working tree, for stamping into each per-replicate run_manifest.json.
+
+    Provenance lets the downstream gate digest tie a campaign's numbers to the
+    exact code that produced them (the historical manifest_missing reps were
+    mis-scored as C4-unverifiable). git is invoked via subprocess and EVERY
+    failure path is swallowed — a missing git / detached repo / subprocess
+    error must NEVER break a launch (the manifest is metadata, not a gate):
+      - commit unresolvable -> "unknown"
+      - dirty status unresolvable -> dirty stays False (do not over-claim dirty
+        on an error; the 'unknown' commit already signals provenance is partial)
+    """
+    import subprocess
+
+    here = os.path.dirname(os.path.abspath(__file__))
+    repo = os.path.dirname(here)
+    commit = "unknown"
+    dirty = False
+    try:
+        commit = subprocess.check_output(
+            ["git", "-C", repo, "rev-parse", "HEAD"],
+            stderr=subprocess.DEVNULL,
+        ).decode("utf-8", "replace").strip() or "unknown"
+    except Exception:
+        commit = "unknown"
+    try:
+        porcelain = subprocess.check_output(
+            ["git", "-C", repo, "status", "--porcelain"],
+            stderr=subprocess.DEVNULL,
+        ).decode("utf-8", "replace")
+        dirty = bool(porcelain.strip())
+    except Exception:
+        dirty = False
+    return {"git_commit": commit, "git_dirty": dirty}
+
+
 def _build_single_direction_schedule(
     rbfe, *, construction: str, direction: str,
     n_windows_half: int, softcore_band: int,
@@ -631,6 +668,7 @@ def run_one_replicate(
     construction: str = "single_core",
     displacement_nm: Optional[float] = None,
     lambda1_rampdown: Optional[List[float]] = None,
+    mutation_spec: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """Run one matched-seed replicate of one (endpoint, leg): the requested
     direction(s) + (when BOTH ran) merge into the combined leg dir UWHAM consumes.
@@ -713,6 +751,12 @@ def run_one_replicate(
         # canonical ATS default when None).
         if construction == "twocopy" and displacement_nm is not None:
             serialize_kwargs["displacement_nm"] = displacement_nm
+        # mutation_spec is two-copy-only (the mutation-definition layer); pass it
+        # through only on the twocopy path + only when set so the single-core
+        # signature is unaffected and the default (None => res-4 MTR<->Trp) is
+        # byte-identical.
+        if construction == "twocopy" and mutation_spec is not None:
+            serialize_kwargs["mutation_spec"] = mutation_spec
         ser = rbfe.serialize_inplace_rbfe_system(**serialize_kwargs)
         # C8 SIGN-critical: validate the bound-leg decouple direction (fail loud).
         c8 = gate_decouple_direction(leg, ser.get("genuine_decouple_dir"),
@@ -785,6 +829,8 @@ def run_one_replicate(
         "merged": merged,
         "apex_cosampled_C3": apex_cosampled,
     }
+    # git provenance (additive; swallow-all so it can never break a launch).
+    manifest.update(_git_provenance())
     with open(os.path.join(leg_dir, "run_manifest.json"), "w") as fh:
         json.dump(manifest, fh, indent=2, default=str)
     return manifest
@@ -818,6 +864,7 @@ def run_leg(
     construction: str = "single_core",
     displacement_nm: Optional[float] = None,
     lambda1_rampdown: Optional[List[float]] = None,
+    mutation_spec: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """Run all matched-seed replicates of one (endpoint, leg)."""
     rbfe = _load_rbfe()
@@ -839,7 +886,7 @@ def run_leg(
             archive_existing=archive_existing,
             reuse_serialized=reuse_serialized,
             construction=construction, displacement_nm=displacement_nm,
-            lambda1_rampdown=lambda1_rampdown))
+            lambda1_rampdown=lambda1_rampdown, mutation_spec=mutation_spec))
     return {
         "endpoint": endpoint,
         "leg": leg,
@@ -1199,6 +1246,10 @@ def run_pool_local(
             if ladder_args.get("displacement_nm") is not None:
                 cmd += ["--displacement-nm",
                         str(ladder_args["displacement_nm"])]
+            # Mutation-definition spec (two-copy-only): thread the selected spec so
+            # the worker builds the SAME mutation (default None => res-4 MTR<->Trp).
+            if ladder_args.get("mutation_spec") is not None:
+                cmd += ["--mutation", str(ladder_args["mutation_spec"])]
             # Leg-down densification knots (two-copy-only): thread the same
             # comma-list the dispatcher parsed so the worker builds the SAME
             # ladder (e.g. the λ1=0.05 leg-switch bridge => 12 λ/leg).
@@ -1321,6 +1372,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="Two-copy ONLY: magnitude of the copy-2 bulk displacement "
                         "d (nm; ATS peptide convention ~4.0 = 40 A). Default None "
                         "=> the canonical ATS_TWOCOPY_DISPLACEMENT_NM.")
+    p.add_argument("--mutation", default=None,
+                   help="Two-copy ONLY: the mutation-definition spec (the residue + "
+                        "alchemical-atom partition). Default None => the legacy "
+                        "res-4 MTR<->Trp spec (byte-identical). Use "
+                        "'v3i_val_ile_res3' for the canonical res-3 Val<->Ile "
+                        "engine-validation build (all-amber, no ncAA XML). Known "
+                        "names come from atm_trackB_setup.MUTATION_SPECS.")
     p.add_argument("--lambda1-rampdown", default=None,
                    help="Two-copy ONLY: comma list of explicit leg-down λ1 knots "
                         "to densify the leg-switch handoff (each in (0,0.5], "
@@ -1407,7 +1465,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     leg = args.leg
     construction = "twocopy" if args.twocopy else "single_core"
     displacement_nm = args.displacement_nm
+    mutation_spec = args.mutation
     lambda1_rampdown = _parse_lambda1_rampdown(args.lambda1_rampdown)
+
+    # --mutation is two-copy ONLY (the single-core path is the MTR<->Trp single-
+    # shared-core build); fail loud rather than silently ignore on single_core.
+    if mutation_spec is not None and construction != "twocopy":
+        print("ERROR: --mutation requires --twocopy (the mutation-definition spec "
+              "applies only to the canonical ATS two-copy build).", file=sys.stderr)
+        return 2
 
     mintimeid = None if args.mintimeid == -1 else args.mintimeid
 
@@ -1455,7 +1521,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 archive_existing=not args.no_archive_existing,
                 reuse_serialized=args.reuse_serialized,
                 construction=construction, displacement_nm=displacement_nm,
-                lambda1_rampdown=lambda1_rampdown)
+                lambda1_rampdown=lambda1_rampdown, mutation_spec=mutation_spec)
         except Exception as exc:  # noqa: BLE001 — surface as non-zero worker exit
             print("WORKER FAILED %s/%s rep%d: %s"
                   % (args.worker_endpoint, leg, args.worker_replicate, exc),
@@ -1474,6 +1540,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         "platform": args.platform, "timestep_fs": args.timestep_fs,
         "genuine_decouple_nm": args.genuine_decouple_nm,
         "construction": construction, "displacement_nm": displacement_nm,
+        "mutation_spec": mutation_spec,
         "lambda1_rampdown": lambda1_rampdown,
         "out_root": out_root, "mintimeid": mintimeid,
     }
@@ -1539,6 +1606,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             "genuine_decouple_nm": args.genuine_decouple_nm,
             "mtr_ncaa_xml": args.mtr_ncaa_xml, "binder_chain": args.binder_chain,
             "construction": construction, "displacement_nm": displacement_nm,
+            "mutation_spec": mutation_spec,
             "lambda1_rampdown": lambda1_rampdown,
         }
 
@@ -1593,7 +1661,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                     archive_existing=not args.no_archive_existing,
                     reuse_serialized=args.reuse_serialized,
                     construction=construction, displacement_nm=displacement_nm,
-                    lambda1_rampdown=lambda1_rampdown)
+                    lambda1_rampdown=lambda1_rampdown, mutation_spec=mutation_spec)
                 print("[%s/%s] done in %.1f s (%d replicates)"
                       % (endpoint, leg, time.time() - t0,
                          leg_result["n_replicates"]))

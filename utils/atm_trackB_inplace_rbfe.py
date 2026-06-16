@@ -648,6 +648,7 @@ def _serialize_twocopy_system(
     displacement_nm: float,
     mtr_ncaa_xml: Optional[str],
     constraints: Any,
+    mutation_spec: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """Build + serialize the CANONICAL ATS TWO-COPY box for one leg.
 
@@ -669,7 +670,7 @@ def _serialize_twocopy_system(
         leg=leg, seed=seed, binder_chain=binder_chain, solvate=solvate,
         harmonize_common_charges=harmonize_common_charges,
         displacement_nm=displacement_nm, mtr_ncaa_xml=mtr_ncaa_xml,
-        constraints=constraints,
+        constraints=constraints, spec=mutation_spec,
     )
     if build.get("outcome") != "twocopy_attached":
         raise RuntimeError(
@@ -752,6 +753,7 @@ def serialize_inplace_rbfe_system(
     tag: Optional[str] = None,
     construction: str = "single_core",
     displacement_nm: float = ats.ATS_TWOCOPY_DISPLACEMENT_NM,
+    mutation_spec: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """Build + serialize the in-place fused RBFE System for one leg.
 
@@ -813,9 +815,17 @@ def serialize_inplace_rbfe_system(
             binder_chain=binder_chain, solvate=solvate,
             harmonize_common_charges=harmonize_common_charges,
             displacement_nm=displacement_nm, mtr_ncaa_xml=mtr_ncaa_xml,
-            constraints=constraints)
+            constraints=constraints, mutation_spec=mutation_spec)
 
     # --- SINGLE-CORE (legacy default; byte-identical) ---------------------
+    # mutation_spec is two-copy-only (single-core is the MTR<->Trp single-shared-
+    # core path); a non-None spec on single_core is a wiring error, not silently
+    # ignored.
+    if mutation_spec is not None:
+        raise ValueError(
+            "serialize_inplace_rbfe_system: mutation_spec is only supported with "
+            "construction='twocopy' (the single_core path is the MTR<->Trp "
+            "single-shared-core build).")
     build = ats.build_inplace_res4_fused_system(
         leg=leg, seed=seed, binder_chain=binder_chain, solvate=solvate,
         harmonize_common_charges=harmonize_common_charges, swap_mode=swap_mode,

@@ -588,3 +588,218 @@ def test_git_provenance_swallows_failures(prod, monkeypatch):
     monkeypatch.setattr(_sp, "check_output", _boom)
     prov = prod._git_provenance()
     assert prov == {"git_commit": "unknown", "git_dirty": False}
+
+
+# ---------------------------------------------------------------------------
+# FIX-A re-seeding (W4A bound-leg ladder mixing) — launcher flag plumbing.
+# DEFAULT OFF must be byte/behaviour-identical; the flags must thread all the way
+# to the InplaceRbfeLadder kwargs + be recorded to the run_manifest config.
+# ---------------------------------------------------------------------------
+def test_reseed_cli_flags_exist_with_off_defaults(prod):
+    p = prod.build_arg_parser()
+    ns = p.parse_args(["--leg", "bound"])
+    assert ns.reseed_perm_seed is None
+    assert ns.reseed_endpoint is False
+    assert ns.reseed_endpoint_band_lambda2_max == 0.25
+    assert ns.reseed_endpoint_equil_steps == 2000
+
+
+def test_reseed_cli_flags_parse_on(prod):
+    p = prod.build_arg_parser()
+    ns = p.parse_args([
+        "--leg", "bound", "--twocopy", "--mutation", "w4a_trp_ala_res4",
+        "--reseed-perm-seed", "20260618", "--reseed-endpoint",
+        "--reseed-endpoint-band-lambda2-max", "0.25",
+        "--reseed-endpoint-equil-steps", "2000"])
+    assert ns.reseed_perm_seed == 20260618
+    assert ns.reseed_endpoint is True
+    assert ns.reseed_endpoint_band_lambda2_max == 0.25
+    assert ns.reseed_endpoint_equil_steps == 2000
+
+
+def test_reseed_threads_through_run_signatures(prod):
+    """The re-seed opt-ins must thread through the whole call chain (run_leg ->
+    run_one_replicate -> run_one_direction) with the SAME default-OFF defaults, so
+    a default launch is byte-identical and an opt-in launch reaches the ladder."""
+    import inspect
+    for fn in (prod.run_leg, prod.run_one_replicate, prod.run_one_direction):
+        sig = inspect.signature(fn)
+        assert sig.parameters["reseed_perm_seed"].default is None
+        assert sig.parameters["reseed_endpoint"].default is False
+        assert sig.parameters["reseed_endpoint_band_lambda2_max"].default == 0.25
+        assert sig.parameters["reseed_endpoint_equil_steps"].default == 2000
+
+
+def test_reseed_off_config_records_defaults(prod, tmp_path):
+    """A default (no-reseed) dry-run records reseed OFF in the pre-registration
+    config (reproducibility provenance, default-OFF visible)."""
+    out_root = str(tmp_path / "off")
+    rc = prod.main(["--leg", "bound", "--twocopy", "--mutation",
+                    "w4a_trp_ala_res4", "--dry-run", "--out-root", out_root])
+    assert rc == 0
+    prereg = json.load(open(os.path.join(out_root, "pre_registration.json")))
+    cfg = prereg["config"]
+    assert cfg["reseed_perm_seed"] is None
+    assert cfg["reseed_endpoint"] is False
+
+
+def test_reseed_on_config_records_seed(prod, tmp_path):
+    """A --reseed-perm-seed / --reseed-endpoint dry-run records the LOGGED seed +
+    endpoint flag in the pre-registration config (reproducibility)."""
+    out_root = str(tmp_path / "on")
+    rc = prod.main(["--leg", "bound", "--twocopy", "--mutation",
+                    "w4a_trp_ala_res4", "--reseed-perm-seed", "20260618",
+                    "--reseed-endpoint", "--lambda1-rampdown",
+                    "0.05,0.1,0.2,0.3,0.4,0.5", "--dry-run",
+                    "--out-root", out_root])
+    assert rc == 0
+    prereg = json.load(open(os.path.join(out_root, "pre_registration.json")))
+    cfg = prereg["config"]
+    assert cfg["reseed_perm_seed"] == 20260618
+    assert cfg["reseed_endpoint"] is True
+
+
+def test_reseed_pool_cmd_propagates_flags(prod):
+    """The pool cmd builder must propagate the re-seed flags to worker subprocesses
+    when ON, and OMIT them when OFF (so default workers are byte-identical)."""
+    import inspect
+    src = inspect.getsource(prod.run_pool_local)
+    assert "--reseed-perm-seed" in src
+    assert "--reseed-endpoint" in src
+    assert "reseed_perm_seed" in src and "reseed_endpoint" in src
+
+
+# ---------------------------------------------------------------------------
+# FIX-C deep-λ2 decouple-tail densification: --lambda2-rampdown (engine kwarg
+# lambda2_rampup). Leg-UP λ2 axis, independent + composable with the leg-DOWN
+# --lambda1-rampdown. Two-copy ONLY (single_core has no soft-core leg-up).
+# ---------------------------------------------------------------------------
+def test_lambda2_rampdown_flag_in_parser(prod):
+    p = prod.build_arg_parser()
+    a = p.parse_args(["--twocopy",
+                      "--lambda2-rampdown", "0.0,0.05,0.1,0.15,0.2,0.3,0.4,0.5"])
+    assert a.lambda2_rampdown == "0.0,0.05,0.1,0.15,0.2,0.3,0.4,0.5"
+    # default OFF (canonical uniform leg-up, byte-identical).
+    b = p.parse_args(["--leg", "free"])
+    assert b.lambda2_rampdown is None
+
+
+def test_parse_lambda2_rampdown_floats(prod):
+    assert prod._parse_lambda2_rampdown(None) is None
+    assert prod._parse_lambda2_rampdown("") is None
+    assert prod._parse_lambda2_rampdown(
+        "0.0,0.05,0.1,0.15,0.2,0.3,0.4,0.5") == [
+            0.0, 0.05, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5]
+    with pytest.raises(ValueError):
+        prod._parse_lambda2_rampdown("0.0,abc,0.5")
+
+
+def test_lambda2_rampdown_threads_through_run_signatures(prod):
+    """lambda2_rampup must thread through the whole call chain (run_leg ->
+    run_one_replicate -> run_one_direction) with the SAME default-OFF default."""
+    import inspect
+    for fn in (prod.run_leg, prod.run_one_replicate, prod.run_one_direction):
+        sig = inspect.signature(fn)
+        assert sig.parameters["lambda2_rampup"].default is None
+    # the two schedule builders also accept it.
+    for fn in (prod._build_single_direction_schedule,
+               prod._build_combined_schedule):
+        sig = inspect.signature(fn)
+        assert sig.parameters["lambda2_rampup"].default is None
+
+
+def test_lambda2_rampdown_single_direction_densifies_legup(prod, rbfe):
+    """twocopy single-direction schedule densifies the leg-up deep-λ2 tail."""
+    tc = prod._build_single_direction_schedule(
+        rbfe, construction="twocopy", direction="forward",
+        n_windows_half=6, softcore_band=2, n_apex_bridge=0, apex_band=0.5,
+        lambda2_rampup=[0.0, 0.05, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5])
+    assert tc["schedule_kind"] == "ats_standard"
+    # 8 leg-up + 5 uniform leg-down = 13 states.
+    assert tc["n_states"] == 13
+    assert 0.05 in tc["lambdas_2"]
+    assert 0.15 in tc["lambdas_2"]
+    assert tc["u0"][0] == 110.0
+
+
+def test_lambda2_rampdown_combined_has_both_directions(prod, rbfe):
+    cs = prod._build_combined_schedule(
+        rbfe, construction="twocopy",
+        n_windows_half=6, softcore_band=2, n_apex_bridge=0, apex_band=0.5,
+        lambda2_rampup=[0.0, 0.05, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5])
+    # 13 forward (+1) + 13 backward (-1) = 26 states.
+    assert cs["n_states"] == 26
+    assert cs["directions"].count(1) == 13
+    assert cs["directions"].count(-1) == 13
+
+
+def test_lambda2_rampdown_composable_with_lambda1_rampdown(prod, rbfe):
+    """Both axes together: independent densification, single shared apex (14)."""
+    tc = prod._build_single_direction_schedule(
+        rbfe, construction="twocopy", direction="forward",
+        n_windows_half=6, softcore_band=2, n_apex_bridge=0, apex_band=0.5,
+        lambda2_rampup=[0.0, 0.05, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5],
+        lambda1_rampdown=[0.05, 0.1, 0.2, 0.3, 0.4, 0.5])
+    assert tc["n_states"] == 14
+    apex_hits = [k for k in range(tc["n_states"])
+                 if tc["lambdas_1"][k] == 0.0 and tc["lambdas_2"][k] == 0.5]
+    assert apex_hits == [7]  # exactly one shared apex
+
+
+def test_lambda2_rampdown_two_copy_only_rejected_for_single_core(prod, tmp_path):
+    """--lambda2-rampdown without --twocopy fails loud (single_core has no
+    soft-core leg-up); exit 2 (mirror of --mutation gate)."""
+    rc = prod.main(["--leg", "free", "--endpoints", "cp4", "--seeds", "s7",
+                    "--lambda2-rampdown", "0.0,0.05,0.1,0.15,0.2,0.3,0.4,0.5",
+                    "--dry-run", "--out-root", str(tmp_path)])
+    assert rc == 2
+
+
+def test_lambda2_rampdown_dry_run_surfaces_densified_schedule(prod, tmp_path,
+                                                              capsys):
+    rc = prod.main(["--twocopy", "--leg", "bound", "--mutation",
+                    "w4a_trp_ala_res4", "--endpoints", "cp4",
+                    "--directions", "dplus", "--seeds", "s7",
+                    "--lambda2-rampdown", "0.0,0.05,0.1,0.15,0.2,0.3,0.4,0.5",
+                    "--dry-run", "--out-root", str(tmp_path)])
+    assert rc == 0
+    out = capsys.readouterr().out
+    plan = json.loads(out[out.index("{"):])["plan"]
+    assert plan["construction"] == "twocopy"
+    assert plan["n_lambda_per_leg"] == 13
+    assert plan["lambda2_rampup"] == [0.0, 0.05, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5]
+    # the deep-λ2 bridges are present in the leg-up tail.
+    assert 0.05 in plan["lambdas_2"]
+    assert 0.15 in plan["lambdas_2"]
+
+
+def test_lambda2_rampdown_off_config_records_none(prod, tmp_path):
+    """A default (no-lambda2) dry-run records lambda2_rampup None in the
+    pre-registration config (provenance, default-OFF visible)."""
+    out_root = str(tmp_path / "off")
+    rc = prod.main(["--leg", "bound", "--twocopy", "--mutation",
+                    "w4a_trp_ala_res4", "--dry-run", "--out-root", out_root])
+    assert rc == 0
+    prereg = json.load(open(os.path.join(out_root, "pre_registration.json")))
+    assert prereg["config"]["lambda2_rampup"] is None
+
+
+def test_lambda2_rampdown_on_config_records_knots(prod, tmp_path):
+    out_root = str(tmp_path / "on")
+    rc = prod.main(["--leg", "bound", "--twocopy", "--mutation",
+                    "w4a_trp_ala_res4", "--lambda2-rampdown",
+                    "0.0,0.05,0.1,0.15,0.2,0.3,0.4,0.5", "--dry-run",
+                    "--out-root", out_root])
+    assert rc == 0
+    prereg = json.load(open(os.path.join(out_root, "pre_registration.json")))
+    assert prereg["config"]["lambda2_rampup"] == [
+        0.0, 0.05, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5]
+
+
+def test_lambda2_rampdown_pool_cmd_propagates_flag(prod):
+    """The pool cmd builder propagates --lambda2-rampdown to worker subprocesses
+    (re-emitted from the dispatcher's parsed knot list)."""
+    import inspect
+    src = inspect.getsource(prod.run_pool_local)
+    assert "--lambda2-rampdown" in src
+    assert "lambda2_rampup" in src

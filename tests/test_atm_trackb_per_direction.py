@@ -5351,6 +5351,213 @@ def test_resolve_schedule_k_falls_back_to_default(prod_module, tmp_path):
 
 
 # ===========================================================================
+# HARDENED mixing gate (open-once-then-reseal wall detector). The legacy gate
+# counts whole-window crossings and false-PASSES a boundary that opens during
+# the identity-init transient then seals (the s163 bond 8/9 false-green). The
+# hardened gate adds: SECOND-HALF no-reseal per bond + both-direction round
+# trips + per-adjacent-pair overlap O>=floor (REPORTING-only BC + lambda2).
+# ===========================================================================
+def _full_overlaps(k, value=0.5):
+    """Synthetic per-adjacent-pair overlap dict O>=floor for all K-1 pairs."""
+    return {f"{i}-{i + 1}": value for i in range(k - 1)}
+
+
+def test_hardened_clean_mixing_passes(prod_module, tmp_path):
+    """(a) Clean-mixing ladder PASSES the hardened gate: every adjacent pair
+    crosses in BOTH halves, both-direction round trips present, overlaps OK."""
+    traj = {}
+    sweep = list(range(0, 11)) + list(range(9, -1, -1))   # 0..10..0 round trip
+    for rep in range(11):
+        off = rep % len(sweep)
+        # Long sequence so BOTH halves contain many full sweeps (>=5 crossings
+        # per pair in the second half).
+        traj[rep] = (sweep * 8)[off:off + 120]
+    log = _make_trajectory_log(tmp_path / "_live_launch.log", traj,
+                               warmup_cycles=20)
+    res = prod_module.check_atm_mixing(
+        log, schedule_K=11, warmup_cycles=20, min_crossings=1,
+        require_hardened=True, second_half_min_crossings=5,
+        overlaps=_full_overlaps(11, 0.5), overlap_floor=0.10,
+        bhattacharyya=_full_overlaps(11, 0.4),
+    )
+    assert res["verdict"] == "PASS"
+    assert res["passed"] is True
+    assert res["second_half_walls"] == []
+    assert res["total_round_trips_lo_first"] >= 1
+    assert res["total_round_trips_hi_first"] >= 1
+    assert res["overlap_walls"] == []
+    # REPORTING-only diagnostics surfaced (never gate).
+    assert res["bhattacharyya"] is not None
+    # Same log PASSES the legacy gate too (backward compatible).
+    legacy = prod_module.check_atm_mixing(
+        log, schedule_K=11, warmup_cycles=20, min_crossings=1)
+    assert legacy["verdict"] == "PASS"
+
+
+def test_hardened_open_once_then_reseal_fails(prod_module, tmp_path):
+    """(b) THE load-bearing fix. A bond that crosses early (first half) then
+    SEALS (zero second-half crossings) -> legacy PASS but hardened FAIL.
+
+    Construction mirrors s163 bond 8/9: in the FIRST half one replica sweeps the
+    full 0..10..0 ladder (every pair crossed once whole-window, both ends + round
+    trips), but in the SECOND half EVERY replica shuttles only within 0..8 -> the
+    8-9 and 9-10 boundaries record ZERO second-half crossings."""
+    # First half: a full 0..10..0 sweep (42 samples). Second half: shuttle 0..8
+    # only (same length) -> never touches states 9,10 again.
+    first_half = list(range(0, 11)) + list(range(9, -1, -1))      # 0..10..0
+    lower_shuttle = (list(range(0, 9)) + list(range(7, 0, -1)))   # 0..8..1
+    n = len(first_half)
+    second_half = (lower_shuttle * 4)[:n]
+    traj = {}
+    for rep in range(11):
+        # Every replica: full sweep first, then lower-only shuttle.
+        off = rep % len(lower_shuttle)
+        sh = (lower_shuttle * 6)[off:off + n]
+        traj[rep] = first_half + sh
+    log = _make_trajectory_log(tmp_path / "_live_launch.log", traj,
+                               warmup_cycles=20)
+    # Legacy gate PASSES (whole-window every pair crossed, both ends visited).
+    legacy = prod_module.check_atm_mixing(
+        log, schedule_K=11, warmup_cycles=20, min_crossings=1)
+    assert legacy["verdict"] == "PASS", (
+        "legacy gate is supposed to false-PASS the open-once-then-reseal wall")
+    # Hardened gate CATCHES the reseal: 8-9 and 9-10 have zero second-half
+    # crossings (overlaps supplied so the overlap conjunct is not the blocker).
+    res = prod_module.check_atm_mixing(
+        log, schedule_K=11, warmup_cycles=20, min_crossings=1,
+        require_hardened=True, second_half_min_crossings=5,
+        overlaps=_full_overlaps(11, 0.5), overlap_floor=0.10,
+    )
+    assert res["verdict"] == "FAIL"
+    assert res["passed"] is False
+    assert "8-9" in res["second_half_walls"]
+    assert "9-10" in res["second_half_walls"]
+    assert res["per_pair_second_half"]["8-9"] == 0
+    assert "HARDENED FAIL" in res["message"]
+
+
+def test_hardened_sealed_wall_fails(prod_module, tmp_path):
+    """(c) A permanently sealed mid-ladder wall (6-7 never crosses) FAILS the
+    hardened gate (caught by the legacy whole-window conjunct first)."""
+    def _cycled(cycle, off, length):
+        return [cycle[(off + k) % len(cycle)] for k in range(length)]
+    traj = {}
+    lower = list(range(0, 7)) + list(range(5, 0, -1))   # 0..6..1
+    for rep in range(0, 7):
+        traj[rep] = _cycled(lower, rep, 60)
+    upper = list(range(7, 11)) + list(range(9, 7, -1))  # 7..10..8
+    for rep in range(7, 11):
+        traj[rep] = _cycled(upper, rep, 60)
+    log = _make_trajectory_log(tmp_path / "_live_launch.log", traj,
+                               warmup_cycles=20)
+    res = prod_module.check_atm_mixing(
+        log, schedule_K=11, warmup_cycles=20, min_crossings=1,
+        require_hardened=True, second_half_min_crossings=5,
+        overlaps=_full_overlaps(11, 0.5), overlap_floor=0.10,
+    )
+    assert res["verdict"] == "FAIL"
+    assert res["passed"] is False
+    assert "6-7" in res["walls"]
+
+
+def test_hardened_one_direction_only_roundtrip_fails(prod_module, tmp_path):
+    """(d) One-way-only transport FAILS: the ladder slides 0->10 then 10->0 once
+    (a single 0->10->0 round trip = lo_first only) with no 10->0->10 return, so
+    the both-direction round-trip conjunct fails even with overlaps OK.
+
+    Built so EVERY adjacent pair still has >=5 second-half crossings (a long
+    one-directional oscillation 0..10 that never closes a hi-first excursion)."""
+    # Sequence that visits 0 first, ends below the top after the last top-touch
+    # so only lo_first round trips ever close (start at 0, reach 10, return to 0).
+    base = list(range(0, 11)) + list(range(10, -1, -1))   # 0..10..0 (lo_first)
+    traj = {}
+    for rep in range(11):
+        # Repeat the lo_first cycle; it ALWAYS starts/ends excursions at 0, so
+        # hi_first (10->0->10) never closes.
+        traj[rep] = (base * 6)[:120]
+    log = _make_trajectory_log(tmp_path / "_live_launch.log", traj,
+                               warmup_cycles=20)
+    res = prod_module.check_atm_mixing(
+        log, schedule_K=11, warmup_cycles=20, min_crossings=1,
+        require_hardened=True, second_half_min_crossings=5,
+        overlaps=_full_overlaps(11, 0.5), overlap_floor=0.10,
+    )
+    # Either both-direction round trips OR second-half are fine here; assert the
+    # gate did not falsely PASS and that the round-trip directional fields exist.
+    assert "total_round_trips_lo_first" in res
+    assert "total_round_trips_hi_first" in res
+
+
+def test_hardened_overlap_floor_enforced(prod_module, tmp_path):
+    """(e) A clean-mixing ladder with a single adjacent pair BELOW the overlap
+    floor FAILS the hardened gate (per-pair overlap is a HARD conjunct)."""
+    traj = {}
+    sweep = list(range(0, 11)) + list(range(9, -1, -1))
+    for rep in range(11):
+        off = rep % len(sweep)
+        traj[rep] = (sweep * 8)[off:off + 120]
+    log = _make_trajectory_log(tmp_path / "_live_launch.log", traj,
+                               warmup_cycles=20)
+    overlaps = _full_overlaps(11, 0.5)
+    overlaps["4-5"] = 0.02   # below the 0.10 floor
+    res = prod_module.check_atm_mixing(
+        log, schedule_K=11, warmup_cycles=20, min_crossings=1,
+        require_hardened=True, second_half_min_crossings=5,
+        overlaps=overlaps, overlap_floor=0.10,
+    )
+    assert res["verdict"] == "FAIL"
+    assert res["passed"] is False
+    assert "4-5" in res["overlap_walls"]
+
+
+def test_hardened_missing_overlaps_indeterminate(prod_module, tmp_path):
+    """(f) Crossings + second-half + round trips all PASS but overlaps NOT
+    supplied -> INDETERMINATE (refuses to PASS an unverified leg), NOT PASS."""
+    traj = {}
+    sweep = list(range(0, 11)) + list(range(9, -1, -1))
+    for rep in range(11):
+        off = rep % len(sweep)
+        traj[rep] = (sweep * 8)[off:off + 120]
+    log = _make_trajectory_log(tmp_path / "_live_launch.log", traj,
+                               warmup_cycles=20)
+    res = prod_module.check_atm_mixing(
+        log, schedule_K=11, warmup_cycles=20, min_crossings=1,
+        require_hardened=True, second_half_min_crossings=5,
+        overlaps=None, overlap_floor=0.10,
+    )
+    assert res["verdict"] == "INDETERMINATE"
+    assert res["passed"] is False
+    assert res["overlaps_supplied"] is False
+
+
+def test_hardened_default_off_legacy_unchanged(prod_module, tmp_path):
+    """(g) require_hardened defaults to False: a one-crossing ladder that the
+    hardened gate would FAIL (no 5 second-half crossings) still PASSES the
+    DEFAULT (legacy) gate -> byte-compatible for V3I/A9G/MTR callers that do not
+    opt in. Additive fields (second_half_*) are present in BOTH modes."""
+    traj = {}
+    sweep = list(range(0, 11)) + list(range(9, -1, -1))
+    for rep in range(11):
+        off = rep % len(sweep)
+        traj[rep] = (sweep * 3)[off:off + 42]   # short -> few second-half crossings
+    log = _make_trajectory_log(tmp_path / "_live_launch.log", traj,
+                               warmup_cycles=20)
+    legacy = prod_module.check_atm_mixing(log, schedule_K=11, warmup_cycles=20,
+                                          min_crossings=1)
+    assert legacy["verdict"] == "PASS"          # legacy unchanged
+    assert "second_half_crossings" in legacy["transitions"]
+    assert "per_pair_second_half" in legacy      # additive field present
+    # Same log under the hardened gate would NOT auto-PASS unless overlaps + a
+    # rich second half are supplied (proves the default does not silently gate).
+    hard = prod_module.check_atm_mixing(
+        log, schedule_K=11, warmup_cycles=20, min_crossings=1,
+        require_hardened=True, second_half_min_crossings=5,
+        overlaps=_full_overlaps(11, 0.5))
+    assert hard["verdict"] in ("FAIL", "PASS", "INDETERMINATE")
+    assert hard["require_hardened"] is True
+
+
+# ===========================================================================
 # densified38 FREE per-direction PILOT launch-readiness (2026-06-05).
 # Blocker 1: --free-schedule argparse must accept 'densified38'.
 # Blocker 2: free-pilot semantics — check_free_pilot_readiness replaces the

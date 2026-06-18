@@ -57,6 +57,7 @@ from __future__ import annotations
 import gc
 import math
 import os
+import random as _random
 import sys
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -108,7 +109,7 @@ RBFE_TEMP_K = 300.0
 # polish at the assigned state, then a brief MD warmup. These constants are the
 # staged-path FLOOR + warmup length; they are used ONLY when staged_min=True (the
 # default-off path never references them), so the non-staged minimize budget is
-# untouched. P1 (CLAUDE.md 2026-04-22 incident): 5000-iter minimum.
+# untouched. P1 (2026-04-22 cycle-0 NaN incident): 5000-iter minimum.
 STAGED_MIN_ITERS_FLOOR = 5000
 STAGED_WARMUP_STEPS = 200
 
@@ -414,6 +415,7 @@ def build_ats_standard_ladder(
     w0_apex_kcal: float = 0.0,
     *,
     lambda1_rampdown: Optional[List[float]] = None,
+    lambda2_rampup: Optional[List[float]] = None,
 ) -> Dict[str, Any]:
     """Build the CANONICAL single-direction ATS λ-schedule (spec C).
 
@@ -460,6 +462,29 @@ def build_ats_standard_ladder(
     inserts a λ1=0.05 bridge window right after the leg-switch apex (12 states for
     ``n_windows_half=6``).
 
+    ``lambda2_rampup`` (keyword-only, default ``None``) is the analogous lever on
+    the OTHER axis: it densifies the leg-up (λ1=0, λ2 climbing) soft-core phase at
+    the deep-λ2 decouple tail WITHOUT touching the soft-core canon (C7) or the
+    leg-down λ1 ramp. ``None`` keeps the legacy uniform λ2 ramp
+    (``round(0.5*i/(n-1))`` over the n leg-up states) — so
+    ``n_windows_half=6, lambda2_rampup=None`` is byte-identical to the historical
+    11-state schedule. When provided it is the EXPLICIT list of leg-up λ2 knots:
+    unlike λ1 (whose decoupled λ1=0 endpoint is placed by the leg-up phase), the
+    leg-up phase OWNS the genuine decoupled endpoint (λ2=λ1=0), so this list MUST
+    start at exactly 0.0 and MUST end at exactly 0.5 (the apex λ2=0.5 where the
+    leg-down begins). Every value must be in [0, 0.5] and strictly increasing. The
+    leg-up then has ``len(lambda2_rampup)`` states. This is the same interior-λ
+    reshaping (ΔG-unbiased; ranking-only, R-11) applied to the leg-up tail — the
+    overlap lever for the deep-λ2 decouple bonds (λ2 0.2↔0.1↔0.0) that the
+    leg-down ``lambda1_rampdown`` cannot reach. Example:
+    ``[0.0,0.05,0.1,0.15,0.2,0.3,0.4,0.5]`` inserts a λ2=0.05 bridge between
+    0/0.1 and a λ2=0.15 bridge between 0.1/0.2 (8 leg-up states for
+    ``n_windows_half=6``). ``lambda1_rampdown`` (leg-down) and ``lambda2_rampup``
+    (leg-up) are INDEPENDENT, composable axes — when both are given, the leg-up
+    has ``len(lambda2_rampup)`` states and the leg-down ``len(lambda1_rampdown)``
+    states, sharing the single λ1=0/λ2=0.5 apex (placed once, by the leg-up), so
+    total = ``len(lambda2_rampup) + len(lambda1_rampdown)``.
+
     ``u0_kcal`` (Uh) defaults to the ATS canon 110 kcal/mol (the two-copy swap is
     a real ABFE-band transfer, NOT the tens-of-kcal single-shared-core null op).
     ``alpha`` = 0.10, ``w0_apex_kcal`` = 0.0 (the symmetric two-copy ΔG-unbiased
@@ -483,13 +508,54 @@ def build_ats_standard_ladder(
     lam1: List[float] = []
     lam2: List[float] = []
     inter: List[int] = []
-    # Phase 1 ("leg up"): λ1 = 0, λ2 climbs 0 -> 0.5 over n states.
-    for i in range(n):
-        l2 = round(0.5 * i / (n - 1), 6)
-        lam1.append(0.0)
-        lam2.append(l2)
-        # λ2 != λ1 (except the i=0 endpoint) -> the soft-core alchemical region.
-        inter.append(0 if i == 0 else 1)
+    # Phase 1 ("leg up"): λ1 = 0, λ2 climbs 0 -> 0.5.
+    if lambda2_rampup is None:
+        # Legacy uniform ramp: λ2 = 0 -> 0.5 over n states. This branch is
+        # byte-identical to the historical 11-state schedule for n=6.
+        for i in range(n):
+            l2 = round(0.5 * i / (n - 1), 6)
+            lam1.append(0.0)
+            lam2.append(l2)
+            # λ2 != λ1 (except the i=0 endpoint) -> the soft-core alchemical region.
+            inter.append(0 if i == 0 else 1)
+    else:
+        # Explicit leg-up λ2 knots (densify the deep-λ2 decouple tail). The leg-up
+        # phase OWNS the genuine decoupled endpoint (λ2=λ1=0), so the knots MUST
+        # start at 0.0; the last must be 0.5 (the apex λ1=0/λ2=0.5 where the
+        # leg-down begins).
+        knots2 = [float(x) for x in lambda2_rampup]
+        if len(knots2) < 2:
+            raise ValueError(
+                "build_ats_standard_ladder: lambda2_rampup must have at least "
+                "two knots (the λ2=0.0 decoupled endpoint and the λ2=0.5 apex), "
+                "got %r" % (knots2,))
+        for x in knots2:
+            if not (0.0 <= x <= 0.5):
+                raise ValueError(
+                    "build_ats_standard_ladder: lambda2_rampup values must be "
+                    "in [0, 0.5] (the leg-up climbs λ2 from the decoupled "
+                    "endpoint 0.0 to the apex 0.5), got %r" % (x,))
+        if knots2[0] != 0.0:
+            raise ValueError(
+                "build_ats_standard_ladder: lambda2_rampup must start at exactly "
+                "0.0 (the genuine decoupled λ2=λ1=0 endpoint is placed by the "
+                "leg-up phase), got %r" % (knots2[0],))
+        if knots2[-1] != 0.5:
+            raise ValueError(
+                "build_ats_standard_ladder: lambda2_rampup must end at exactly "
+                "0.5 (the apex λ1=0/λ2=0.5 where the leg-down begins), got %r"
+                % (knots2[-1],))
+        for a, b in zip(knots2, knots2[1:]):
+            if not (b > a):
+                raise ValueError(
+                    "build_ats_standard_ladder: lambda2_rampup must be strictly "
+                    "increasing, got %r" % (knots2,))
+        for i, x in enumerate(knots2):
+            l2 = round(x, 6)
+            lam1.append(0.0)
+            lam2.append(l2)
+            # λ2 != λ1 (except the i=0 endpoint) -> the soft-core alchemical region.
+            inter.append(0 if i == 0 else 1)
     # Phase 2 ("leg down"): λ2 = 0.5, λ1 climbs to 0.5.
     if lambda1_rampdown is None:
         # Legacy uniform ramp: λ1 = 0.1 -> 0.5 over the next n-1 states (skip i=0,
@@ -533,8 +599,13 @@ def build_ats_standard_ladder(
             # λ1 != λ2 until the final λ1=λ2=0.5 state (the symmetric apex endpoint).
             inter.append(0 if l1 == 0.5 else 1)
 
-    # total == 2*n - 1 for the legacy uniform leg-down; with an explicit
-    # lambda1_rampdown it is n (leg-up) + len(lambda1_rampdown) (leg-down).
+    # Leg-up window count = n for the legacy uniform λ2 ramp; with an explicit
+    # lambda2_rampup it is len(lambda2_rampup). The leg-down count is independent
+    # (n-1 legacy or len(lambda1_rampdown)).
+    n_legup = n if lambda2_rampup is None else len(lambda2_rampup)
+    # total == 2*n - 1 for the all-legacy schedule; with explicit knot lists it is
+    # n_legup (leg-up) + n_legdown (leg-down), sharing the single apex placed by
+    # the leg-up phase (no double-count).
     total = len(lam1)
     w0 = [w0_apex_kcal] * total
     alpha_arr = [alpha] * total
@@ -568,18 +639,20 @@ def build_ats_standard_ladder(
         "acore": RBFE_ACORE,
         "n_states": total,
         "n_windows_half": total,
-        "n_windows_half_linear": n,
-        "softcore_band": n,           # the whole leg-up phase is soft-core
+        "n_windows_half_linear": n_legup,
+        "softcore_band": n_legup,     # the whole leg-up phase is soft-core
         "n_apex_bridge": 0,
         "apex_band": 1.0,
         "single_direction": single_direction,
         "schedule_kind": "ats_standard",
         "lambda1_rampdown": (list(lambda1_rampdown)
                              if lambda1_rampdown is not None else None),
+        "lambda2_rampup": (list(lambda2_rampup)
+                           if lambda2_rampup is not None else None),
         "temperature_K": RBFE_TEMP_K,
         "schedule_name": (
             "ats_standard_%s_%dw" % (single_direction, total)
-            if lambda1_rampdown is None
+            if (lambda1_rampdown is None and lambda2_rampup is None)
             else "ats_standard_%s_%dw_bridge%d"
                  % (single_direction, total, total)),
         "regime": "ranking_only",
@@ -1101,6 +1174,91 @@ def _atm_state_energy_kj(
     return base + hybrid
 
 
+# ---------------------------------------------------------------------------
+# FIX-A: re-seeding / non-identity ladder initialisation (OPT-IN). Addresses the
+# bound-leg ladder non-mixing pathology (decisive bond seal / fragmented ladder),
+# validated across 3 wall seeds. FE-UNBIASED — an INITIAL-CONDITION change only:
+# replica-exchange equilibrium is initial-condition-independent (Sugita-Okamoto
+# 1999; Chodera-Shirts 2011 DOI 10.1063/1.3660669). DEFAULT OFF reproduces the
+# current identity init byte-for-byte (V3I/A9G/MTR unaffected). C7 soft-core (U0/Uh=110,
+# alpha=0.10, UMAX=200, UBCORE=100, ACORE=0.0625), the λ-schedule, every energy
+# and the Metropolis criterion are FROZEN — this only changes WHERE each walker
+# starts at t=0.
+# ---------------------------------------------------------------------------
+def make_reseed_permutation(n_states: int,
+                            reseed_perm_seed: Optional[int] = None) -> List[int]:
+    """Return the replica->state assignment used to initialise the ladder.
+
+    ``perm[r]`` = the state replica ``r`` starts in at t=0.
+
+    * ``reseed_perm_seed is None`` (DEFAULT) -> identity ``list(range(n_states))``,
+      EXACTLY the legacy ``self.replica_state = list(range(self.n_states))`` init.
+      This is the byte/behaviour-identical default-OFF path.
+    * ``reseed_perm_seed`` is an int -> a RANDOMIZED bijection produced by a LOCAL
+      ``random.Random(reseed_perm_seed)`` (NOT the global RNG, NOT date-based), so
+      the permutation is fully reproducible from the logged integer and is recorded
+      to the run_manifest. The result is always a valid bijection (a permutation of
+      ``range(n_states)``), which is the only correctness requirement the exchange
+      logic places on the init assignment (``run_cycle`` rebuilds
+      ``state_to_replica`` from ``replica_state`` every cycle, so ANY bijection is
+      a valid starting assignment and the stationary ensemble is unchanged).
+
+    Reproducibility: ``make_reseed_permutation(n, k)`` returns the SAME list for
+    the same ``(n, k)`` regardless of process / wall-clock / global RNG state.
+    """
+    n = int(n_states)
+    if n <= 0:
+        raise ValueError("make_reseed_permutation: n_states must be > 0")
+    if reseed_perm_seed is None:
+        return list(range(n))
+    rng = _random.Random(int(reseed_perm_seed))
+    perm = list(range(n))
+    rng.shuffle(perm)
+    return perm
+
+
+def decoupled_endpoint_state(schedule: Dict[str, Any]) -> int:
+    """Index of the genuine decoupled endpoint = the state with minimal λ2
+    (ties -> minimal λ1) — the fully soft-core-decoupled basin (λ1=λ2=0) where
+    the RCA's basin-locked walker parks.
+
+    DIRECTION-CORRECT for BOTH legs (this is the false-green guard the smoke
+    fixed): the decoupled endpoint is defined by its λ-VALUE (λ2=0), not by a
+    fixed index. For the forward (dplus) leg that is state 0; for the backward
+    (dminus) leg that is the LAST state. A max-λ1 rule (the prototype's forward-
+    only band) would pick the COUPLED apex on a backward schedule and re-seed the
+    wrong end. With ``lambda1_rampdown`` (densified leg-down) the endpoint index
+    shifts but the λ2=0 rule still resolves it correctly.
+    """
+    best = None
+    best_key = None
+    for k in range(int(schedule["n_states"])):
+        key = (schedule["lambdas_2"][k], schedule["lambdas_1"][k])
+        if best is None or key < best_key:
+            best = k
+            best_key = key
+    return best
+
+
+def decoupled_band_states(schedule: Dict[str, Any],
+                          band_lambda2_max: float = 0.25) -> List[int]:
+    """States in the decoupled-endpoint band = the low-λ2 tail
+    (``λ2 <= band_lambda2_max``) — the soft-core-saturated tail that holds the
+    basin-locked walker. A2 re-seeds ONLY these contexts with the pre-relaxed
+    decoupled config; everything with higher λ2 keeps the default coupled seed (no
+    cross-contamination).
+
+    DIRECTION-CORRECT by λ-VALUE: e.g. baseline 11-state dminus -> {8,9,10};
+    densified 12-state dminus -> {9,10,11}; forward -> {0,1,2}. The band is the
+    same physical set of states in either direction (just at different indices).
+    """
+    out = []
+    for k in range(int(schedule["n_states"])):
+        if schedule["lambdas_2"][k] <= float(band_lambda2_max):
+            out.append(k)
+    return out
+
+
 class InplaceRbfeLadder(object):
     """In-process Hamiltonian replica-exchange driver for the in-place RBFE box.
 
@@ -1121,7 +1279,11 @@ class InplaceRbfeLadder(object):
                  minimize_iters=500, backward_equil_steps=500,
                  out_dir=None, out_basename="trackb",
                  staged_min=False, staged_min_iters=STAGED_MIN_ITERS_FLOOR,
-                 staged_warmup_steps=STAGED_WARMUP_STEPS):
+                 staged_warmup_steps=STAGED_WARMUP_STEPS,
+                 reseed_perm_seed=None, reseed_endpoint=False,
+                 reseed_endpoint_band_lambda2_max=0.25,
+                 reseed_endpoint_equil_steps=2000,
+                 reseed_endpoint_minimize_iters=500):
         import openmm as mm
         import openmm.unit as unit
 
@@ -1143,6 +1305,24 @@ class InplaceRbfeLadder(object):
                                     STAGED_MIN_ITERS_FLOOR) if staged_min else \
             int(staged_min_iters)
         self.staged_warmup_steps = int(staged_warmup_steps)
+        # OPT-IN FIX-A re-seeding (W4A bound-leg ladder mixing). DEFAULT OFF =>
+        # the legacy identity init + default coordinate seed run unchanged
+        # (V3I/A9G/MTR byte-identical). reseed_perm_seed=None keeps the identity
+        # replica->state map; reseed_endpoint=False keeps every context seeded
+        # from the same coupled ``positions``. When ON, A1 sets a logged-seed
+        # permutation as the t=0 assignment and A2 seeds the decoupled-band
+        # contexts from a standalone equilibration at the genuine decoupled
+        # endpoint's own λ-tuple. FE-unbiased (init-condition only); see the
+        # per-state context loop below and ``make_reseed_permutation`` /
+        # ``decoupled_endpoint_state`` / ``decoupled_band_states``.
+        self.reseed_perm_seed = (None if reseed_perm_seed is None
+                                 else int(reseed_perm_seed))
+        self.reseed_endpoint = bool(reseed_endpoint)
+        self.reseed_endpoint_band_lambda2_max = \
+            float(reseed_endpoint_band_lambda2_max)
+        self.reseed_endpoint_equil_steps = int(reseed_endpoint_equil_steps)
+        self.reseed_endpoint_minimize_iters = \
+            int(reseed_endpoint_minimize_iters)
         self.n_states = schedule["n_states"]
         self.temperature_K = temperature_K
         self.kT_kj = (unit.MOLAR_GAS_CONSTANT_R * temperature_K * unit.kelvin
@@ -1200,13 +1380,48 @@ class InplaceRbfeLadder(object):
             platform_name = "Reference"
         self.platform_name = platform_name
 
-        # replica r currently occupies state self.replica_state[r].
-        self.replica_state = list(range(self.n_states))
+        # replica r currently occupies state self.replica_state[r]. FIX-A (A1,
+        # OPT-IN): with ``reseed_perm_seed`` set this is a logged-seed permutation
+        # of the states rather than the identity map (DEFAULT None => identity =
+        # ``list(range(self.n_states))`` byte-identical). The permutation is set
+        # BEFORE the per-state context loop below, so each context is minimized at
+        # the PERMUTED state it will occupy (``state_k = self.replica_state[k]``),
+        # not at an identity state — the in-__init__ integration is exact (no
+        # post-construction relabel). The exchange logic rebuilds state_to_replica
+        # from replica_state every cycle, so any bijection is a valid t=0
+        # assignment; the stationary ensemble is unchanged (FE-unbiased).
+        self.replica_state = make_reseed_permutation(
+            self.n_states, self.reseed_perm_seed)
 
         # Identify the backward (Direction<0) ladder endpoint state (λ minimal on
         # the backward half) — the u1 = HE1-decoupled basin the backward replicas
         # must relax into BEFORE the soft-core anneal-edge.
         self._backward_endpoint = self._find_backward_endpoint()
+
+        # FIX-A (A2, OPT-IN): pre-relax the genuine decoupled endpoint (min-λ2
+        # corner, direction-correct for BOTH dplus and dminus) and capture its
+        # relaxed configuration so the decoupled-BAND contexts can be seeded from
+        # the decoupled basin instead of the coupled ``positions`` (which leaves
+        # the high-usc walker basin-locked behind the soft-core wall). DEFAULT
+        # reseed_endpoint=False => this is skipped and every context keeps the
+        # default coupled seed (byte-identical). The relaxed config comes from a
+        # STANDALONE equilibration AT the decoupled state's OWN λ-tuple (no
+        # artificial/biased config) — it changes KINETICS (starting
+        # basin), not the EQUILIBRIUM the estimator averages over (FE-unbiased).
+        self._reseed_band = []
+        self._reseed_relaxed_positions = None
+        self._reseed_endpoint_state = None
+        if self.reseed_endpoint:
+            self._reseed_band = decoupled_band_states(
+                self.schedule, self.reseed_endpoint_band_lambda2_max)
+            if self._reseed_band:
+                self._reseed_endpoint_state = decoupled_endpoint_state(
+                    self.schedule)
+                self._reseed_relaxed_positions = self._equilibrate_endpoint(
+                    system, positions, self._reseed_endpoint_state,
+                    seed=seed,
+                    minimize_iters=self.reseed_endpoint_minimize_iters,
+                    equil_steps=self.reseed_endpoint_equil_steps)
 
         # One Context per state. Each replica is initialised at its OWN state's
         # λ-tuple BEFORE minimization (the per-state ATMForce globals change the
@@ -1237,8 +1452,18 @@ class InplaceRbfeLadder(object):
             if seed is not None:
                 integ.setRandomNumberSeed(int(seed) + k)
             ctx = mm.Context(system, integ, self.platform)
-            ctx.setPositions(positions)
             state_k = self.replica_state[k]
+            # FIX-A (A2): a context whose assigned state is in the decoupled band
+            # is seeded from the PRE-RELAXED decoupled-basin config (so it starts
+            # inside the decoupled basin, not behind the soft-core wall); every
+            # other context keeps the default coupled ``positions``. DEFAULT
+            # reseed_endpoint=False => _reseed_relaxed_positions is None and ALL
+            # contexts get the coupled positions (byte-identical).
+            if self._reseed_relaxed_positions is not None \
+                    and state_k in self._reseed_band:
+                ctx.setPositions(self._reseed_relaxed_positions)
+            else:
+                ctx.setPositions(positions)
             is_backward = (self.schedule["directions"][state_k] < 0)
 
             vel_seed = (int(seed) + k) if seed is not None else 0
@@ -1328,6 +1553,49 @@ class InplaceRbfeLadder(object):
     def _apply_all_states(self):
         for r in range(self.n_states):
             self._set_state(self.contexts[r], self.replica_state[r])
+
+    # -- FIX-A (A2): standalone decoupled-endpoint equilibration (OPT-IN) ---
+    def _equilibrate_endpoint(self, system, positions, endpoint_state, *,
+                              seed=None, minimize_iters=500, equil_steps=2000):
+        """Relax a STANDALONE context at ``endpoint_state``'s own λ-tuple and
+        return the relaxed positions (the pre-relaxed decoupled-basin config A2
+        seeds the band contexts with). Mirrors the validated W4A endpoint re-seed
+        (W4A/w4a_reseed_proto.py / w4a_mixing_smoke.apply_fixA_dminus_endpoint_reseed):
+
+          (a) a fresh context at the decoupled endpoint state's full ATMForce
+              globals (NOT an artificial / biased config — a genuine short MD
+              equilibration AT that state);
+          (b) a light minimize (the same budget as the per-state seed minimize)
+              to relieve the fresh-shell strain;
+          (c) setVelocitiesToTemperature + a short MD equilibration to settle the
+              walker into the decoupled basin.
+
+        It uses its OWN throwaway integrator/context (offset RNG seed so it does
+        not correlate with any ladder replica) and returns ONLY positions — the
+        ladder's own contexts adopt them, the standalone context is discarded.
+        Used ONLY when ``reseed_endpoint`` is True (default path never calls it).
+        """
+        mm = self.mm
+        unit = self.unit
+        integ = mm.LangevinMiddleIntegrator(
+            self.temperature_K * unit.kelvin, 1.0 / unit.picosecond,
+            1.0 * unit.femtoseconds)
+        if seed is not None:
+            integ.setRandomNumberSeed(int(seed) + 9973)
+        relax_ctx = mm.Context(system, integ, self.platform)
+        relax_ctx.setPositions(positions)
+        self._set_state(relax_ctx, endpoint_state)
+        if minimize_iters and minimize_iters > 0:
+            mm.LocalEnergyMinimizer.minimize(
+                relax_ctx, maxIterations=int(minimize_iters))
+        relax_ctx.setVelocitiesToTemperature(
+            self.temperature_K * unit.kelvin,
+            (int(seed) + 9973) if seed is not None else 0)
+        if equil_steps and equil_steps > 0:
+            integ.step(int(equil_steps))
+        relaxed = relax_ctx.getState(getPositions=True).getPositions()
+        del relax_ctx, integ
+        return relaxed
 
     # -- staged minimization (OPT-IN, W4A large-box stability) -------------
     def _staged_minimize_replica(self, ctx, state_idx):

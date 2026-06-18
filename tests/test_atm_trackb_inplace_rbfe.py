@@ -430,6 +430,151 @@ def test_ats_standard_lambda1_rampdown_rejects_invalid(rbfe):
 
 
 # ---------------------------------------------------------------------------
+# Deep-λ2 decouple-tail densification: explicit leg-up λ2 knots (lambda2_rampup).
+# ---------------------------------------------------------------------------
+def test_ats_standard_lambda2_rampup_none_is_byte_identical(rbfe):
+    """lambda2_rampup=None reproduces the historical 11-state schedule exactly.
+
+    The default-None path MUST be byte-identical to the legacy uniform leg-up
+    (every existing caller — launcher / smoke / test — passes no lambda2_rampup).
+    """
+    legacy = rbfe.build_ats_standard_ladder(n_windows_half=6,
+                                            single_direction="forward")
+    explicit = rbfe.build_ats_standard_ladder(n_windows_half=6,
+                                              single_direction="forward",
+                                              lambda2_rampup=None)
+    for key in ("lambdas_1", "lambdas_2", "intermd", "directions",
+                "alpha", "u0", "w0", "n_states", "n_windows_half_linear",
+                "softcore_band", "schedule_name"):
+        assert explicit[key] == legacy[key], "drift in %r" % (key,)
+    assert legacy["n_states"] == 11
+    assert legacy["lambda2_rampup"] is None
+
+
+def test_ats_standard_lambda2_rampup_densifies_decouple_tail(rbfe):
+    """lambda2_rampup=[0.0,0.05,...,0.5] inserts the deep-λ2 bridges => 13 states.
+
+    The seal bonds are the deep-λ2 decouple tail (λ2 0.2<->0.1<->0.0). Inserting
+    λ2=0.05 (between 0/0.1) and λ2=0.15 (between 0.1/0.2) gives an 8-state leg-up;
+    with the canonical 5-state uniform leg-down (n_windows_half=6) => 8 + 5 = 13.
+    """
+    sch = rbfe.build_ats_standard_ladder(
+        n_windows_half=6, single_direction="forward",
+        lambda2_rampup=[0.0, 0.05, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5])
+    assert sch["n_states"] == 13
+    assert sch["lambdas_1"] == [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                0.1, 0.2, 0.3, 0.4, 0.5]
+    assert sch["lambdas_2"] == [0.0, 0.05, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5,
+                                0.5, 0.5, 0.5, 0.5, 0.5]
+    # The inserted bridge λ2 values are actually present in the leg-up tail.
+    assert 0.05 in sch["lambdas_2"][:8]
+    assert 0.15 in sch["lambdas_2"][:8]
+    # Leg-up has 8 states; only the idx0 decoupled endpoint + idx12 coupled apex
+    # are intermd==0; the leg-up apex (idx7, λ1=0/λ2=0.5) is the leg-switch state.
+    assert sch["intermd"] == [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0]
+    assert sch["lambdas_1"][7] == 0.0 and sch["lambdas_2"][7] == 0.5  # apex
+    assert sch["lambdas_1"][0] == 0.0 and sch["lambdas_2"][0] == 0.0   # decoupled
+    assert sch["lambdas_1"][-1] == 0.5 and sch["lambdas_2"][-1] == 0.5  # coupled
+    # Leg-up length is reflected in the soft-core band metadata.
+    assert sch["n_windows_half_linear"] == 8
+    assert sch["softcore_band"] == 8
+    # Soft-core canon NOT re-tuned (C7).
+    assert sch["u0"][0] == rbfe.ATS_TWOCOPY_U0_DEFAULT == 110.0
+    assert sch["alpha"][0] == rbfe.RBFE_ALPHA_DEFAULT == 0.10
+    assert sch["umax"] == rbfe.ats.ATS_UMAX_KCAL == 200.0
+    assert sch["ubcore"] == rbfe.ats.ATS_UBCORE_KCAL == 100.0
+    assert sch["acore"] == rbfe.ats.ATS_ACORE == 0.0625
+    # λ2 strictly increasing across the leg-up (states 0..7).
+    legup = sch["lambdas_2"][:8]
+    assert all(b > a for a, b in zip(legup, legup[1:]))
+    assert sch["lambda2_rampup"] == [0.0, 0.05, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5]
+    assert "bridge" in sch["schedule_name"]
+
+
+def test_ats_standard_lambda2_rampup_backward_is_reverse(rbfe):
+    """Backward densified-leg-up ladder is the whole-tuple reverse of forward.
+
+    This is the dminus leg (the W4A seal bonds 8/9, 9/10 live here). The
+    backward ladder's deep-λ2 tail is the END of the tuple.
+    """
+    fwd = rbfe.build_ats_standard_ladder(
+        n_windows_half=6, single_direction="forward",
+        lambda2_rampup=[0.0, 0.05, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5])
+    bwd = rbfe.build_ats_standard_ladder(
+        n_windows_half=6, single_direction="backward",
+        lambda2_rampup=[0.0, 0.05, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5])
+    assert bwd["n_states"] == 13
+    assert set(bwd["directions"]) == {-1}
+    assert bwd["lambdas_1"] == list(reversed(fwd["lambdas_1"]))
+    assert bwd["lambdas_2"] == list(reversed(fwd["lambdas_2"]))
+    assert bwd["intermd"] == list(reversed(fwd["intermd"]))
+    # On the backward leg the decoupled endpoint (λ2=0) is the LAST state, and
+    # the deep-λ2 tail (λ2 0.0, 0.05, 0.1, 0.15, 0.2) is the END of the tuple.
+    assert bwd["lambdas_2"][-1] == 0.0
+    assert bwd["lambdas_2"][-2] == 0.05
+    assert bwd["lambdas_2"][-3] == 0.1
+
+
+def test_ats_standard_lambda2_rampup_rejects_invalid(rbfe):
+    """Out-of-range / non-monotone / wrong-endpoint leg-up knots fail loud."""
+    # value > 0.5
+    with pytest.raises(ValueError):
+        rbfe.build_ats_standard_ladder(
+            n_windows_half=6, lambda2_rampup=[0.0, 0.6])
+    # value < 0
+    with pytest.raises(ValueError):
+        rbfe.build_ats_standard_ladder(
+            n_windows_half=6, lambda2_rampup=[-0.1, 0.0, 0.5])
+    # does NOT start at 0.0 (the leg-up OWNS the decoupled endpoint)
+    with pytest.raises(ValueError):
+        rbfe.build_ats_standard_ladder(
+            n_windows_half=6, lambda2_rampup=[0.05, 0.1, 0.5])
+    # does NOT end at 0.5 (the apex)
+    with pytest.raises(ValueError):
+        rbfe.build_ats_standard_ladder(
+            n_windows_half=6, lambda2_rampup=[0.0, 0.1, 0.2])
+    # not strictly increasing
+    with pytest.raises(ValueError):
+        rbfe.build_ats_standard_ladder(
+            n_windows_half=6, lambda2_rampup=[0.0, 0.2, 0.2, 0.5])
+    # too short (need both 0.0 endpoint and 0.5 apex)
+    with pytest.raises(ValueError):
+        rbfe.build_ats_standard_ladder(
+            n_windows_half=6, lambda2_rampup=[0.0])
+    with pytest.raises(ValueError):
+        rbfe.build_ats_standard_ladder(
+            n_windows_half=6, lambda2_rampup=[])
+
+
+def test_ats_standard_lambda1_and_lambda2_composable(rbfe):
+    """Both axes simultaneously: independent densification, single shared apex.
+
+    leg-up densified to 8 states (λ2=0.05, 0.15 inserted) AND leg-down densified
+    to 6 states (λ1=0.05 inserted) => 8 + 6 = 14 states, NOT 8 + 6 + 1 (no
+    double-count of the λ1=0/λ2=0.5 apex, which is placed once by the leg-up).
+    """
+    sch = rbfe.build_ats_standard_ladder(
+        n_windows_half=6, single_direction="forward",
+        lambda2_rampup=[0.0, 0.05, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5],
+        lambda1_rampdown=[0.05, 0.1, 0.2, 0.3, 0.4, 0.5])
+    assert sch["n_states"] == 14
+    # Leg-up = first 8 (λ1=0), leg-down = last 6 (λ2=0.5).
+    assert sch["lambdas_1"] == [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
+    assert sch["lambdas_2"] == [0.0, 0.05, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5,
+                                0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
+    # Exactly ONE state at the leg-switch apex (λ1=0, λ2=0.5): idx 7.
+    apex_hits = [k for k in range(sch["n_states"])
+                 if sch["lambdas_1"][k] == 0.0 and sch["lambdas_2"][k] == 0.5]
+    assert apex_hits == [7]
+    # Only the two genuine endpoints are intermd==0 (decoupled idx0, coupled apex).
+    assert sch["intermd"] == [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0]
+    assert sch["lambda2_rampup"] == [0.0, 0.05, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5]
+    assert sch["lambda1_rampdown"] == [0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
+    assert sch["n_windows_half_linear"] == 8  # leg-up count
+
+
+# ---------------------------------------------------------------------------
 # ATM hybrid-potential recombination — pure math.
 # ---------------------------------------------------------------------------
 def test_state_energy_lambda0_is_base(rbfe):
@@ -817,3 +962,396 @@ def test_staged_min_on_runs_staged_path(rbfe, tmp_path):
     pdp = _load_driver_mixing()
     tr = pdp.parse_state_transitions_from_log(logp, warmup_cycles=0)
     assert tr["n_samples"] > 0
+
+
+# ---------------------------------------------------------------------------
+# FIX-A re-seeding (OPT-IN, bound-leg ladder mixing) — wiring + behaviour.
+# Validated across 3 wall seeds (decisive seal / fragmented-ladder pathology
+# removed); FE-unbiased (initial-condition change only).
+# DEFAULT OFF must be byte/behaviour-identical to the legacy identity init.
+# ---------------------------------------------------------------------------
+def _build_minimal_atm_system(n_per_copy=6, box_nm=4.0, seed=0):
+    """A SELF-CONTAINED minimal real ATMForce system: two identical harmonic
+    'copies' inside ONE ATMForce (the two-copy ATS geometry in miniature), so the
+    re-seed path runs on the Reference platform WITHOUT the 2QKI endpoint PDBs.
+    C7 canon globals so _set_state / getPerturbationEnergy behave as in production.
+    Mirrors W4A/test_w4a_reseed_proto._build_minimal_atm_system."""
+    import numpy as np
+    import openmm as mm
+    import openmm.unit as unit
+
+    n = int(n_per_copy)
+    system = mm.System()
+    for _ in range(2 * n):
+        system.addParticle(12.0)
+    a = box_nm
+    system.setDefaultPeriodicBoxVectors(
+        mm.Vec3(a, 0, 0) * unit.nanometer,
+        mm.Vec3(0, a, 0) * unit.nanometer,
+        mm.Vec3(0, 0, a) * unit.nanometer)
+    bonded = mm.HarmonicBondForce()
+    for c in range(2):
+        base = c * n
+        for i in range(n - 1):
+            bonded.addBond(base + i, base + i + 1, 0.15 * unit.nanometer,
+                           200000.0 * unit.kilojoule_per_mole / unit.nanometer ** 2)
+    atm = mm.ATMForce(200.0, 100.0, 0.0625, 110.0, 0.10, 1.0, 0.0, 0.0, 1.0)
+    atm.addForce(bonded)
+    d0 = mm.Vec3(0.0, 0.0, 0.0) * unit.nanometer
+    d1 = mm.Vec3(1.0, 0.0, 0.0) * unit.nanometer
+    zero = mm.Vec3(0.0, 0.0, 0.0) * unit.nanometer
+    for p in range(2 * n):
+        if p < n:
+            atm.addParticle(zero, zero)
+        else:
+            atm.addParticle(d1, d0)
+    system.addForce(atm)
+    rng = np.random.RandomState(seed)
+    pos = []
+    for c in range(2):
+        x0 = 1.0 + 1.5 * c
+        for i in range(n):
+            pos.append(mm.Vec3(x0 + 0.15 * i, 1.0 + 0.01 * rng.randn(),
+                               1.0 + 0.01 * rng.randn()) * unit.nanometer)
+    return system, pos
+
+
+# -- (a) constructor opt-in surface --------------------------------------------
+def test_reseed_constructor_is_opt_in(rbfe):
+    """The ladder constructor gained the FIX-A re-seed opt-ins (DEFAULT OFF)."""
+    import inspect
+    sig = inspect.signature(rbfe.InplaceRbfeLadder.__init__)
+    assert sig.parameters["reseed_perm_seed"].default is None
+    assert sig.parameters["reseed_endpoint"].default is False
+    assert sig.parameters["reseed_endpoint_band_lambda2_max"].default == 0.25
+    assert sig.parameters["reseed_endpoint_equil_steps"].default == 2000
+    assert sig.parameters["reseed_endpoint_minimize_iters"].default == 500
+
+
+# -- (a) A1 permutation reproducibility / bijection ----------------------------
+def test_reseed_permutation_reproducible_from_logged_seed(rbfe):
+    a = rbfe.make_reseed_permutation(11, reseed_perm_seed=12345)
+    b = rbfe.make_reseed_permutation(11, reseed_perm_seed=12345)
+    assert a == b
+    assert sorted(a) == list(range(11))
+
+
+def test_reseed_permutation_independent_of_global_rng(rbfe):
+    import random
+    random.seed(1)
+    a = rbfe.make_reseed_permutation(11, reseed_perm_seed=42)
+    random.seed(99999)
+    [random.random() for _ in range(50)]
+    b = rbfe.make_reseed_permutation(11, reseed_perm_seed=42)
+    assert a == b
+
+
+def test_reseed_permutation_bad_n_raises(rbfe):
+    with pytest.raises(ValueError):
+        rbfe.make_reseed_permutation(0, reseed_perm_seed=1)
+
+
+# -- (b) DEFAULT OFF == identity init ------------------------------------------
+def test_reseed_default_off_is_identity(rbfe):
+    for n in (3, 5, 11, 12):
+        assert rbfe.make_reseed_permutation(n, reseed_perm_seed=None) \
+            == list(range(n))
+
+
+# -- (c) DIRECTION-CORRECT decoupled endpoint + band for BOTH legs -------------
+def test_reseed_decoupled_endpoint_band_forward(rbfe):
+    """Forward (dplus): decoupled endpoint = state 0 (λ1=λ2=0); band = {0,1,2}."""
+    sch = rbfe.build_ats_standard_ladder(n_windows_half=6,
+                                         single_direction="forward")
+    assert rbfe.decoupled_endpoint_state(sch) == 0
+    assert rbfe.decoupled_band_states(sch, band_lambda2_max=0.25) == [0, 1, 2]
+
+
+def test_reseed_decoupled_endpoint_band_backward(rbfe):
+    """Backward (dminus): decoupled endpoint = the LAST state (λ1=λ2=0); band =
+    {8,9,10}. The max-λ1 forward-only rule would WRONGLY pick the coupled apex
+    (state 0) here — this is the direction-correctness guard."""
+    sch = rbfe.build_ats_standard_ladder(n_windows_half=6,
+                                         single_direction="backward")
+    assert rbfe.decoupled_endpoint_state(sch) == 10
+    assert sch["lambdas_1"][10] == 0.0 and sch["lambdas_2"][10] == 0.0
+    assert rbfe.decoupled_band_states(sch, band_lambda2_max=0.25) == [8, 9, 10]
+
+
+def test_reseed_decoupled_endpoint_band_densified_both_directions(rbfe):
+    """With --lambda1-rampdown the leg-down is densified (11 -> 12 states); the
+    endpoint INDEX shifts but the λ2=0 rule still resolves it for BOTH legs
+    (densified backward -> state 11, band {9,10,11}; densified forward -> state 0,
+    band {0,1,2}). A fixed-index mapping would false-green on the 12-state ladder."""
+    ramp = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
+    db = rbfe.build_ats_standard_ladder(n_windows_half=6,
+                                        single_direction="backward",
+                                        lambda1_rampdown=ramp)
+    assert db["n_states"] == 12
+    assert rbfe.decoupled_endpoint_state(db) == 11
+    assert rbfe.decoupled_band_states(db, band_lambda2_max=0.25) == [9, 10, 11]
+    df = rbfe.build_ats_standard_ladder(n_windows_half=6,
+                                        single_direction="forward",
+                                        lambda1_rampdown=ramp)
+    assert rbfe.decoupled_endpoint_state(df) == 0
+    assert rbfe.decoupled_band_states(df, band_lambda2_max=0.25) == [0, 1, 2]
+
+
+# -- (b) real-system DEFAULT OFF: ladder init is identity + runs NaN-free -------
+@pytest.mark.skipif(not _have_openmm(), reason="openmm not importable")
+def test_reseed_off_ladder_is_identity_real_system(rbfe, tmp_path):
+    """Default-OFF: the ladder's replica_state is the identity map, no endpoint
+    re-seed config is built, and it runs a cycle without NaN."""
+    system, pos = _build_minimal_atm_system()
+    sch = rbfe.build_ats_standard_ladder(n_windows_half=3,
+                                         single_direction="backward")
+    logp = str(tmp_path / "reseed_off.log")
+    ladder = rbfe.InplaceRbfeLadder(
+        system, pos, sch, platform_name="Reference", timestep_fs=1.0,
+        log_path=logp, seed=11, minimize_iters=50, backward_equil_steps=0)
+    assert ladder.replica_state == list(range(ladder.n_states))
+    assert ladder.reseed_perm_seed is None
+    assert ladder.reseed_endpoint is False
+    assert ladder._reseed_relaxed_positions is None
+    assert ladder._reseed_band == []
+    info = ladder.run_cycle(md_steps=3)
+    assert info["nan_seen"] is False
+    ladder.close()
+
+
+# -- (a) A1 ON in-__init__: ladder starts in the LOGGED permutation -------------
+@pytest.mark.skipif(not _have_openmm(), reason="openmm not importable")
+def test_reseed_a1_permutation_applied_real_system(rbfe, tmp_path):
+    """reseed_perm_seed set: the ladder's t=0 replica_state is EXACTLY the logged
+    permutation (a valid bijection), and the ladder runs NaN-free. The permutation
+    is set IN __init__ before the per-state minimize, so each context is minimized
+    at the state it will occupy (no post-construction relabel)."""
+    system, pos = _build_minimal_atm_system()
+    sch = rbfe.build_ats_standard_ladder(n_windows_half=3,
+                                         single_direction="backward")
+    logp = str(tmp_path / "reseed_a1.log")
+    ladder = rbfe.InplaceRbfeLadder(
+        system, pos, sch, platform_name="Reference", timestep_fs=1.0,
+        log_path=logp, seed=11, minimize_iters=50, backward_equil_steps=0,
+        reseed_perm_seed=20260618)
+    expect = rbfe.make_reseed_permutation(ladder.n_states, 20260618)
+    assert ladder.replica_state == expect
+    assert sorted(ladder.replica_state) == list(range(ladder.n_states))
+    info = ladder.run_cycle(md_steps=3)
+    assert info["nan_seen"] is False
+    ladder.close()
+
+
+# -- (c) A2 ON: endpoint re-seed targets the direction-correct band, NaN-free ---
+@pytest.mark.skipif(not _have_openmm(), reason="openmm not importable")
+def test_reseed_a2_endpoint_reseed_backward_real_system(rbfe, tmp_path):
+    """reseed_endpoint=True on a BACKWARD ladder: the endpoint re-seed runs a
+    standalone equilibration at the genuine decoupled endpoint (LAST state, λ2=0)
+    and seeds ONLY the decoupled band (NOT the coupled apex). Runs NaN-free."""
+    system, pos = _build_minimal_atm_system()
+    sch = rbfe.build_ats_standard_ladder(n_windows_half=3,
+                                         single_direction="backward")
+    logp = str(tmp_path / "reseed_a2.log")
+    ladder = rbfe.InplaceRbfeLadder(
+        system, pos, sch, platform_name="Reference", timestep_fs=1.0,
+        log_path=logp, seed=11, minimize_iters=50, backward_equil_steps=0,
+        reseed_perm_seed=20260618, reseed_endpoint=True,
+        reseed_endpoint_band_lambda2_max=0.25,
+        reseed_endpoint_equil_steps=50, reseed_endpoint_minimize_iters=50)
+    # The endpoint is the LAST state (decoupled, λ2=0) — NOT state 0 (coupled apex).
+    assert ladder._reseed_endpoint_state == ladder.n_states - 1
+    assert sch["lambdas_2"][ladder._reseed_endpoint_state] == 0.0
+    # Band is a strict, non-empty subset; every band state has small λ2.
+    assert 0 < len(ladder._reseed_band) < ladder.n_states
+    for k in ladder._reseed_band:
+        assert sch["lambdas_2"][k] <= 0.25
+    assert ladder._reseed_relaxed_positions is not None
+    info = ladder.run_cycle(md_steps=3)
+    assert info["nan_seen"] is False
+    ladder.close()
+
+
+# ---------------------------------------------------------------------------
+# HARDENED per-seed cohort mixing gate (check_leg_hardened_mixing): the cohort
+# verdict is the AND over EVERY (endpoint, seed, direction) leg read from the
+# RAW driver.log — a single seed-failing leg fails the cohort (a dispatcher
+# PARTIAL_SUCCESS / recovery may NOT roll it up to PASS).
+# ---------------------------------------------------------------------------
+def _load_inplace_production():
+    spec = importlib.util.spec_from_file_location(
+        "trackb_inplace_rbfe_production",
+        os.path.join(_SCRIPTS, "trackb_inplace_rbfe_production.py"))
+    if spec is None or spec.loader is None:
+        pytest.skip("could not locate scripts/trackb_inplace_rbfe_production.py")
+    if _SCRIPTS not in sys.path:
+        sys.path.insert(0, _SCRIPTS)
+    if _UTILS not in sys.path:
+        sys.path.insert(0, _UTILS)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _write_cohort_driver_log(path, trajectories, warmup_cycles=2):
+    """Synthesize an async_re driver log from {replica: [state,...]} with a
+    leading warmup so the post-warmup window IS the supplied trajectory."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    n_rounds = len(next(iter(trajectories.values())))
+    lines = []
+    rr = 0
+    for _ in range(warmup_cycles):
+        ts = "2026-06-18 00:00:%02d" % (rr % 60)
+        for rep, traj in trajectories.items():
+            lines.append("%s - INFO - async_re.openmm_async_re - "
+                         "Replica %d new state %d\n" % (ts, rep, traj[0]))
+        rr += 1
+    for c in range(n_rounds):
+        ts = "2026-06-18 00:01:%02d" % (rr % 60)
+        for rep, traj in trajectories.items():
+            lines.append("%s - INFO - async_re.openmm_async_re - "
+                         "Replica %d new state %d\n" % (ts, rep, traj[c]))
+        rr += 1
+    with open(path, "w") as fh:
+        fh.write("".join(lines))
+
+
+def _clean_traj(k=11, length=120):
+    sweep = list(range(0, k)) + list(range(k - 2, -1, -1))
+    out = {}
+    for rep in range(k):
+        off = rep % len(sweep)
+        out[rep] = (sweep * 12)[off:off + length]
+    return out
+
+
+def _reseal_traj(k=11):
+    """First half: one full 0..K-1..0 sweep (whole-window all pairs). Second
+    half: lower-only shuttle 0..K-3 -> the top two pairs seal."""
+    first = list(range(0, k)) + list(range(k - 2, -1, -1))
+    lower = list(range(0, k - 2)) + list(range(k - 4, 0, -1))
+    n = len(first)
+    out = {}
+    for rep in range(k):
+        off = rep % len(lower)
+        sh = (lower * 8)[off:off + n]
+        out[rep] = first + sh
+    return out
+
+
+def _stamp_cntl(path, k=11):
+    """Full per-direction sibling cntl so ``_parse_cntl_schedule`` returns a K-
+    state dict with the soft-core SSOT arrays (DIRECTION/INTERMEDIATE/LAMBDA1/
+    LAMBDA2/ALPHA/U0/W0). Values are synthetic but length-consistent — the
+    cohort gate only needs K + the schedule presence (overlaps are supplied via
+    the monkeypatched harness in these AND-logic tests)."""
+    def _csv(seq):
+        return ", ".join("%.4f" % v for v in seq)
+    lam1 = [0.5 * i / (k - 1) for i in range(k)]
+    with open(path, "w") as fh:
+        fh.write("BASENAME = 'trackb'\n")
+        fh.write("DIRECTION =    '%s'\n" % _csv([1.0] * k))
+        fh.write("INTERMEDIATE = '%s'\n" % _csv([1.0] * k))
+        fh.write("LAMBDA1 =      '%s'\n" % _csv(lam1))
+        fh.write("LAMBDA2 =      '%s'\n" % _csv(lam1))
+        fh.write("ALPHA =        '%s'\n" % _csv([0.1] * k))
+        fh.write("U0 =           '%s'\n" % _csv([110.0] * k))
+        fh.write("W0COEFF =      '%s'\n" % _csv([0.0] * k))
+
+
+def _build_cohort(out_root, leg, kind_by_seed, k=11, n_rep=2):
+    """Build a synthetic cohort dir tree. ``kind_by_seed`` maps replicate index
+    -> 'clean' | 'reseal' (applied to BOTH endpoints + BOTH directions)."""
+    prod = _load_inplace_production()
+    for ep in prod.ENDPOINTS:
+        for j in range(n_rep):
+            rep_dir = prod._rep_dir(out_root, ep, leg, j)
+            for tag in prod.DIRECTION_TAGS:
+                sub = os.path.join(rep_dir, tag)
+                base = prod.JOBNAME + "_" + tag
+                traj = (_clean_traj(k) if kind_by_seed.get(j) == "clean"
+                        else _reseal_traj(k))
+                _write_cohort_driver_log(
+                    os.path.join(sub, base + "_driver.log"), traj,
+                    warmup_cycles=2)
+                _stamp_cntl(os.path.join(sub, base + "_asyncre.cntl"), k=k)
+    return prod
+
+
+def _patch_overlaps_ok(prod, monkeypatch, value=0.5):
+    """Force per-pair overlaps available + above floor (decouple the cohort
+    AND-logic test from pymbar/atom_openmm availability)."""
+    def _fake(leg_dir, direction_tag, schedule, warmup_cycles):
+        k = 11
+        if isinstance(schedule, dict) and schedule.get("n_states"):
+            k = int(schedule["n_states"])
+        pairs = {"%d-%d" % (i, i + 1): value for i in range(k - 1)}
+        return {"overlaps": pairs, "bhattacharyya":
+                {kk: 0.4 for kk in pairs}, "source": "synthetic"}
+    monkeypatch.setattr(prod, "_compute_adjacent_overlaps", _fake)
+    # Also make _load_overlap return a truthy sentinel so the gate takes the
+    # overlap path (the real harness may be absent in the qmmm env).
+    monkeypatch.setattr(prod, "_load_overlap", lambda: object())
+
+
+def test_cohort_all_clean_passes(tmp_path, monkeypatch):
+    """All seeds clean-mixing (both endpoints, both directions) + overlaps OK
+    -> cohort PASS."""
+    out_root = str(tmp_path / "out")
+    prod = _build_cohort(out_root, "bound", {0: "clean", 1: "clean"}, n_rep=2)
+    _patch_overlaps_ok(prod, monkeypatch)
+    res = prod.check_leg_hardened_mixing(
+        out_root, "bound", n_replicates=2, mintimeid=3)
+    assert res["verdict"] == "PASS"
+    assert res["passed"] is True
+    assert res["n_fail"] == 0 and res["n_indeterminate"] == 0
+    assert res["n_pass"] == res["n_legs"] == 2 * 2 * 2   # ep x rep x dir
+
+
+def test_cohort_one_seed_reseal_fails_no_rollup(tmp_path, monkeypatch):
+    """ONE seed's leg is an open-once-then-reseal wall; every OTHER leg is clean.
+    The cohort verdict is the AND -> FAIL. A dispatcher PARTIAL_SUCCESS rollup
+    may NOT promote the seed-failing cohort to PASS."""
+    out_root = str(tmp_path / "out")
+    # rep0 clean, rep1 reseal (the failing seed) — applied to both endpoints.
+    prod = _build_cohort(out_root, "bound", {0: "clean", 1: "reseal"}, n_rep=2)
+    _patch_overlaps_ok(prod, monkeypatch)
+    res = prod.check_leg_hardened_mixing(
+        out_root, "bound", n_replicates=2, mintimeid=3)
+    assert res["verdict"] == "FAIL"
+    assert res["passed"] is False
+    assert res["n_fail"] >= 1
+    # The failing legs are exactly the reseal seed's (rep1), both endpoints/dirs.
+    failed = [r for r in res["per_leg"] if r["verdict"] == "FAIL"]
+    assert all(r["rep"] == 1 for r in failed)
+    assert any("8-9" in (r.get("second_half_walls") or []) for r in failed)
+
+
+def test_cohort_missing_overlaps_indeterminate(tmp_path, monkeypatch):
+    """Clean crossings but overlaps unavailable (harness absent) -> cohort is
+    INDETERMINATE, NOT PASS (refuses to accept an unverified leg)."""
+    out_root = str(tmp_path / "out")
+    prod = _build_cohort(out_root, "bound", {0: "clean", 1: "clean"}, n_rep=2)
+    # Force the overlap harness to be unavailable.
+    monkeypatch.setattr(prod, "_load_overlap", lambda: None)
+    res = prod.check_leg_hardened_mixing(
+        out_root, "bound", n_replicates=2, mintimeid=3)
+    assert res["verdict"] == "INDETERMINATE"
+    assert res["passed"] is False
+    assert res["n_indeterminate"] >= 1
+
+
+def test_cohort_missing_log_indeterminate(tmp_path, monkeypatch):
+    """A missing driver.log for one seed -> that leg INDETERMINATE -> cohort not
+    PASS (no silent skip of an un-judged seed)."""
+    out_root = str(tmp_path / "out")
+    prod = _build_cohort(out_root, "bound", {0: "clean", 1: "clean"}, n_rep=2)
+    _patch_overlaps_ok(prod, monkeypatch)
+    # Remove rep1/cp4/dplus driver log.
+    victim = os.path.join(
+        prod._rep_dir(out_root, "cp4", "bound", 1), "dplus",
+        prod.JOBNAME + "_dplus_driver.log")
+    os.remove(victim)
+    res = prod.check_leg_hardened_mixing(
+        out_root, "bound", n_replicates=2, mintimeid=3)
+    assert res["passed"] is False
+    assert res["n_indeterminate"] >= 1

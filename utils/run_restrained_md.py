@@ -2128,7 +2128,22 @@ def run_production(ctx: "_MDContext") -> None:
     print("  NPT 전환 완료.")
 
     dt_fs = ctx.dt_fs
-    dcd_interval = max(1, ctx.n_steps // 500)
+    _default_dcd_interval = max(1, ctx.n_steps // 500)
+    dcd_interval = _default_dcd_interval
+    _dcd_env_raw = os.environ.get("UPDD_MD_DCD_INTERVAL", "")
+    if _dcd_env_raw.strip():
+        try:
+            _dcd_env_val = int(_dcd_env_raw.strip())
+        except (TypeError, ValueError):
+            _dcd_env_val = 0
+        if _dcd_env_val > 0:
+            dcd_interval = _dcd_env_val
+            _dcd_ps = dcd_interval * dt_fs / 1000.0
+            print(f"  [DCD] interval={dcd_interval} step ({_dcd_ps:.3g}ps/frame "
+                  f"from UPDD_MD_DCD_INTERVAL)")
+        else:
+            print(f"  [DCD] WARN: UPDD_MD_DCD_INTERVAL={_dcd_env_raw!r} invalid "
+                  f"(not a positive int); using default {dcd_interval} step")
     ctx.simulation.reporters.append(DCDReporter(ctx.out_dcd, dcd_interval))
     ctx.simulation.reporters.append(StateDataReporter(
         ctx.out_log, max(1, ctx.n_steps // 100),

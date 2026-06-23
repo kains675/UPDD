@@ -55,6 +55,19 @@ COHORTS = {
     # control (2QKI_Cp4_d3refit_localize_s211_dt1fs) for n>=4, while excluding the
     # dt=2fs localize dirs (..._dt2fs) which crashed and are not band-comparable.
     "d3refit_Cp4": "2QKI_Cp4_d3refit_*_dt1fs",
+    # WT positive control (D5 NO-GO specificity, P3 #107) — strongest binder run
+    # through the SAME dt=1fs / 25ns protocol + metric. WT engaged => the protocol
+    # can report engagement => the d3refit NO-GO is charge-specific; WT disengaged
+    # => dt=1fs/pipeline suspect. NOTE: WT ran --ncaa none = UNRESTRAINED (anchor
+    # asymmetry vs the res-4-anchored d3refit cohort; see the launcher header).
+    "WT_dt1fs": "2QKI_WT_d5posctrl_s*",
+    # patch-off MTR PRIMARY positive control (D5 NO-GO specificity, P3 #107) — the
+    # same 2QKI_Cp4 (MTR res-4) system run through the SAME dt=1fs / 25ns protocol +
+    # metric, with the patch-off MTR FF (calib_s101 MTR_gaff2.xml: NE1=-0.3418 frozen,
+    # CM=0.0487, Σq=0) installed instead of the d3refit FF. Anchor-SYMMETRIC vs the
+    # d3refit cohort (both MTR res-4 backbone anchored), so the ONLY variable is the
+    # sidechain RESP-A2 refit charge -> apples-to-apples single-variable isolation.
+    "patchoff_dt1fs": "2QKI_Cp4_patchoff_d5posctrl_s*",
 }
 
 

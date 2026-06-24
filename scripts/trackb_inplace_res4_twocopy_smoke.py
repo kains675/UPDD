@@ -104,18 +104,34 @@ def _make_context(system, positions, platform_name):
 def run_tier1_twocopy_smoke(seed="s7", binder_chain="B", solvate=True,
                             harmonize_common_charges=False,
                             displacement_nm=ats.ATS_TWOCOPY_DISPLACEMENT_NM,
-                            lam=0.5, platform_name="CUDA", leg="free"):
+                            lam=0.5, platform_name="CUDA", leg="free",
+                            auto_search_displacement=False,
+                            accept_sep_nm=ats.ATS_TWOCOPY_ACCEPT_SEP_NM):
     """Build the canonical two-copy box + run the Tier-1 ASSERT decomposition.
 
     Returns a structured result dict. Raises AssertionError on any hard C6
     violation (so an executor sees a FAIL), EXCEPT the pre-registered MC1
     charge-discontinuity outcome (ii), which is surfaced structured (a real
     finding, not a crash).
+
+    ``auto_search_displacement`` (default False -> byte-identical legacy fixed-
+    direction path): when True the copy-2 bulk displacement is chosen by the
+    builder's direction-aware cone search (``auto_search_twocopy_displacement``),
+    which maximises the copy1<->copy2 (+ periodic image) min heavy-atom distance
+    and escalates the magnitude only if no direction clears ``accept_sep_nm``.
+    This recovers the bound-leg two-copy box build where a fixed-direction
+    displacement drives copy-2's binder through copy-1's receptor body. The
+    auto-search is d-/direction-NEUTRAL (the swap is partner-offset based;
+    u1-u0 is d-invariant given full decoupling + bulk solvation), so it is
+    ranking-safe. ``accept_sep_nm`` is consulted only by the auto-search; the
+    post-solvate C6 assert always enforces the 1.0 nm clash floor + image gate.
     """
     build = ats.build_inplace_res4_twocopy_system(
         leg=leg, seed=seed, binder_chain=binder_chain, solvate=solvate,
         harmonize_common_charges=harmonize_common_charges,
-        displacement_nm=displacement_nm)
+        displacement_nm=displacement_nm,
+        auto_search_displacement=auto_search_displacement,
+        accept_sep_nm=accept_sep_nm)
 
     if build.get("outcome") == "mc1_charge_discontinuity":
         return {
@@ -171,10 +187,15 @@ def run_tier1_twocopy_smoke(seed="s7", binder_chain="B", solvate=True,
         "op) — the two-copy rebuild requires DISTINCT NE1 attach atoms.")
 
     # --- ENDPOINT-EQUIVALENCE (C6e/C8) — UNSOLVATED rigorous pair ---
+    # Use the SAME displacement policy (auto-search vs fixed) as the solvated
+    # build so the equivalence pair reflects the chosen construction, not a
+    # divergent one (single policy — SciVal condition 2: no policy heterogeneity).
     eq_build = ats.build_inplace_res4_twocopy_system(
         leg=leg, seed=seed, binder_chain=binder_chain, solvate=False,
         harmonize_common_charges=harmonize_common_charges,
-        displacement_nm=displacement_nm)
+        displacement_nm=displacement_nm,
+        auto_search_displacement=auto_search_displacement,
+        accept_sep_nm=accept_sep_nm)
     if eq_build.get("outcome") == "twocopy_attached":
         eq = ats.check_twocopy_endpoint_equivalence(
             eq_build, platform_name="Reference",
@@ -194,6 +215,11 @@ def run_tier1_twocopy_smoke(seed="s7", binder_chain="B", solvate=True,
         "solvated": solvate,
         "harmonize_common_charges": harmonize_common_charges,
         "displacement_vector_nm": build["displacement_vector_nm"],
+        # task #100/#6: how d was chosen (fixed_direction vs auto_search) + the
+        # per-build search trail (selected dir / magnitude / achieved min-image
+        # sep) for the downstream Path decoupling verification.
+        "displacement_mode": build.get("displacement_mode"),
+        "displacement_log": build.get("displacement_log"),
         "lambda": lam,
         "direction": 1.0,
         "n_particles": system.getNumParticles(),
@@ -244,8 +270,27 @@ def main(argv=None):
     p.add_argument("--displacement-nm", type=float,
                    default=ats.ATS_TWOCOPY_DISPLACEMENT_NM,
                    help="Magnitude of the copy-2 bulk displacement d (nm); ATS "
-                        "peptide convention ~4.0 (40 A). Default %.1f."
+                        "peptide convention ~4.0 (40 A). Default %.1f. Ignored "
+                        "when --auto-search-displacement is set (the search "
+                        "picks the magnitude from its ladder)."
                         % ats.ATS_TWOCOPY_DISPLACEMENT_NM)
+    p.add_argument("--auto-search-displacement", action="store_true",
+                   help="Opt-in: choose the copy-2 bulk displacement by the "
+                        "builder's direction-aware cone search (maximises the "
+                        "copy1<->copy2 + image min heavy-atom distance, escalates "
+                        "the magnitude only if no direction clears "
+                        "--accept-sep-nm). Recovers the bound-leg build where a "
+                        "fixed-direction d drives copy-2's binder through copy-1's "
+                        "receptor body. d-/direction-NEUTRAL (ranking-safe). "
+                        "DEFAULT OFF = fixed direction at --displacement-nm "
+                        "(byte-identical legacy).")
+    p.add_argument("--accept-sep-nm", type=float,
+                   default=ats.ATS_TWOCOPY_ACCEPT_SEP_NM,
+                   help="Auto-search ONLY: the decoupling-sufficient acceptance "
+                        "line (nm) a candidate direction must clear (PME cutoff + "
+                        "LJ-tail buffer). Default %.1f. Consulted only when "
+                        "--auto-search-displacement is set."
+                        % ats.ATS_TWOCOPY_ACCEPT_SEP_NM)
     p.add_argument("--lambda", dest="lam", type=float, default=0.5)
     p.add_argument("--platform", default="CUDA")
     p.add_argument("--json-out", default=None)
@@ -265,7 +310,9 @@ def main(argv=None):
             solvate=not args.no_solvate,
             harmonize_common_charges=args.harmonize_common_charges,
             displacement_nm=args.displacement_nm,
-            lam=args.lam, platform_name=args.platform, leg=args.leg)
+            lam=args.lam, platform_name=args.platform, leg=args.leg,
+            auto_search_displacement=args.auto_search_displacement,
+            accept_sep_nm=args.accept_sep_nm)
     except AssertionError as exc:
         result = {"outcome": "tier1_twocopy_fail", "assertion_error": str(exc),
                   "regime": "ranking_only", "prediction_test": True,

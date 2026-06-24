@@ -144,6 +144,14 @@ def gate_seed_availability(endpoints: List[str], seeds: List[str]
 DEFAULT_N_CYCLES = 400
 DEFAULT_MD_STEPS_PER_CYCLE = 250
 
+# Two-copy auto-search displacement default acceptance line (nm). MIRRORS
+# atm_trackB_setup.ATS_TWOCOPY_ACCEPT_SEP_NM — declared here as a module constant
+# so the argparse default + the C11 pre-registration can record it WITHOUT
+# importing the openmm-heavy ats engine at parse time (the engine is loaded lazily
+# via _load_ats()). If the engine constant changes, update this in lockstep (a
+# divergence is a wiring error the auto-search dry-run + tests will surface).
+_ATS_ACCEPT_SEP_NM_DEFAULT = 1.5
+
 
 # ---------------------------------------------------------------------------
 # Module loaders (importlib spec-load to avoid sys.modules pollution + so the
@@ -954,6 +962,8 @@ def run_one_replicate(
     reuse_serialized: bool = False,
     construction: str = "single_core",
     displacement_nm: Optional[float] = None,
+    auto_search_displacement: bool = False,
+    accept_sep_nm: float = _ATS_ACCEPT_SEP_NM_DEFAULT,
     lambda1_rampdown: Optional[List[float]] = None,
     lambda2_rampup: Optional[List[float]] = None,
     mutation_spec: Optional[Any] = None,
@@ -1044,6 +1054,14 @@ def run_one_replicate(
         # canonical ATS default when None).
         if construction == "twocopy" and displacement_nm is not None:
             serialize_kwargs["displacement_nm"] = displacement_nm
+        # auto_search_displacement is two-copy-only; pass the flag + its acceptance
+        # line through ONLY on the twocopy path + ONLY when ENABLED, so the single-
+        # core serialize signature is unaffected and the default-off path stays
+        # byte-identical (the rbfe serialize defaults to fixed-direction). accept_sep
+        # rides along only when the search is on (it is consulted only by the search).
+        if construction == "twocopy" and auto_search_displacement:
+            serialize_kwargs["auto_search_displacement"] = True
+            serialize_kwargs["accept_sep_nm"] = accept_sep_nm
         # mutation_spec is two-copy-only (the mutation-definition layer); pass it
         # through only on the twocopy path + only when set so the single-core
         # signature is unaffected and the default (None => res-4 MTR<->Trp) is
@@ -1148,6 +1166,13 @@ def run_one_replicate(
             "genuine_decouple_dir": ser.get("genuine_decouple_dir"),
             "reused": bool(ser.get("reused")),
             "construction": ser.get("construction", construction),
+            # task #100/#6: how d was chosen + the per-build search trail (selected
+            # direction/magnitude/achieved min-image sep) so the Keeper can audit
+            # declared (pre_registration) vs runtime displacement policy and the
+            # Path decoupling check has the realised separations. None on the
+            # single-core path / box-reuse (no fresh two-copy build).
+            "displacement_mode": ser.get("displacement_mode"),
+            "displacement_log": ser.get("displacement_log"),
         },
         "per_direction": per_direction,
         "merged": merged,
@@ -1187,6 +1212,8 @@ def run_leg(
     reuse_serialized: bool = False,
     construction: str = "single_core",
     displacement_nm: Optional[float] = None,
+    auto_search_displacement: bool = False,
+    accept_sep_nm: float = _ATS_ACCEPT_SEP_NM_DEFAULT,
     lambda1_rampdown: Optional[List[float]] = None,
     lambda2_rampup: Optional[List[float]] = None,
     mutation_spec: Optional[Any] = None,
@@ -1216,6 +1243,8 @@ def run_leg(
             archive_existing=archive_existing,
             reuse_serialized=reuse_serialized,
             construction=construction, displacement_nm=displacement_nm,
+            auto_search_displacement=auto_search_displacement,
+            accept_sep_nm=accept_sep_nm,
             lambda1_rampdown=lambda1_rampdown, lambda2_rampup=lambda2_rampup,
             mutation_spec=mutation_spec,
             staged_min=staged_min,
@@ -1760,6 +1789,15 @@ def run_pool_local(
             if ladder_args.get("displacement_nm") is not None:
                 cmd += ["--displacement-nm",
                         str(ladder_args["displacement_nm"])]
+            # Auto-search displacement (two-copy-only, opt-in): propagate the flag +
+            # the SINGLE pre-registered acceptance line so every worker builds with
+            # the SAME displacement policy the dispatcher pre-registered (no policy
+            # heterogeneity across seeds x legs). Default off => omitted (the worker
+            # uses the fixed-direction path; byte-identical).
+            if ladder_args.get("auto_search_displacement"):
+                cmd.append("--auto-search-displacement")
+                cmd += ["--accept-sep-nm",
+                        str(ladder_args["accept_sep_nm"])]
             # Mutation-definition spec (two-copy-only): thread the selected spec so
             # the worker builds the SAME mutation (default None => res-4 MTR<->Trp).
             if ladder_args.get("mutation_spec") is not None:
@@ -1914,7 +1952,33 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--displacement-nm", type=float, default=None,
                    help="Two-copy ONLY: magnitude of the copy-2 bulk displacement "
                         "d (nm; ATS peptide convention ~4.0 = 40 A). Default None "
-                        "=> the canonical ATS_TWOCOPY_DISPLACEMENT_NM.")
+                        "=> the canonical ATS_TWOCOPY_DISPLACEMENT_NM. Ignored "
+                        "when --auto-search-displacement is set (the search picks "
+                        "the magnitude from its escalation ladder).")
+    p.add_argument("--auto-search-displacement", action="store_true",
+                   help="Two-copy ONLY (opt-in): choose the copy-2 bulk "
+                        "displacement by the builder's direction-aware cone search "
+                        "(maximises the copy1<->copy2 + periodic-image min heavy-"
+                        "atom distance, escalates the magnitude only if no "
+                        "direction clears --accept-sep-nm) instead of the fixed "
+                        "residue-local direction at --displacement-nm. Recovers "
+                        "the bound-leg two-copy box build where a fixed-direction "
+                        "d drives copy-2's binder through copy-1's receptor body. "
+                        "d-/direction-NEUTRAL (the swap is partner-offset based; "
+                        "u1-u0 is d-invariant given full decoupling), so ranking-"
+                        "safe. A SINGLE search policy (--accept-sep-nm + the "
+                        "builder cone/magnitude-ladder constants) is applied to "
+                        "EVERY seed x leg (pre-registered; no policy heterogeneity). "
+                        "DEFAULT OFF = fixed direction (byte-identical legacy).")
+    p.add_argument("--accept-sep-nm", type=float,
+                   default=_ATS_ACCEPT_SEP_NM_DEFAULT,
+                   help="Two-copy auto-search ONLY: the decoupling-sufficient "
+                        "acceptance line (nm) a candidate direction must clear "
+                        "(PME cutoff + LJ-tail buffer). Default %.1f. Consulted "
+                        "only when --auto-search-displacement is set; the post-"
+                        "solvate C6 separation assert always enforces the 1.0 nm "
+                        "clash floor + periodic-image gate regardless."
+                        % _ATS_ACCEPT_SEP_NM_DEFAULT)
     p.add_argument("--mutation", default=None,
                    help="Two-copy ONLY: the mutation-definition spec (the residue + "
                         "alchemical-atom partition). Default None => the legacy "
@@ -2062,6 +2126,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     leg = args.leg
     construction = "twocopy" if args.twocopy else "single_core"
     displacement_nm = args.displacement_nm
+    auto_search_displacement = args.auto_search_displacement
+    accept_sep_nm = args.accept_sep_nm
     mutation_spec = args.mutation
     lambda1_rampdown = _parse_lambda1_rampdown(args.lambda1_rampdown)
     lambda2_rampup = _parse_lambda2_rampdown(args.lambda2_rampdown)
@@ -2081,6 +2147,14 @@ def main(argv: Optional[List[str]] = None) -> int:
     if mutation_spec is not None and construction != "twocopy":
         print("ERROR: --mutation requires --twocopy (the mutation-definition spec "
               "applies only to the canonical ATS two-copy build).", file=sys.stderr)
+        return 2
+
+    # --auto-search-displacement is two-copy ONLY (single_core has no copy-2 bulk
+    # displacement to search); fail loud rather than silently ignore on single_core.
+    if auto_search_displacement and construction != "twocopy":
+        print("ERROR: --auto-search-displacement requires --twocopy (the "
+              "direction-aware displacement search applies only to the canonical "
+              "ATS two-copy build's copy-2 bulk displacement).", file=sys.stderr)
         return 2
 
     mintimeid = None if args.mintimeid == -1 else args.mintimeid
@@ -2129,6 +2203,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                 archive_existing=not args.no_archive_existing,
                 reuse_serialized=args.reuse_serialized,
                 construction=construction, displacement_nm=displacement_nm,
+                auto_search_displacement=auto_search_displacement,
+                accept_sep_nm=accept_sep_nm,
                 lambda1_rampdown=lambda1_rampdown,
                 lambda2_rampup=lambda2_rampup, mutation_spec=mutation_spec,
                 staged_min=args.staged_min,
@@ -2155,6 +2231,26 @@ def main(argv: Optional[List[str]] = None) -> int:
         "platform": args.platform, "timestep_fs": args.timestep_fs,
         "genuine_decouple_nm": args.genuine_decouple_nm,
         "construction": construction, "displacement_nm": displacement_nm,
+        # task #100/#3 (SciVal condition 2): pre-register the SINGLE displacement
+        # search policy (anti-HARKing — fixed BEFORE the data + Keeper-auditable
+        # vs the runtime displacement_log). The same policy is applied to EVERY
+        # seed x leg; d-result heterogeneity (different chosen vectors) is harmless,
+        # policy heterogeneity is forbidden. The cone half-angle + magnitude ladder
+        # are the pinned engine constants (atm_trackB_setup.ATS_TWOCOPY_AUTOSEARCH_*),
+        # recorded by reference so the prereg stays openmm-import-free at parse time.
+        "displacement_search": {
+            "auto_search_displacement": auto_search_displacement,
+            "accept_sep_nm": (accept_sep_nm if auto_search_displacement else None),
+            "policy_constants_source": (
+                "atm_trackB_setup.ATS_TWOCOPY_AUTOSEARCH_{CONE_DEG,N_CANDIDATES,"
+                "MAGNITUDES_NM} + ATS_TWOCOPY_CLASH_FLOOR_NM (cone half-angle, "
+                "candidate count, magnitude escalation ladder, hard clash floor) "
+                "— pinned; base direction = compute_decouple_direction (res-local "
+                "outward)") if auto_search_displacement else None,
+            "applies_to": ("all (endpoint x seed x leg) identically"
+                           if auto_search_displacement else None),
+        },
+        "mtr_ncaa_xml": args.mtr_ncaa_xml,
         "mutation_spec": mutation_spec,
         "lambda1_rampdown": lambda1_rampdown,
         "lambda2_rampup": lambda2_rampup,
@@ -2203,6 +2299,13 @@ def main(argv: Optional[List[str]] = None) -> int:
             plan["displacement_nm"] = (
                 displacement_nm if displacement_nm is not None
                 else "default (ATS_TWOCOPY_DISPLACEMENT_NM)")
+            # task #100/#3: surface the chosen displacement policy in the plan so a
+            # dry-run shows whether the auto-search is armed + its acceptance line
+            # (the full policy is in config["displacement_search"]).
+            plan["displacement_mode"] = (
+                "auto_search" if auto_search_displacement else "fixed_direction")
+            if auto_search_displacement:
+                plan["accept_sep_nm"] = accept_sep_nm
         print(json.dumps({"plan": plan, "config": config}, indent=2,
                          default=str))
         return 0
@@ -2230,6 +2333,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             "genuine_decouple_nm": args.genuine_decouple_nm,
             "mtr_ncaa_xml": args.mtr_ncaa_xml, "binder_chain": args.binder_chain,
             "construction": construction, "displacement_nm": displacement_nm,
+            "auto_search_displacement": auto_search_displacement,
+            "accept_sep_nm": accept_sep_nm,
             "mutation_spec": mutation_spec,
             "lambda1_rampdown": lambda1_rampdown,
             "lambda2_rampup": lambda2_rampup,
@@ -2292,6 +2397,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                     archive_existing=not args.no_archive_existing,
                     reuse_serialized=args.reuse_serialized,
                     construction=construction, displacement_nm=displacement_nm,
+                    auto_search_displacement=auto_search_displacement,
+                    accept_sep_nm=accept_sep_nm,
                     lambda1_rampdown=lambda1_rampdown,
                     lambda2_rampup=lambda2_rampup, mutation_spec=mutation_spec,
                     staged_min=args.staged_min,

@@ -801,6 +801,29 @@ def test_serialize_rejects_bad_construction(rbfe):
         rbfe.serialize_inplace_rbfe_system(construction="overlay")
 
 
+def test_serialize_exposes_auto_search_params(rbfe):
+    # task #100/#114: the serialize host exposes the auto-search displacement
+    # knob + its acceptance line, defaulting OFF (byte-identical fixed-direction).
+    import inspect
+    sig = inspect.signature(rbfe.serialize_inplace_rbfe_system)
+    assert "auto_search_displacement" in sig.parameters
+    assert sig.parameters["auto_search_displacement"].default is False
+    assert "accept_sep_nm" in sig.parameters
+    # _serialize_twocopy_system forwards both.
+    sig2 = inspect.signature(rbfe._serialize_twocopy_system)
+    assert "auto_search_displacement" in sig2.parameters
+    assert "accept_sep_nm" in sig2.parameters
+
+
+def test_serialize_auto_search_requires_twocopy(rbfe):
+    # auto_search_displacement is two-copy-only; True on the single-core path is a
+    # wiring error (no copy-2 bulk displacement to search) -> fail loud, never
+    # silently ignore. accept_sep_nm left at default on single_core is harmless.
+    with pytest.raises(ValueError):
+        rbfe.serialize_inplace_rbfe_system(
+            construction="single_core", auto_search_displacement=True)
+
+
 @pytest.mark.skipif(not _endpoints_present(),
                     reason="2QKI endpoint final.pdb not present")
 def test_serialize_twocopy_roundtrip_unsolvated(rbfe, tmp_path):

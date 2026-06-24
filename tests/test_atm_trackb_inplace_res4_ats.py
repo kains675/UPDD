@@ -2458,6 +2458,19 @@ def test_twocopy_smoke_module_imports():
     assert hasattr(smoke, "main")
 
 
+def test_twocopy_smoke_exposes_auto_search(ats):
+    """task #100/#114: the smoke's run helper exposes the auto-search displacement
+    knob (default OFF = byte-identical fixed-direction) + its acceptance line."""
+    import inspect
+    smoke = _load_twocopy_smoke()
+    sig = inspect.signature(smoke.run_tier1_twocopy_smoke)
+    assert "auto_search_displacement" in sig.parameters
+    assert sig.parameters["auto_search_displacement"].default is False
+    assert "accept_sep_nm" in sig.parameters
+    assert (sig.parameters["accept_sep_nm"].default
+            == ats.ATS_TWOCOPY_ACCEPT_SEP_NM)
+
+
 def test_twocopy_smoke_tier1_free_unsolvated(ats):
     """The two-copy Tier-1 smoke runs end-to-end (Reference, unsolvated) and
     reports a structured outcome (pass / endpoint-mismatch / MC1)."""
@@ -2828,6 +2841,44 @@ def test_autosearch_raises_when_exhausted(ats):
         ats.auto_search_twocopy_displacement(
             c1, c2, accept_sep_nm=1.5, magnitudes_nm=(1.0, 1.0, 1.0),
             n_candidates=6, padding_nm=1.2)
+
+
+@pytest.mark.skipif(not _endpoints_present(),
+                    reason="2QKI endpoint final.pdb not present (s7)")
+def test_build_auto_search_surfaces_mode_and_log(ats):
+    """task #100/#114: building with auto_search_displacement=True drives the
+    engine's direction-aware search and surfaces an AUDITABLE displacement_log
+    (mode + selected dir/magnitude + achieved min-image sep) for the Keeper /
+    Path. Unsolvated free leg (cheap CPU); the auto-search runs on the per-copy
+    coordinates (no System rebuild per candidate)."""
+    build = ats.build_inplace_res4_twocopy_system(
+        leg="free", seed="s7", solvate=False, harmonize_common_charges=False,
+        auto_search_displacement=True)
+    if build["outcome"] != "twocopy_attached":
+        pytest.skip("MC1 outcome — no attached box to inspect")
+    assert build["displacement_mode"] == "auto_search"
+    log = build["displacement_log"]
+    assert log is not None and log["mode"] == "auto_search"
+    # The realised vector + the search bookkeeping are present + finite.
+    assert log["magnitude_nm"] > 0.0
+    assert log["achieved_image_min_nm"] > 0.0
+    assert log["accept_sep_nm"] == ats.ATS_TWOCOPY_ACCEPT_SEP_NM
+    # The chosen displacement separates the copies (C6 post-solvate floor is 1.0
+    # nm; the auto-search target is the elevated acceptance line).
+    assert build["separation"]["solute_solute_min_sep_nm"] >= 1.0
+
+
+@pytest.mark.skipif(not _endpoints_present(),
+                    reason="2QKI endpoint final.pdb not present (s7)")
+def test_build_default_is_fixed_direction(ats):
+    """Default (auto_search_displacement=False) keeps the legacy fixed-direction
+    mode + a fixed_direction log — byte-identical legacy displacement behaviour."""
+    build = ats.build_inplace_res4_twocopy_system(
+        leg="free", seed="s7", solvate=False, harmonize_common_charges=False)
+    if build["outcome"] != "twocopy_attached":
+        pytest.skip("MC1 outcome")
+    assert build["displacement_mode"] == "fixed_direction"
+    assert build["displacement_log"]["mode"] == "fixed_direction"
 
 
 def test_autosearch_empty_copy_raises(ats):

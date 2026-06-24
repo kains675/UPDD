@@ -735,6 +735,8 @@ def _serialize_twocopy_system(
     mtr_ncaa_xml: Optional[str],
     constraints: Any,
     mutation_spec: Optional[Any] = None,
+    auto_search_displacement: bool = False,
+    accept_sep_nm: float = ats.ATS_TWOCOPY_ACCEPT_SEP_NM,
 ) -> Dict[str, Any]:
     """Build + serialize the CANONICAL ATS TWO-COPY box for one leg.
 
@@ -757,6 +759,8 @@ def _serialize_twocopy_system(
         harmonize_common_charges=harmonize_common_charges,
         displacement_nm=displacement_nm, mtr_ncaa_xml=mtr_ncaa_xml,
         constraints=constraints, spec=mutation_spec,
+        auto_search_displacement=auto_search_displacement,
+        accept_sep_nm=accept_sep_nm,
     )
     if build.get("outcome") != "twocopy_attached":
         raise RuntimeError(
@@ -801,6 +805,11 @@ def _serialize_twocopy_system(
         "solvated": solvate,
         "swap_mode": "twocopy",
         "displacement_vector_nm": [float(c) for c in dvec] if dvec else None,
+        # task #100/#6: how d was chosen (fixed_direction vs auto_search) + the
+        # per-build search trail (selected dir/magnitude/min-image sep) so the
+        # run_manifest records it for the Keeper audit + Path decoupling check.
+        "displacement_mode": build.get("displacement_mode"),
+        "displacement_log": build.get("displacement_log"),
         "common_charges_harmonized": build.get("common_charges_harmonized"),
         "mtr_ncaa_xml": build.get("mtr_ncaa_xml"),
         # C8 SIGN-critical: for the two-copy box the decouple direction is the
@@ -840,6 +849,8 @@ def serialize_inplace_rbfe_system(
     construction: str = "single_core",
     displacement_nm: float = ats.ATS_TWOCOPY_DISPLACEMENT_NM,
     mutation_spec: Optional[Any] = None,
+    auto_search_displacement: bool = False,
+    accept_sep_nm: float = ats.ATS_TWOCOPY_ACCEPT_SEP_NM,
 ) -> Dict[str, Any]:
     """Build + serialize the in-place fused RBFE System for one leg.
 
@@ -865,6 +876,17 @@ def serialize_inplace_rbfe_system(
         exclusions). The swap is a REAL coordinate transfer (one-frame |u1-u0|
         finite + non-saturated, ~few kcal/mol, validated). This is the path that
         can yield a converged ΔΔG (pilot needed to confirm; R-18).
+
+    ``auto_search_displacement`` (two-copy ONLY, default False -> byte-identical
+    fixed-direction legacy path): when True the copy-2 bulk displacement is chosen
+    by the builder's direction-aware cone search (maximises the copy1<->copy2 +
+    periodic-image min heavy-atom distance, escalates the magnitude only if no
+    direction clears ``accept_sep_nm``). This recovers the bound-leg box build
+    where a fixed-direction d drives copy-2's binder through copy-1's receptor
+    body. d-/direction-NEUTRAL (the swap is partner-offset based; u1-u0 is
+    d-invariant given full decoupling), so ranking-safe. ``accept_sep_nm`` is
+    consulted only by the auto-search; the post-solvate C6 separation assert
+    always enforces the 1.0 nm clash floor + the periodic-image gate.
 
     ``constraints=None`` (the DEFAULT here) matches the Tier-2 R3 requirement
     that the appearing/disappearing alch H carry NO SHAKE (a 1 fs unconstrained
@@ -901,7 +923,9 @@ def serialize_inplace_rbfe_system(
             binder_chain=binder_chain, solvate=solvate,
             harmonize_common_charges=harmonize_common_charges,
             displacement_nm=displacement_nm, mtr_ncaa_xml=mtr_ncaa_xml,
-            constraints=constraints, mutation_spec=mutation_spec)
+            constraints=constraints, mutation_spec=mutation_spec,
+            auto_search_displacement=auto_search_displacement,
+            accept_sep_nm=accept_sep_nm)
 
     # --- SINGLE-CORE (legacy default; byte-identical) ---------------------
     # mutation_spec is two-copy-only (single-core is the MTR<->Trp single-shared-
@@ -912,6 +936,15 @@ def serialize_inplace_rbfe_system(
             "serialize_inplace_rbfe_system: mutation_spec is only supported with "
             "construction='twocopy' (the single_core path is the MTR<->Trp "
             "single-shared-core build).")
+    # auto_search_displacement is a two-copy-only displacement-construction knob
+    # (single_core has no copy-2 bulk displacement to search); a True flag on
+    # single_core is a wiring error, not silently ignored. accept_sep_nm is only
+    # consulted by the auto-search, so its default is harmless on single_core.
+    if auto_search_displacement:
+        raise ValueError(
+            "serialize_inplace_rbfe_system: auto_search_displacement is only "
+            "supported with construction='twocopy' (the single_core path has no "
+            "copy-2 bulk displacement to search).")
     build = ats.build_inplace_res4_fused_system(
         leg=leg, seed=seed, binder_chain=binder_chain, solvate=solvate,
         harmonize_common_charges=harmonize_common_charges, swap_mode=swap_mode,

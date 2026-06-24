@@ -561,6 +561,76 @@ def test_default_dry_run_is_single_core(prod, tmp_path, capsys):
     assert "schedule_kind" not in plan
 
 
+# ---------------- auto-search displacement wiring (task #100/#114) ----------
+def test_auto_search_flags_in_parser(prod):
+    p = prod.build_arg_parser()
+    a = p.parse_args(["--twocopy", "--auto-search-displacement",
+                      "--accept-sep-nm", "2.0"])
+    assert a.auto_search_displacement is True
+    assert a.accept_sep_nm == 2.0
+    # default OFF + the default acceptance line mirrors the engine constant.
+    b = p.parse_args(["--leg", "free"])
+    assert b.auto_search_displacement is False
+    assert b.accept_sep_nm == prod._ATS_ACCEPT_SEP_NM_DEFAULT
+
+
+def test_accept_sep_default_locksteps_with_engine_constant(prod):
+    # The launcher's argparse default MUST equal the engine SSOT constant (the
+    # comment promises lockstep; a drift is a wiring error).
+    if _UTILS not in sys.path:
+        sys.path.insert(0, _UTILS)
+    ats = _load("atm_trackB_setup", "utils/atm_trackB_setup.py")
+    assert prod._ATS_ACCEPT_SEP_NM_DEFAULT == ats.ATS_TWOCOPY_ACCEPT_SEP_NM
+
+
+def test_auto_search_requires_twocopy(prod, tmp_path):
+    # --auto-search-displacement on the single-core path is a wiring error: fail
+    # loud (rc 2), never silently ignore (the single-core box has no copy-2 bulk
+    # displacement to search).
+    rc = prod.main(["--auto-search-displacement", "--leg", "free",
+                    "--endpoints", "cp4", "--seeds", "s7",
+                    "--directions", "dplus", "--out-root", str(tmp_path)])
+    assert rc == 2
+
+
+def test_auto_search_dry_run_registers_policy(prod, tmp_path, capsys):
+    # With the search ON the C11 pre-registration records the SINGLE displacement
+    # policy (anti-HARKing + Keeper-auditable) and the plan shows the mode.
+    rc = prod.main(["--twocopy", "--auto-search-displacement",
+                    "--accept-sep-nm", "1.5", "--leg", "bound",
+                    "--endpoints", "cp4", "--directions", "dplus",
+                    "--seeds", "s7", "--dry-run", "--out-root", str(tmp_path)])
+    assert rc == 0
+    out = capsys.readouterr().out
+    payload = json.loads(out[out.index("{"):])
+    ds = payload["config"]["displacement_search"]
+    assert ds["auto_search_displacement"] is True
+    assert ds["accept_sep_nm"] == 1.5
+    assert "identically" in ds["applies_to"]
+    assert payload["plan"]["displacement_mode"] == "auto_search"
+    assert payload["plan"]["accept_sep_nm"] == 1.5
+    # The on-disk pre_registration.json carries the same policy.
+    prereg = json.load(open(os.path.join(str(tmp_path), "pre_registration.json")))
+    assert (prereg["config"]["displacement_search"]["auto_search_displacement"]
+            is True)
+
+
+def test_default_off_registers_fixed_direction(prod, tmp_path, capsys):
+    # Default OFF => the prereg policy fields are None (byte-identical legacy
+    # fixed-direction semantics) and the plan shows fixed_direction.
+    rc = prod.main(["--twocopy", "--leg", "bound", "--endpoints", "cp4",
+                    "--directions", "dplus", "--seeds", "s7", "--dry-run",
+                    "--out-root", str(tmp_path)])
+    assert rc == 0
+    out = capsys.readouterr().out
+    payload = json.loads(out[out.index("{"):])
+    ds = payload["config"]["displacement_search"]
+    assert ds["auto_search_displacement"] is False
+    assert ds["accept_sep_nm"] is None
+    assert payload["plan"]["displacement_mode"] == "fixed_direction"
+    assert "accept_sep_nm" not in payload["plan"]
+
+
 # ---------------- git provenance stamping (run_manifest) -------------------
 def test_git_provenance_keys_and_types(prod):
     # The helper must always return both keys with the right types, regardless

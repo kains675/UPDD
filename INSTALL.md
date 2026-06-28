@@ -88,10 +88,10 @@ python -c "import openmm, mdtraj, pyscf, parmed, rdkit; print('OK')"
 
 # 3. Run the pytest baseline
 python -m pytest tests/ -q
-# Expected: 294 pass / 9 skip / 1 fail
+# Expected: 1145 pass / 27 skip / 1 fail
 # (The 1 fail is `test_admet_filter::test_lipinski_constants_are_module_level` —
 #  a pre-existing MW = 500 vs 1200 semantic mismatch, separate triage.
-#  All other 294 tests passing confirms a clean Tier A install.)
+#  All other 1145 tests passing confirms a clean Tier A install.)
 ```
 
 > ⚠️ **Common pitfall**: do NOT invoke `pytest` directly from outside the env. The tests import `openmm`, `mdtraj`, and `numpy` from the `qmmm` env. Running `pytest` via system Python or via `~/miniconda3/bin/python` (root miniconda, no `openmm`) silently fails 13+ tests with `ModuleNotFoundError`. The canonical invocation is `python -m pytest tests/` with the `qmmm` env active, as shown above.
@@ -184,7 +184,7 @@ docker build -t updd:v0.7.1 .
 
 ```bash
 docker run --rm updd:v0.7.1 python -m pytest tests/ -q
-# Expected: 294 pass / 9 skip / 1 fail
+# Expected: 1145 pass / 27 skip / 1 fail
 ```
 
 ### 4.3 Inspect the image interactively
@@ -232,7 +232,7 @@ UPDD/
 │   ├── 1EBP_MTR13_calib_s*/     # EPO 1EBP MTR13 variants (5 seeds)
 │   ├── ...                      # 6 target families total
 │   └── _archive/pre_amb14_patch_20260427/   # Pre-patch (legacy) audit baseline
-└── tests/                       # 294 pass / 9 skip / 1 pre-existing fail
+└── tests/                       # 1145 pass / 27 skip / 1 pre-existing fail
 ```
 
 ---

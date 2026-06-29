@@ -527,6 +527,231 @@ ANCHOR_FAVORABLE_CP4_CONSISTENT_SIGN = "negative"
 # ---------------------------------------------------------------------------
 EXTEND_SIGMA_BTWN_TARGET_KCAL = 2.2   # pre-reg C4: ~2x free paired σ threshold
 
+# ---------------------------------------------------------------------------
+# C4 frozen-plateau guard (ADR-0020 §E; pre-registered 2026-06-28).
+#
+# A replicate whose dgbind1 is a FROZEN PLATEAU reports a false-precision tiny
+# block-bootstrap spread (the apex wall was never crossed, so the walker sat in
+# one micro-state and every time-block returns the SAME value). Folded into an
+# inverse-variance average it would DOMINATE (1/σ² → ∞) and pull the endpoint
+# mean toward a value the seed never actually equilibrated to. The guard
+# DETECTS such a seed and SUSPENDS its inverse-variance weight (the seed is
+# flagged for human review, NOT silently deleted — ADR-0020 §D: seed removal is
+# never an O2 basis).
+#
+# Detection (ADR-0020 §E):
+#   PRIMARY signature [both required]:
+#     (a) n_blocks <= FROZEN_N_BLOCKS_MAX   — too few independent time-blocks
+#     (b) block-to-block CV ~ 0             — block_std / |block_mean| below the
+#                                             floor (the exemplar s101 had
+#                                             block_std=0.0027 on dgbind1≈10.9 =>
+#                                             CV≈2.5e-4, vs healthy seeds O(1e-1))
+#   CORROBORATION [independent, EITHER raises confidence; not required to fire]:
+#     (c) RT == 0                           — zero full round-trips (manifest)
+#     (d) apex MBAR overlap O < floor       — apex pair under the overlap floor
+#
+# The PRIMARY signature alone fires the flag (it is the direct false-precision
+# fingerprint); the corroboration is recorded for the human + raises a
+# ``corroborated`` boolean. This is a GENERAL guard (it keys on the statistical
+# signature, NOT on the seed name s101).
+#
+# Lineage: block-averaging convergence diagnostics (Flyvbjerg & Petersen 1989,
+# DOI 10.1063/1.457480); inverse-variance weighting false-precision failure
+# under non-ergodic sampling (Shirts & Chodera 2008, DOI 10.1063/1.2978177).
+# ---------------------------------------------------------------------------
+FROZEN_N_BLOCKS_MAX = 3            # primary (a): <= this many usable blocks
+FROZEN_BLOCK_CV_FLOOR = 1.0e-3     # primary (b): block_std/|block_mean| below
+                                   # this = block-to-block variation ≈ 0
+FROZEN_APEX_OVERLAP_FLOOR = 0.10   # corroboration (d): apex O below this floor
+
+
+def compute_frozen_plateau_flag(
+    rep,
+    n_blocks_max=FROZEN_N_BLOCKS_MAX,
+    block_cv_floor=FROZEN_BLOCK_CV_FLOOR,
+    apex_overlap_floor=FROZEN_APEX_OVERLAP_FLOOR,
+):
+    """Per-replicate C4 frozen-plateau flag from a leg ``rep`` result dict.
+
+    Reads the EXISTING ``rep["block_bootstrap"]`` (n_blocks, block_std_dgbind1,
+    block_mean_dgbind1) for the PRIMARY false-precision signature and the
+    EXISTING ``rep["overlap_qc"]["min_adjacent_O"]`` + optional
+    ``rep["round_trips"]`` for the independent CORROBORATION. Pure / read-only:
+    asserts NO ΔG, recomputes nothing, deletes no seed — it only LABELS the seed
+    so the endpoint combiner can suspend its inverse-variance weight (ADR-0020
+    §E). Graceful: a rep with no block bootstrap (e.g. block_bootstrap=False or
+    insufficient blocks) returns ``frozen=None`` (UNDETERMINED, never raises).
+
+    Returns a dict: ``frozen`` (True/False/None), ``corroborated`` (bool),
+    ``reason``, and the diagnostic fields consulted.
+    """
+    out = {
+        "frozen": None,
+        "corroborated": False,
+        "reason": "",
+        "n_blocks": None,
+        "block_std_dgbind1": None,
+        "block_mean_dgbind1": None,
+        "block_cv": None,
+        "min_adjacent_O": None,
+        "round_trips": None,
+        "thresholds": {
+            "n_blocks_max": int(n_blocks_max),
+            "block_cv_floor": float(block_cv_floor),
+            "apex_overlap_floor": float(apex_overlap_floor),
+        },
+    }
+    if not isinstance(rep, dict):
+        out["reason"] = "rep is not a dict"
+        return out
+
+    bb = rep.get("block_bootstrap")
+    if not isinstance(bb, dict) or bb.get("status") != "ok":
+        # No usable block bootstrap (status != ok, or absent) -> cannot evaluate
+        # the primary signature. UNDETERMINED (frozen stays None).
+        out["reason"] = (
+            "block_bootstrap unavailable (status=%r) -> primary signature "
+            "undeterminable" % (bb.get("status") if isinstance(bb, dict)
+                                else None))
+        return out
+
+    n_blocks = bb.get("n_blocks")
+    block_std = bb.get("block_std_dgbind1")
+    block_mean = bb.get("block_mean_dgbind1")
+    out["n_blocks"] = n_blocks
+    out["block_std_dgbind1"] = block_std
+    out["block_mean_dgbind1"] = block_mean
+
+    # Block-to-block CV = block_std / |block_mean| (the scale-free spread). A
+    # near-zero block_mean (|mean| ~ 0) makes CV ill-defined; fall back to the
+    # absolute block_std vs the floor in that degenerate case.
+    block_cv = None
+    try:
+        if block_mean is not None and abs(float(block_mean)) > 1e-9:
+            block_cv = abs(float(block_std)) / abs(float(block_mean))
+        elif block_std is not None:
+            block_cv = abs(float(block_std))   # |mean|~0 -> use absolute spread
+    except (TypeError, ValueError):
+        block_cv = None
+    out["block_cv"] = block_cv
+
+    # PRIMARY signature (both required): few blocks AND ~zero block-to-block CV.
+    primary = (
+        n_blocks is not None and int(n_blocks) <= int(n_blocks_max)
+        and block_cv is not None and block_cv < float(block_cv_floor)
+    )
+
+    # CORROBORATION (independent; either raises confidence, neither required).
+    oqc = rep.get("overlap_qc")
+    min_adj_O = None
+    if isinstance(oqc, dict):
+        min_adj_O = oqc.get("min_adjacent_O")
+    out["min_adjacent_O"] = min_adj_O
+    rt = rep.get("round_trips")
+    out["round_trips"] = rt
+    corr_rt = (rt is not None and int(rt) == 0)
+    corr_overlap = (min_adj_O is not None
+                    and float(min_adj_O) < float(apex_overlap_floor))
+    corroborated = bool(corr_rt or corr_overlap)
+    out["corroborated"] = corroborated
+
+    out["frozen"] = bool(primary)
+    if primary:
+        out["reason"] = (
+            "FROZEN PLATEAU: n_blocks=%s <= %d AND block_cv=%.3g < %.3g "
+            "(false-precision tiny block spread)%s"
+            % (n_blocks, n_blocks_max, block_cv, block_cv_floor,
+               (" [corroborated: %s]" % (
+                   ", ".join(
+                       ([("RT=0")] if corr_rt else [])
+                       + (["apex O=%.3g < %.2g" % (min_adj_O, apex_overlap_floor)]
+                          if corr_overlap else [])))
+                if corroborated else " [primary only; no RT/overlap corroboration]"))
+        )
+    else:
+        out["reason"] = (
+            "not frozen (n_blocks=%s, block_cv=%s vs floor %.3g)"
+            % (n_blocks, ("%.3g" % block_cv if block_cv is not None else None),
+               block_cv_floor))
+    return out
+
+
+def flag_frozen_plateau_seeds(
+    reps,
+    n_blocks_max=FROZEN_N_BLOCKS_MAX,
+    block_cv_floor=FROZEN_BLOCK_CV_FLOOR,
+    apex_overlap_floor=FROZEN_APEX_OVERLAP_FLOOR,
+):
+    """Aggregate C4 frozen-plateau flags over an endpoint's replicate set.
+
+    Runs :func:`compute_frozen_plateau_flag` on each rep and computes the
+    frozen-suspended subset, plus the dgbind1 mean/σ_btwn/SEM RECOMPUTED with
+    the frozen seeds EXCLUDED (the inverse-variance-weight suspension surfaced
+    as an unweighted re-aggregate over the surviving seeds). The ORIGINAL
+    all-seed mean/σ_btwn/SEM are NOT touched here (the caller keeps them under
+    their existing keys); this returns the flagged-aware companion so a human
+    can compare. Pure / read-only; never raises.
+
+    Returns a dict with ``per_seed`` flags, the frozen index list, and the
+    surviving-seed re-aggregate (or a reason it is unavailable).
+    """
+    import numpy as np
+
+    per_seed = []
+    frozen_idx = []
+    for i, rep in enumerate(reps):
+        flag = compute_frozen_plateau_flag(
+            rep, n_blocks_max=n_blocks_max, block_cv_floor=block_cv_floor,
+            apex_overlap_floor=apex_overlap_floor)
+        per_seed.append(flag)
+        if flag.get("frozen") is True:
+            frozen_idx.append(i)
+
+    surviving = [i for i in range(len(reps)) if i not in frozen_idx]
+    result = {
+        "policy": "ADR-0020 §E frozen-plateau guard: suspend inverse-variance "
+                  "weight of a seed whose dgbind1 is a false-precision frozen "
+                  "plateau (flag for review; NOT deleted).",
+        "thresholds": {
+            "n_blocks_max": int(n_blocks_max),
+            "block_cv_floor": float(block_cv_floor),
+            "apex_overlap_floor": float(apex_overlap_floor),
+        },
+        "n_replicates": len(reps),
+        "n_frozen": len(frozen_idx),
+        "frozen_replicate_indices": frozen_idx,
+        "any_frozen": bool(frozen_idx),
+        "per_seed": per_seed,
+        "surviving_replicate_indices": surviving,
+        "surviving_mean_dgbind1_kcal": None,
+        "surviving_sigma_btwn_dgbind1_kcal": None,
+        "surviving_sem_dgbind1_kcal": None,
+        "surviving_aggregate_status": "not_applicable_no_frozen",
+    }
+    if not frozen_idx:
+        return result
+
+    # Re-aggregate over the surviving (non-frozen) seeds only.
+    surv_vals = []
+    for i in surviving:
+        try:
+            surv_vals.append(float(reps[i]["dgbind1_kcal"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+    if len(surv_vals) == 0:
+        result["surviving_aggregate_status"] = "all_seeds_frozen_no_survivors"
+        return result
+    arr = np.asarray(surv_vals, dtype=float)
+    result["surviving_mean_dgbind1_kcal"] = float(arr.mean())
+    if arr.size >= 2:
+        sigma = float(arr.std(ddof=1))
+        result["surviving_sigma_btwn_dgbind1_kcal"] = sigma
+        result["surviving_sem_dgbind1_kcal"] = float(sigma / (arr.size ** 0.5))
+        result["surviving_aggregate_status"] = "ok"
+    else:
+        result["surviving_aggregate_status"] = "single_surviving_seed_no_sigma"
+    return result
+
 
 def _closure_distrust_from_dgb(dgb, threshold=CLOSURE_DISTRUST_THRESHOLD):
     """Reduce an already-computed leg closure ``dgb`` to the DISTRUST report.
@@ -1262,6 +1487,13 @@ def analyze_replicate_set(
         sigma_btwn = None
         sem = None
 
+    # C4 frozen-plateau guard (ADR-0020 §E; ADDITIVE, REPORTING-ONLY). Flags any
+    # seed whose dgbind1 is a false-precision frozen plateau and surfaces the
+    # surviving-seed re-aggregate. The ORIGINAL all-seed mean/σ_btwn/SEM above
+    # are UNCHANGED (existing keys preserved); the guard companion lets a human
+    # see whether a flagged seed is dominating the spread before any sign claim.
+    frozen_guard = flag_frozen_plateau_seeds(reps)
+
     return {
         "n_replicates": n,
         "replicate_leg_dirs": list(leg_dirs),
@@ -1271,6 +1503,8 @@ def analyze_replicate_set(
         "sem_dgbind1_kcal": sem,                 # inter-rep SEM
         # Single-run analytic error of replicate-0 (diagnostic only).
         "single_run_analytic_ddgb_kcal_diag": reps[0]["ddgb_kcal"],
+        # C4 frozen-plateau guard companion (additive; ADR-0020 §E).
+        "frozen_plateau_guard": frozen_guard,
     }
 
 
@@ -1684,8 +1918,19 @@ def build_v3_payload(
     # kcal/mol → recommend n -> n+1). Never changes n / gates / touches σ.
     extend_recommended = compute_extend_recommended(cp4, wt)
 
+    # C4 frozen-plateau digest (ADR-0020 §E; REPORTING-ONLY; ADDITIVE). Reads the
+    # per-endpoint frozen_plateau_guard already attached to cp4/wt; lists flagged
+    # frozen seeds whose inverse-variance weight is suspended in the companion
+    # surviving-seed re-aggregate. NEVER gates / changes a number.
+    frozen_plateau_digest = _build_frozen_plateau_digest(cp4, wt)
+
     return {
         "schema_version": "trackb_ddint_free_v3",
+        # Additive extensions on top of the v3 schema (existing v3 consumers /
+        # the v2->v3 reemit path are unaffected — these are extra keys, the v3
+        # core is byte-identical). ADR-0020 §E frozen-plateau guard is the only
+        # current addendum.
+        "schema_addenda": ["frozen_plateau_guard_adr0020e"],
         "regime": "ranking_only_R11",
         "protocol": protocol,
         "mintimeid": mintimeid,
@@ -1779,6 +2024,11 @@ def build_v3_payload(
         # changes n / gates / folds into an error bar. DOI 10.1007/
         # s10822-015-9840-9 (convergence diagnostics).
         "extend_recommended": extend_recommended,
+        # C4 frozen-plateau digest (ADR-0020 §E; REPORTING-ONLY; ADDITIVE).
+        # Lists seeds flagged as false-precision frozen plateaus; their
+        # inverse-variance weight is suspended in the per-endpoint surviving-seed
+        # companion re-aggregate. NEVER gates / changes the reported ddint / σ.
+        "frozen_plateau_digest": frozen_plateau_digest,
         "notes": notes,
     }
 
@@ -1934,6 +2184,81 @@ def _build_closure_quarantine(
             "'broken'. distrust=False is NOT a trust assertion; closure is a "
             "SEPARATE axis NEVER folded into σ_btwn / paired-SEM. The closure "
             "values are byte-identical to closure_cp4/wt_kcal_abs."
+        ),
+    }
+
+
+def _build_frozen_plateau_digest(
+    cp4: Dict[str, Any],
+    wt: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Assemble the top-level C4 frozen-plateau digest (REPORTING-ONLY; ADDITIVE).
+
+    Reads the per-endpoint ``frozen_plateau_guard`` already attached by
+    ``analyze_endpoint_replicates`` and lists the flagged (frozen) seeds per
+    endpoint. NEVER feeds a ΔG / error bar — the digest is advisory: a flagged
+    seed's inverse-variance weight is SUSPENDED in the companion surviving-seed
+    re-aggregate (already inside each endpoint guard), not deleted. When an
+    endpoint predates the guard (e.g. a v2-archive re-emit) it is marked
+    ``guard_unavailable``. Graceful; never raises.
+    """
+    per_endpoint: List[Dict[str, Any]] = []
+    flagged: List[str] = []
+    unavailable: List[str] = []
+    any_frozen = False
+
+    for label, block in (("cp4", cp4), ("wt", wt)):
+        guard = block.get("frozen_plateau_guard") if isinstance(block, dict) \
+            else None
+        if not isinstance(guard, dict):
+            per_endpoint.append({
+                "endpoint": label, "status": "guard_unavailable"})
+            unavailable.append(label)
+            continue
+        frozen_idx = guard.get("frozen_replicate_indices") or []
+        if frozen_idx:
+            any_frozen = True
+            for i in frozen_idx:
+                flagged.append(f"{label}/rep{i}")
+        per_endpoint.append({
+            "endpoint": label,
+            "status": "ok",
+            "n_frozen": guard.get("n_frozen", 0),
+            "frozen_replicate_indices": frozen_idx,
+            "surviving_mean_dgbind1_kcal": guard.get(
+                "surviving_mean_dgbind1_kcal"),
+            "surviving_sigma_btwn_dgbind1_kcal": guard.get(
+                "surviving_sigma_btwn_dgbind1_kcal"),
+            "surviving_sem_dgbind1_kcal": guard.get("surviving_sem_dgbind1_kcal"),
+            "surviving_aggregate_status": guard.get("surviving_aggregate_status"),
+        })
+
+    warning = None
+    if flagged:
+        warning = (
+            "FROZEN_PLATEAU (ADR-0020 §E): %d seed-leg(s) flagged as "
+            "false-precision frozen plateaus: %s. Their inverse-variance weight "
+            "is SUSPENDED in the surviving-seed companion re-aggregate (NOT "
+            "deleted; seed removal is never an O2 basis per ADR-0020 §D). "
+            "Review the apex round-trip + block spread before any sign claim."
+            % (len(flagged), ", ".join(flagged))
+        )
+
+    return {
+        "basis": "ADR-0020 §E (n_blocks<=%d AND block_cv<%.0e primary; RT=0 OR "
+                 "apex_O<%.2f corroboration)" % (
+                     FROZEN_N_BLOCKS_MAX, FROZEN_BLOCK_CV_FLOOR,
+                     FROZEN_APEX_OVERLAP_FLOOR),
+        "any_frozen": any_frozen,
+        "flagged": flagged,
+        "unavailable": unavailable,
+        "per_endpoint": per_endpoint,
+        "warning": warning,
+        "note": (
+            "advisory; suspends inverse-variance weight of a false-precision "
+            "frozen seed (flag for review, NOT deletion). The ORIGINAL all-seed "
+            "mean/σ_btwn/SEM are unchanged; the surviving-seed re-aggregate is a "
+            "companion for human comparison. NEVER folded into the reported σ."
         ),
     }
 

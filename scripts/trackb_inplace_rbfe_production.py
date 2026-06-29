@@ -313,6 +313,107 @@ def _rep_dir(out_root: str, endpoint: str, leg: str, replicate_index: int) -> st
     return os.path.join(out_root, endpoint, leg, "rep%d" % (replicate_index,))
 
 
+# ---------------------------------------------------------------------------
+# G3 — rep-dir seed-stamp (out-root collision guard).
+#
+# replicate_index is the POSITIONAL index of the seed in --seeds (rep0=seed[0],
+# rep1=seed[1], ...). Two SEPARATE invocations that each pass ONE seed but share
+# the same --out-root both map to rep0 — so the second silently overwrites (or,
+# with the default R-7 archive, archives-away) the first seed's ACTIVE data, and
+# the UWHAM cohort then sees the wrong seed in that rep slot. The stamp records
+# which seed a rep dir belongs to so a DIFFERENT seed landing on the same rep dir
+# fails loud (R-18: a real mixing hazard, not papered over). A SAME-seed re-run
+# (resume) passes (the stamp matches), and a legacy rep dir with no stamp falls
+# back to the run_manifest.json "seed" field.
+# ---------------------------------------------------------------------------
+def _seed_stamp_path(rep_dir: str, seed: str) -> str:
+    safe = "".join(c if (c.isalnum() or c in "._-") else "_" for c in str(seed))
+    return os.path.join(rep_dir, ".seed_%s" % (safe,))
+
+
+def _existing_rep_seed(rep_dir: str) -> Optional[str]:
+    """Return the seed a rep dir already belongs to, or None if undeterminable.
+
+    Looks for the explicit ``.seed_<name>`` stamp first; if absent (a legacy rep
+    dir created before stamping), falls back to the ``run_manifest.json`` ``seed``
+    field. An empty / stampless / manifestless dir returns None (treated as free
+    — the same-seed first run / a pre-stamp resume continues and gets stamped)."""
+    if not os.path.isdir(rep_dir):
+        return None
+    try:
+        for name in os.listdir(rep_dir):
+            if name.startswith(".seed_"):
+                return name[len(".seed_"):]
+    except OSError:
+        return None
+    manifest = os.path.join(rep_dir, "run_manifest.json")
+    if os.path.isfile(manifest):
+        try:
+            with open(manifest) as fh:
+                seed = json.load(fh).get("seed")
+            return str(seed) if seed is not None else None
+        except (OSError, ValueError):
+            return None
+    return None
+
+
+# ---------------------------------------------------------------------------
+# G2 — per-cell displacement policy record + in-invocation uniformity assert.
+#
+# Every (endpoint x seed x leg) cell of one invocation MUST carry the SAME
+# displacement policy (auto_search bool / accept_sep_nm / displacement_nm). The
+# launcher only ever sources one policy from the CLI, so the cells are uniform by
+# construction; the explicit record + assert (a) lets a Keeper post-hoc audit
+# spot a MIXED policy across separate invocations on the same out-root (read from
+# pre_registration.json), and (b) hard-fails if a future code path ever varies
+# the policy per cell within one invocation (anti-HARKing — a single pre-
+# registered policy applied uniformly; SciVal condition 2 for task #100/#114).
+# ---------------------------------------------------------------------------
+def _build_displacement_cells(endpoints: List[str], seeds: List[str], leg: str,
+                              auto_search_displacement: bool,
+                              accept_sep_nm: float,
+                              displacement_nm: Optional[float]
+                              ) -> List[Dict[str, Any]]:
+    cells: List[Dict[str, Any]] = []
+    for ep in endpoints:
+        for seed in seeds:
+            cells.append({
+                "endpoint": ep,
+                "seed": seed,
+                "leg": leg,
+                "auto_search_displacement": auto_search_displacement,
+                "accept_sep_nm": (accept_sep_nm if auto_search_displacement
+                                  else None),
+                "displacement_nm": displacement_nm,
+            })
+    return cells
+
+
+def _assert_uniform_displacement_policy(cells: List[Dict[str, Any]]) -> None:
+    """Fail loud if any cell's displacement policy differs from the first.
+
+    Policy = (auto_search_displacement, accept_sep_nm, displacement_nm). A mix is
+    forbidden (all cells must share the single pre-registered policy)."""
+    if not cells:
+        return
+
+    def _key(c: Dict[str, Any]) -> Tuple[Any, Any, Any]:
+        return (c.get("auto_search_displacement"),
+                c.get("accept_sep_nm"),
+                c.get("displacement_nm"))
+
+    first = _key(cells[0])
+    for c in cells[1:]:
+        if _key(c) != first:
+            raise ValueError(
+                "G2 mixed displacement policy across cells: %s/%s = %s differs "
+                "from %s/%s = %s. Every (endpoint x seed x leg) cell of one "
+                "invocation must share the SAME pre-registered displacement "
+                "policy (auto_search / accept_sep_nm / displacement_nm)."
+                % (c.get("endpoint"), c.get("seed"), _key(c),
+                   cells[0].get("endpoint"), cells[0].get("seed"), first))
+
+
 def _csv(vals) -> str:
     return ", ".join(str(v) for v in vals)
 
@@ -780,6 +881,63 @@ def gate_receptor_contact(leg, construction, fused, ats, *, endpoint=None,
 
 
 # ---------------------------------------------------------------------------
+# OPT-IN DCD atom-subset selection (probe diagnostic).
+# ---------------------------------------------------------------------------
+# Solvent / ion residue names excluded from the DCD subset (the ~290k PME
+# waters dominate the box; the res-4 structural order parameters live entirely
+# on the binder + receptor, so the subset is every NON-solvent atom). Standard
+# OpenMM/Amber water + monatomic-ion residue names.
+_DCD_SOLVENT_RESNAMES = frozenset({
+    "HOH", "WAT", "TIP3", "TIP4", "TIP5", "SPC", "T3P", "T4P",
+    "NA", "CL", "K", "MG", "CA", "ZN", "SOD", "CLA", "POT",
+})
+
+
+def _select_dcd_atom_indices(topology, alchemical_atoms=None) -> List[int]:
+    """Return the non-solvent atom indices to record in the probe DCD.
+
+    The recorded subset is EVERY non-water, non-ion atom (binder chain + the
+    receptor): it captures the res-4 sidechain χ1/χ2 swap atoms, the indole
+    ring pucker, the res-4 backbone φ/ψ, and the receptor pocket context, while
+    excluding the ~290k PME waters that dominate the 300k-atom box (so the DCD
+    is ≈KB/frame not ≈MB/frame). When ``alchemical_atoms`` metadata is present
+    (the fresh-serialize path exposes it; the reuse path does not), the function
+    ASSERTS the alchemical swap atoms are inside the subset (fail-loud) — the
+    res-4 χ judgment is meaningless if those atoms were dropped. Returns a
+    sorted, de-duplicated index list.
+    """
+    keep = set()
+    for atom in topology.atoms():
+        if atom.residue.name.upper() in _DCD_SOLVENT_RESNAMES:
+            continue
+        keep.add(int(atom.index))
+    if not keep:
+        raise RuntimeError(
+            "_select_dcd_atom_indices: no non-solvent atoms found in the box "
+            "topology (cannot record a structural DCD).")
+    if alchemical_atoms:
+        alch = set()
+        for key in ("mtr_var", "wt_var", "wt_var_fused",
+                    "common_attach_ne1", "copy1_ne1", "copy2_ne1"):
+            v = alchemical_atoms.get(key)
+            if v is None:
+                continue
+            if isinstance(v, (list, tuple)):
+                alch.update(int(a) for a in v)
+            else:
+                alch.add(int(v))
+        missing = sorted(a for a in alch if a not in keep)
+        if missing:
+            raise RuntimeError(
+                "_select_dcd_atom_indices: alchemical swap atom(s) %s were "
+                "excluded from the DCD subset (their residue was treated as "
+                "solvent?). The res-4 χ order parameter requires them — refusing "
+                "to write a DCD that cannot resolve the alchemical region."
+                % (missing,))
+    return sorted(keep)
+
+
+# ---------------------------------------------------------------------------
 # One standalone single-direction ladder run (in-process, the validated adapter).
 # ---------------------------------------------------------------------------
 def run_one_direction(
@@ -808,6 +966,8 @@ def run_one_direction(
     reseed_endpoint: bool = False,
     reseed_endpoint_band_lambda2_max: float = 0.25,
     reseed_endpoint_equil_steps: int = 2000,
+    dcd_enabled: bool = False,
+    dcd_stride_cycles: int = 1,
 ) -> Dict[str, Any]:
     """Run ONE standalone direction ladder and write its per-walker .out tree.
 
@@ -837,6 +997,20 @@ def run_one_direction(
                           md_steps_per_cycle, timestep_fs)
     log_path = os.path.join(subdir, base + "_driver.log")
 
+    # OPT-IN DCD (probe diagnostic, default off). Record the non-solvent atoms
+    # (binder chain + receptor) so the frames resolve the res-4 sidechain χ1/χ2
+    # swap, ring pucker, and res-4 backbone φ/ψ for the under-sampling-vs-real-
+    # basin judgment, WITHOUT the ~290k PME waters (≈3.5 MB/frame -> ≈KB/frame).
+    # The alchemical atoms are asserted present in the subset (fail-loud).
+    dcd_dir = None
+    dcd_topology = None
+    dcd_atom_indices = None
+    if dcd_enabled:
+        dcd_dir = os.path.join(subdir, "dcd")
+        dcd_topology = loaded["topology"]
+        dcd_atom_indices = _select_dcd_atom_indices(
+            dcd_topology, loaded.get("alchemical_atoms"))
+
     ladder = rbfe.InplaceRbfeLadder(
         loaded["system"], loaded["positions"], schedule,
         platform_name=platform_name, temperature_K=schedule["temperature_K"],
@@ -846,7 +1020,10 @@ def run_one_direction(
         out_dir=subdir, out_basename=base, staged_min=staged_min,
         reseed_perm_seed=reseed_perm_seed, reseed_endpoint=reseed_endpoint,
         reseed_endpoint_band_lambda2_max=reseed_endpoint_band_lambda2_max,
-        reseed_endpoint_equil_steps=reseed_endpoint_equil_steps)
+        reseed_endpoint_equil_steps=reseed_endpoint_equil_steps,
+        dcd_dir=dcd_dir, dcd_topology=dcd_topology,
+        dcd_atom_indices=dcd_atom_indices,
+        dcd_stride_cycles=dcd_stride_cycles)
 
     nan_any = False
     nan_states_all: set = set()
@@ -972,6 +1149,8 @@ def run_one_replicate(
     reseed_endpoint: bool = False,
     reseed_endpoint_band_lambda2_max: float = 0.25,
     reseed_endpoint_equil_steps: int = 2000,
+    dcd_enabled: bool = False,
+    dcd_stride_cycles: int = 1,
 ) -> Dict[str, Any]:
     """Run one matched-seed replicate of one (endpoint, leg): the requested
     direction(s) + (when BOTH ran) merge into the combined leg dir UWHAM consumes.
@@ -990,6 +1169,24 @@ def run_one_replicate(
     only the requested direction's subdir is (re)written.
     """
     rep_dir = _rep_dir(out_root, endpoint, leg, replicate_index)
+    # G3 OUT-ROOT COLLISION GUARD: this rep slot (rep%d) is indexed POSITIONALLY
+    # off --seeds, so a separate invocation that re-uses the SAME --out-root but a
+    # DIFFERENT seed in the same slot would overwrite (or, with the default R-7
+    # archive, archive-AWAY) the first seed's ACTIVE data — corrupting the matched
+    # cohort UWHAM later reads. Read the rep dir's existing seed BEFORE any archive
+    # move and fail loud on mismatch (R-18). A same-seed resume passes; an
+    # empty/legacy dir continues and gets stamped below.
+    existing_seed = _existing_rep_seed(rep_dir)
+    if existing_seed is not None and str(existing_seed) != str(seed):
+        raise RuntimeError(
+            "G3 out-root collision: %s already holds seed=%s but this run is "
+            "seed=%s. A separate invocation mapped a DIFFERENT seed onto the same "
+            "rep%d slot (rep dirs are indexed positionally off --seeds). Use a "
+            "seed-tagged out-root (--out-root .../<seed>_<endpoint>) per single-"
+            "seed invocation, OR pass every seed in ONE invocation "
+            "(--seeds %s,%s,...) so they map to rep0/rep1/rep2 separately."
+            % (rep_dir, existing_seed, seed, replicate_index,
+               existing_seed, seed))
     # C12 R-7: archive (never delete) an existing rep dir before a fresh run.
     # Box reuse keeps the rep dir in place (do NOT archive — that would move the
     # producing direction's outputs away); the reuse path requires the box, and
@@ -1002,6 +1199,15 @@ def run_one_replicate(
         os.makedirs(os.path.dirname(archive_root), exist_ok=True)
         shutil.move(rep_dir, archive_root)
     os.makedirs(rep_dir, exist_ok=True)
+    # G3 stamp: record which seed now owns this rep dir so a later DIFFERENT-seed
+    # invocation on the same out-root is caught above (a same-seed resume re-stamps
+    # idempotently). Best-effort — a stamp write failure must never break a launch
+    # (the run_manifest "seed" field is the fallback source of truth).
+    try:
+        with open(_seed_stamp_path(rep_dir, seed), "w") as _stampfh:
+            _stampfh.write(str(seed) + "\n")
+    except OSError:
+        pass
 
     # 1) Obtain the in-place fused System for this leg. Two paths:
     #    (a) FRESH (default): serialize a new box (C1: each leg gets its OWN
@@ -1111,7 +1317,8 @@ def run_one_replicate(
             staged_min=staged_min,
             reseed_perm_seed=reseed_perm_seed, reseed_endpoint=reseed_endpoint,
             reseed_endpoint_band_lambda2_max=reseed_endpoint_band_lambda2_max,
-            reseed_endpoint_equil_steps=reseed_endpoint_equil_steps)
+            reseed_endpoint_equil_steps=reseed_endpoint_equil_steps,
+            dcd_enabled=dcd_enabled, dcd_stride_cycles=dcd_stride_cycles)
 
     # 3) Write the COMBINED symmetric cntl (the SSOT for merge + UWHAM) +, when
     #    BOTH directions ran, merge the per-direction outputs into r*/trackb.out.
@@ -1222,6 +1429,8 @@ def run_leg(
     reseed_endpoint: bool = False,
     reseed_endpoint_band_lambda2_max: float = 0.25,
     reseed_endpoint_equil_steps: int = 2000,
+    dcd_enabled: bool = False,
+    dcd_stride_cycles: int = 1,
 ) -> Dict[str, Any]:
     """Run all matched-seed replicates of one (endpoint, leg)."""
     rbfe = _load_rbfe()
@@ -1250,7 +1459,8 @@ def run_leg(
             staged_min=staged_min,
             reseed_perm_seed=reseed_perm_seed, reseed_endpoint=reseed_endpoint,
             reseed_endpoint_band_lambda2_max=reseed_endpoint_band_lambda2_max,
-            reseed_endpoint_equil_steps=reseed_endpoint_equil_steps))
+            reseed_endpoint_equil_steps=reseed_endpoint_equil_steps,
+            dcd_enabled=dcd_enabled, dcd_stride_cycles=dcd_stride_cycles))
     return {
         "endpoint": endpoint,
         "leg": leg,
@@ -1814,6 +2024,13 @@ def run_pool_local(
             if ladder_args.get("lambda2_rampup") is not None:
                 cmd += ["--lambda2-rampdown",
                         ",".join(str(x) for x in ladder_args["lambda2_rampup"])]
+        # OPT-IN DCD (probe diagnostic): thread the same flag + stride the
+        # dispatcher set so each pool worker writes its per-walker trajectory.
+        # Default off => omitted (byte-identical; production legs do not pass it).
+        if ladder_args.get("dcd"):
+            cmd.append("--dcd")
+            cmd += ["--dcd-stride-cycles",
+                    str(ladder_args.get("dcd_stride_cycles", 1))]
         if not archive_existing:
             cmd.append("--no-archive-existing")
         if reuse_serialized:
@@ -2087,6 +2304,24 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "against the SAME box the producing direction used "
                         "(UWHAM stitch validity). Fails loud if the box is "
                         "absent (no silent fresh re-serialize).")
+    p.add_argument("--dcd", action="store_true",
+                   help="OPT-IN per-walker DCD trajectory (probe diagnostic). "
+                        "Writes <leg>/rep*/<dir>/dcd/r*/<base>.dcd — one frame "
+                        "per walker per --dcd-stride-cycles cycles, recording the "
+                        "non-solvent atoms (binder + receptor, NOT the ~290k PME "
+                        "waters) so the frames resolve the res-4 sidechain χ1/χ2 "
+                        "swap, indole ring pucker, and res-4 backbone φ/ψ "
+                        "(under-sampling vs real-basin judgment). Observation "
+                        "only — read AFTER the .out/exchange logic, so the "
+                        "dgbind1/UWHAM estimator is byte-identical. DEFAULT OFF "
+                        "(production legs do not write DCD). The frames are "
+                        "post-run moved to ExpDATA + symlinked back by the "
+                        "Runner's localize hook; deleted only after analysis.")
+    p.add_argument("--dcd-stride-cycles", type=int, default=1,
+                   help="DCD frame stride in asyncre CYCLES (default 1 = one "
+                        "frame/walker/cycle = one frame every "
+                        "--md-steps-per-cycle MD steps). Lower captures faster χ "
+                        "flips; only consulted when --dcd is set.")
     p.add_argument("--analyze-only", action="store_true",
                    help="Skip the run; UWHAM-analyze already-completed leg dirs.")
     p.add_argument("--dry-run", action="store_true",
@@ -2212,7 +2447,9 @@ def main(argv: Optional[List[str]] = None) -> int:
                 reseed_endpoint=args.reseed_endpoint,
                 reseed_endpoint_band_lambda2_max=(
                     args.reseed_endpoint_band_lambda2_max),
-                reseed_endpoint_equil_steps=args.reseed_endpoint_equil_steps)
+                reseed_endpoint_equil_steps=args.reseed_endpoint_equil_steps,
+                dcd_enabled=args.dcd,
+                dcd_stride_cycles=args.dcd_stride_cycles)
         except Exception as exc:  # noqa: BLE001 — surface as non-zero worker exit
             print("WORKER FAILED %s/%s rep%d: %s"
                   % (args.worker_endpoint, leg, args.worker_replicate, exc),
@@ -2249,6 +2486,16 @@ def main(argv: Optional[List[str]] = None) -> int:
                 "outward)") if auto_search_displacement else None,
             "applies_to": ("all (endpoint x seed x leg) identically"
                            if auto_search_displacement else None),
+            # G2 — per-cell displacement policy record. The launcher applies ONE
+            # policy (from the CLI) to EVERY (endpoint x seed) cell of this leg, so
+            # the cells here are uniform BY CONSTRUCTION; recording them per-cell
+            # makes the on-disk prereg the post-hoc audit artifact a Keeper can
+            # cross-check between SEPARATE invocations sharing an out-root (where
+            # mixed policies WOULD be a real hazard — caught by the uniformity
+            # assert below + the G3 collision guard at run time).
+            "per_cell": _build_displacement_cells(
+                endpoints, seeds, leg, auto_search_displacement,
+                accept_sep_nm, displacement_nm),
         },
         "mtr_ncaa_xml": args.mtr_ncaa_xml,
         "mutation_spec": mutation_spec,
@@ -2261,6 +2508,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         "reseed_endpoint_equil_steps": args.reseed_endpoint_equil_steps,
         "out_root": out_root, "mintimeid": mintimeid,
     }
+
+    # G2 — every (endpoint x seed) cell of this invocation must share ONE
+    # displacement policy (fail loud on a mix; runs in every mode incl. dry-run so
+    # a wiring error surfaces before anything is written/launched).
+    _assert_uniform_displacement_policy(
+        config["displacement_search"]["per_cell"])
 
     # C11 pre-registration (BEFORE the run / analysis).
     prereg_path = write_pre_registration(out_root, config)
@@ -2311,6 +2564,28 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 0
 
     if not args.analyze_only:
+        # G1 — two-copy displacement-policy gate (most important). A two-copy box
+        # built with the LEGACY fixed residue-local direction drives copy-2's
+        # binder through copy-1's receptor body for some poses (the C6 separation
+        # hard-fail, e.g. cp4/s199 copy<->copy 0.144 nm interpenetration). A real
+        # launch must therefore EITHER arm the direction-aware search
+        # (--auto-search-displacement --accept-sep-nm 1.5) OR DELIBERATELY pin a
+        # fixed magnitude (--displacement-nm). A bare --twocopy is a silent slide
+        # into the unsafe legacy default — block it (R-18). Default values are NOT
+        # changed (other call paths stay byte-identical); only the OMISSION is the
+        # hard error. (--dry-run returns above; --analyze-only never reaches here,
+        # so the plan/inspection paths are unaffected.)
+        if construction == "twocopy" \
+                and not auto_search_displacement and displacement_nm is None:
+            print(
+                "ERROR: --twocopy launch without a displacement policy. The two-"
+                "copy box's fixed residue-local direction drives copy-2 through "
+                "copy-1's receptor for some poses (C6 separation fail). Specify "
+                "--auto-search-displacement --accept-sep-nm 1.5 (recommended; "
+                "direction-aware search), OR --displacement-nm <nm> if you "
+                "DELIBERATELY want a fixed-direction magnitude.", file=sys.stderr)
+            return 2
+
         # Fail-loud seed-availability gate: every matched (endpoint, seed) must
         # have its endpoint final PDB (a missing one breaks the paired ddG; R-18).
         seed_gate = gate_seed_availability(endpoints, seeds)
@@ -2344,6 +2619,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             "reseed_endpoint_band_lambda2_max": (
                 args.reseed_endpoint_band_lambda2_max),
             "reseed_endpoint_equil_steps": args.reseed_endpoint_equil_steps,
+            "dcd": args.dcd,
+            "dcd_stride_cycles": args.dcd_stride_cycles,
         }
 
         if args.pool:
@@ -2406,7 +2683,9 @@ def main(argv: Optional[List[str]] = None) -> int:
                     reseed_endpoint=args.reseed_endpoint,
                     reseed_endpoint_band_lambda2_max=(
                         args.reseed_endpoint_band_lambda2_max),
-                    reseed_endpoint_equil_steps=args.reseed_endpoint_equil_steps)
+                    reseed_endpoint_equil_steps=args.reseed_endpoint_equil_steps,
+                    dcd_enabled=args.dcd,
+                    dcd_stride_cycles=args.dcd_stride_cycles)
                 print("[%s/%s] done in %.1f s (%d replicates)"
                       % (endpoint, leg, time.time() - t0,
                          leg_result["n_replicates"]))

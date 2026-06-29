@@ -873,3 +873,191 @@ def test_lambda2_rampdown_pool_cmd_propagates_flag(prod):
     src = inspect.getsource(prod.run_pool_local)
     assert "--lambda2-rampdown" in src
     assert "lambda2_rampup" in src
+
+
+# ---------------------------------------------------------------------------
+# G1 — two-copy displacement-policy gate (a bare --twocopy LAUNCH is blocked).
+# ---------------------------------------------------------------------------
+def test_g1_bare_twocopy_launch_fails_loud(prod, tmp_path):
+    # A real (non-dry-run) --twocopy launch with neither --auto-search-displacement
+    # nor --displacement-nm slides silently into the unsafe fixed-direction legacy
+    # default -> hard error (rc 2) BEFORE any build/launch.
+    rc = prod.main(["--twocopy", "--leg", "free", "--mutation",
+                    "v3i_val_ile_res3", "--endpoints", "cp4",
+                    "--directions", "dplus", "--seeds", "s7",
+                    "--out-root", str(tmp_path)])
+    assert rc == 2
+
+
+def test_g1_bare_twocopy_dry_run_still_ok(prod, tmp_path):
+    # --dry-run is the inspection mode: it returns BEFORE the launch gate, so a
+    # bare --twocopy dry-run still plans (rc 0) — this is where an operator would
+    # SEE they need a displacement flag. (Guards the existing dry-run tests.)
+    rc = prod.main(["--twocopy", "--leg", "free", "--endpoints", "cp4",
+                    "--directions", "dplus", "--seeds", "s7", "--dry-run",
+                    "--out-root", str(tmp_path)])
+    assert rc == 0
+
+
+def test_g1_twocopy_with_autosearch_passes_gate(prod, tmp_path):
+    # --auto-search-displacement satisfies G1; the gate is cleared and the run
+    # proceeds to the seed-availability gate (which fails here only because the
+    # nonexistent endpoint PDB is missing — NOT a G1 failure). Either way the bare
+    # -twocopy slide is blocked but an armed policy is not.
+    rc = prod.main(["--twocopy", "--auto-search-displacement",
+                    "--leg", "free", "--mutation", "v3i_val_ile_res3",
+                    "--endpoints", "cp4", "--directions", "dplus",
+                    "--seeds", "s_nonexistent_xyz",
+                    "--out-root", str(tmp_path)])
+    # Passes G1, then the seed-availability gate rejects the bogus seed (rc 2) —
+    # the point is it did NOT short-circuit at G1 with the displacement message.
+    assert rc == 2
+
+
+def test_g1_twocopy_with_displacement_nm_passes_gate(prod, tmp_path):
+    # An explicit --displacement-nm is the "I deliberately want fixed-direction"
+    # escape hatch; it satisfies G1 (then the bogus seed gate rejects).
+    rc = prod.main(["--twocopy", "--displacement-nm", "4.0",
+                    "--leg", "free", "--mutation", "v3i_val_ile_res3",
+                    "--endpoints", "cp4", "--directions", "dplus",
+                    "--seeds", "s_nonexistent_xyz",
+                    "--out-root", str(tmp_path)])
+    assert rc == 2
+
+
+def test_g1_single_core_unaffected(prod, tmp_path):
+    # The single-core (default) path has no copy-2 displacement; G1 never fires.
+    # A bogus seed still reaches (and fails at) the seed gate, proving G1 did not
+    # block the single-core path.
+    rc = prod.main(["--leg", "free", "--endpoints", "cp4",
+                    "--directions", "dplus", "--seeds", "s_nonexistent_xyz",
+                    "--out-root", str(tmp_path)])
+    assert rc == 2
+
+
+# ---------------------------------------------------------------------------
+# G2 — per-cell displacement policy record + in-invocation uniformity.
+# ---------------------------------------------------------------------------
+def test_g2_prereg_records_displacement_cells(prod, tmp_path):
+    rc = prod.main(["--twocopy", "--auto-search-displacement",
+                    "--accept-sep-nm", "1.5", "--leg", "bound",
+                    "--endpoints", "cp4,wt", "--directions", "dplus",
+                    "--seeds", "s7,s101", "--dry-run",
+                    "--out-root", str(tmp_path)])
+    assert rc == 0
+    prereg = json.load(open(os.path.join(str(tmp_path), "pre_registration.json")))
+    cells = prereg["config"]["displacement_search"]["per_cell"]
+    # 2 endpoints x 2 seeds = 4 cells, every one carrying the SAME armed policy.
+    assert len(cells) == 4
+    keys = {(c["endpoint"], c["seed"]) for c in cells}
+    assert keys == {("cp4", "s7"), ("cp4", "s101"),
+                    ("wt", "s7"), ("wt", "s101")}
+    for c in cells:
+        assert c["auto_search_displacement"] is True
+        assert c["accept_sep_nm"] == 1.5
+        assert c["leg"] == "bound"
+
+
+def test_g2_build_cells_uniform_by_construction(prod):
+    cells = prod._build_displacement_cells(
+        ["cp4", "wt"], ["s7", "s101", "s127"], "free",
+        auto_search_displacement=True, accept_sep_nm=1.5, displacement_nm=None)
+    assert len(cells) == 6
+    # Uniformity holds by construction -> the assert does not raise.
+    prod._assert_uniform_displacement_policy(cells)
+
+
+def test_g2_uniformity_assert_rejects_mixed_policy(prod):
+    mixed = [
+        {"endpoint": "cp4", "seed": "s7", "leg": "free",
+         "auto_search_displacement": True, "accept_sep_nm": 1.5,
+         "displacement_nm": None},
+        {"endpoint": "wt", "seed": "s7", "leg": "free",
+         "auto_search_displacement": False, "accept_sep_nm": None,
+         "displacement_nm": 4.0},
+    ]
+    with pytest.raises(ValueError, match="mixed displacement policy"):
+        prod._assert_uniform_displacement_policy(mixed)
+
+
+def test_g2_uniformity_assert_empty_is_noop(prod):
+    prod._assert_uniform_displacement_policy([])  # no raise
+
+
+# ---------------------------------------------------------------------------
+# G3 — out-root collision guard (rep-dir seed stamp).
+# ---------------------------------------------------------------------------
+def test_g3_existing_rep_seed_from_stamp(prod, tmp_path):
+    rep = str(tmp_path / "rep0")
+    os.makedirs(rep)
+    with open(prod._seed_stamp_path(rep, "s7"), "w") as fh:
+        fh.write("s7\n")
+    assert prod._existing_rep_seed(rep) == "s7"
+
+
+def test_g3_existing_rep_seed_from_manifest_fallback(prod, tmp_path):
+    rep = str(tmp_path / "rep0")
+    os.makedirs(rep)
+    with open(os.path.join(rep, "run_manifest.json"), "w") as fh:
+        json.dump({"seed": "s101"}, fh)
+    # No stamp present -> falls back to the manifest seed.
+    assert prod._existing_rep_seed(rep) == "s101"
+
+
+def test_g3_existing_rep_seed_none_when_empty(prod, tmp_path):
+    rep = str(tmp_path / "rep0")
+    os.makedirs(rep)
+    assert prod._existing_rep_seed(rep) is None
+    # A nonexistent dir is also None (first run).
+    assert prod._existing_rep_seed(str(tmp_path / "nope")) is None
+
+
+def test_g3_seed_stamp_path_sanitizes(prod, tmp_path):
+    rep = str(tmp_path / "rep0")
+    # A messy seed token must not escape the rep dir or break the filename.
+    p = prod._seed_stamp_path(rep, "s7/../evil")
+    assert os.path.dirname(p) == rep
+    assert os.path.basename(p).startswith(".seed_")
+    assert "/" not in os.path.basename(p)
+
+
+def test_g3_collision_detected_via_helper(prod, tmp_path):
+    # Simulate invocation A (s7) having stamped rep0, then invocation B (s101)
+    # mapping a DIFFERENT seed onto the same rep0 slot -> the helper reports the
+    # mismatch the run-time guard turns into a fail-loud RuntimeError.
+    rep = str(tmp_path / "cp4" / "free" / "rep0")
+    os.makedirs(rep)
+    with open(prod._seed_stamp_path(rep, "s7"), "w") as fh:
+        fh.write("s7\n")
+    existing = prod._existing_rep_seed(rep)
+    assert existing == "s7"
+    assert existing != "s101"   # the collision the guard blocks
+
+
+def test_g3_same_seed_resume_is_not_a_collision(prod, tmp_path):
+    rep = str(tmp_path / "cp4" / "free" / "rep0")
+    os.makedirs(rep)
+    with open(prod._seed_stamp_path(rep, "s7"), "w") as fh:
+        fh.write("s7\n")
+    # A resume with the SAME seed must read back the same stamp (no mismatch).
+    assert prod._existing_rep_seed(rep) == "s7"
+
+
+def test_g3_runtime_guard_raises_on_mismatch(prod, tmp_path):
+    # Drive the actual run_one_replicate collision branch: a pre-existing rep dir
+    # stamped with a DIFFERENT seed must raise BEFORE any build (no OpenMM needed
+    # — the guard is at the very top of the function).
+    out_root = str(tmp_path)
+    rep = prod._rep_dir(out_root, "cp4", "free", 0)
+    os.makedirs(rep)
+    with open(prod._seed_stamp_path(rep, "s7"), "w") as fh:
+        fh.write("s7\n")
+    with pytest.raises(RuntimeError, match="out-root collision"):
+        prod.run_one_replicate(
+            None, None, out_root=out_root, endpoint="cp4", leg="free",
+            replicate_index=0, seed="s101", directions=["dplus"],
+            n_windows_half=6, softcore_band=2, n_apex_bridge=0, apex_band=0.5,
+            n_cycles=1, md_steps_per_cycle=1, platform_name="Reference",
+            timestep_fs=1.0, minimize_iters=1, backward_equil_steps=0,
+            genuine_decouple_nm=1.2, mtr_ncaa_xml=None, binder_chain="B",
+            archive_existing=True)

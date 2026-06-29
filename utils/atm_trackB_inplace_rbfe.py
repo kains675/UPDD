@@ -1292,6 +1292,40 @@ def decoupled_band_states(schedule: Dict[str, Any],
     return out
 
 
+def _subset_topology(topology, atom_indices: List[int]):
+    """Return a new ``openmm.app.Topology`` holding only ``atom_indices``.
+
+    DCDFile records the FULL position array unless given a subset topology with
+    a matching subset of coordinates. The subset preserves chain/residue/atom
+    grouping (so mdtraj/MDAnalysis can resolve res-4 χ / pucker / φ/ψ from the
+    written frames) and copies the source periodic box vectors. Used only by the
+    OPT-IN DCD path; the default (dcd_dir=None) run never calls it. Bonds are
+    intentionally NOT copied (DCD stores coordinates only; the analysis tool
+    re-derives connectivity from the residue templates).
+    """
+    import openmm.app as app
+
+    sub = app.Topology()
+    keep = set(int(a) for a in atom_indices)
+    new_chain = {}
+    new_res = {}
+    for atom in topology.atoms():
+        if atom.index not in keep:
+            continue
+        ch = atom.residue.chain
+        if ch.index not in new_chain:
+            new_chain[ch.index] = sub.addChain(ch.id)
+        res = atom.residue
+        if res.index not in new_res:
+            new_res[res.index] = sub.addResidue(
+                res.name, new_chain[ch.index], res.id)
+        sub.addAtom(atom.name, atom.element, new_res[res.index])
+    box = topology.getPeriodicBoxVectors()
+    if box is not None:
+        sub.setPeriodicBoxVectors(box)
+    return sub
+
+
 class InplaceRbfeLadder(object):
     """In-process Hamiltonian replica-exchange driver for the in-place RBFE box.
 
@@ -1316,8 +1350,11 @@ class InplaceRbfeLadder(object):
                  reseed_perm_seed=None, reseed_endpoint=False,
                  reseed_endpoint_band_lambda2_max=0.25,
                  reseed_endpoint_equil_steps=2000,
-                 reseed_endpoint_minimize_iters=500):
+                 reseed_endpoint_minimize_iters=500,
+                 dcd_dir=None, dcd_topology=None, dcd_atom_indices=None,
+                 dcd_stride_cycles=1):
         import openmm as mm
+        import openmm.app  # noqa: F401 — registers mm.app.DCDFile for the opt-in DCD path
         import openmm.unit as unit
 
         self.mm = mm
@@ -1387,6 +1424,59 @@ class InplaceRbfeLadder(object):
                 os.makedirs(rdir, exist_ok=True)
                 self._out_fhs.append(
                     open(os.path.join(rdir, out_basename + ".out"), "w"))
+
+        # OPT-IN per-walker DCD trajectory (probe diagnostic). DEFAULT
+        # ``dcd_dir=None`` => NO trajectory is written and EVERY path below is
+        # byte-identical to the legacy run (the production legs do not pass it).
+        # When set, one ``<dcd_dir>/r{r}/<basename>.dcd`` is written per walker
+        # Context: each cycle (every ``dcd_stride_cycles`` cycles) one frame of
+        # the ``dcd_atom_indices`` subset is appended. The subset is the
+        # alchemical-region + receptor-context atoms (NOT the ~290k PME waters),
+        # so the frames resolve the res-4 sidechain χ1/χ2 swap, ring pucker, and
+        # res-4 backbone φ/ψ for the under-sampling-vs-real-basin judgment. This
+        # is OBSERVATION ONLY: it reads each Context's positions AFTER all
+        # estimator logic (energy / exchange / .out row) is complete, so it
+        # cannot perturb the dgbind1 / UWHAM result. A walker frame is labelled
+        # by the state it occupies via the per-cycle ``.out`` stateid column +
+        # the frame index (a frame and an .out row are written in lockstep).
+        self.dcd_dir = dcd_dir
+        self.dcd_stride_cycles = max(1, int(dcd_stride_cycles))
+        self._dcd_files = None
+        self._dcd_atom_indices = None
+        if dcd_dir is not None:
+            if dcd_topology is None:
+                raise ValueError(
+                    "InplaceRbfeLadder: dcd_dir set but dcd_topology is None "
+                    "(the DCDFile header needs the topology atom set). Pass the "
+                    "loaded box topology.")
+            n_top = dcd_topology.getNumAtoms()
+            if dcd_atom_indices is None:
+                # Full box (every atom) — large; the launcher normally supplies
+                # a binder+receptor subset to keep the probe DCD ~MB not ~GB.
+                self._dcd_atom_indices = list(range(n_top))
+            else:
+                idx = [int(a) for a in dcd_atom_indices]
+                if not idx:
+                    raise ValueError(
+                        "InplaceRbfeLadder: dcd_atom_indices is empty (no atoms "
+                        "to record).")
+                for a in idx:
+                    if a < 0 or a >= n_top:
+                        raise ValueError(
+                            "InplaceRbfeLadder: dcd_atom_indices entry %d out of "
+                            "range [0, %d)." % (a, n_top))
+                self._dcd_atom_indices = idx
+            self._dcd_sub_topology = _subset_topology(
+                dcd_topology, self._dcd_atom_indices)
+            self._dcd_files = []
+            for r in range(self.n_states):
+                rdir = os.path.join(dcd_dir, "r%d" % (r,))
+                os.makedirs(rdir, exist_ok=True)
+                fh = open(os.path.join(rdir, out_basename + ".dcd"), "wb")
+                dcdf = mm.app.DCDFile(
+                    fh, self._dcd_sub_topology,
+                    dt=timestep_fs * unit.femtoseconds)
+                self._dcd_files.append((fh, dcdf))
 
         # Resolve the ATMForce on the system.
         self.atm_index = None
@@ -1828,6 +1918,31 @@ class InplaceRbfeLadder(object):
             for fh in self._out_fhs:
                 fh.flush()
 
+        # 7) OPT-IN per-walker DCD frame (probe diagnostic). DEFAULT
+        #    dcd_dir=None => self._dcd_files is None and this is skipped entirely
+        #    (byte-identical). When on, append ONE frame of the recorded atom
+        #    subset per walker every dcd_stride_cycles cycles, AFTER the .out row
+        #    is written so frame index k maps to .out row k for that walker (the
+        #    state label is the stateid column of the matching .out row). A walker
+        #    with no usable energy this cycle (raw is None) wrote no .out row, so
+        #    it writes no frame either — the two streams stay in lockstep. Reading
+        #    getPositions here is observation only; it does not advance dynamics or
+        #    alter the estimator.
+        if self._dcd_files is not None \
+                and (self._cycle % self.dcd_stride_cycles == 0):
+            idx = self._dcd_atom_indices
+            for r in range(self.n_states):
+                if raw[r] is None:
+                    continue
+                fh, dcdf = self._dcd_files[r]
+                st_full = self.contexts[r].getState(
+                    getPositions=True, enforcePeriodicBox=True)
+                all_pos = st_full.getPositions(asNumpy=True)
+                box = st_full.getPeriodicBoxVectors()
+                dcdf.writeModel(all_pos[idx], periodicBoxVectors=box)
+            for fh, _dcdf in self._dcd_files:
+                fh.flush()
+
         return {
             "cycle": self._cycle,
             "n_accepted": n_accepted,
@@ -1868,6 +1983,23 @@ class InplaceRbfeLadder(object):
                 except Exception:
                     pass
             self._out_fhs = None
+        # OPT-IN DCD handles (probe diagnostic): flush + close the trajectory
+        # byte streams so the last frame is durable. Each entry is an
+        # (open file handle, DCDFile) tuple; only the file handle is closed (the
+        # DCDFile is a thin writer over it). Idempotent + exception-swallowing,
+        # matching the .out teardown above (data integrity before resource free).
+        dcd_files = getattr(self, "_dcd_files", None)
+        if dcd_files is not None:
+            for fh, _dcdf in dcd_files:
+                try:
+                    fh.flush()
+                except Exception:
+                    pass
+                try:
+                    fh.close()
+                except Exception:
+                    pass
+            self._dcd_files = None
 
         # Resource teardown: SWIG-backed OpenMM Context/Integrator objects are
         # not reliably reclaimed by gc.collect() alone (reference cycles through

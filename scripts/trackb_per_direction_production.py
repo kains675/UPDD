@@ -3545,9 +3545,12 @@ def parse_state_transitions_from_log(
         return {
             "log_path": log_path,
             "adjacent_crossings": {},
+            "second_half_crossings": {},
             "visited_states": {},
             "both_ends_replicas": [],
             "round_trips": {},
+            "round_trips_lo_first": {},
+            "round_trips_hi_first": {},
             "n_samples": 0,
             "n_cycles_total": 0,
             "replicas_seen": [],
@@ -3730,8 +3733,22 @@ def _summarize_state_transitions(
     reuse the same per-replica sequence reduction.
     """
     adjacent_crossings: Dict[str, int] = {}
+    # Per-replica sequence split at its own midpoint: crossings recorded ONLY in
+    # the SECOND half of each replica's post-warmup sequence. A boundary that
+    # opens during the identity-init relaxation transient (first half) and then
+    # re-seals (zero crossings in the second half) is the "open-once-then-reseal
+    # wall" the whole-window count is blind to.
+    second_half_crossings: Dict[str, int] = {}
     visited_states: Dict[int, List[int]] = {}
     round_trips: Dict[int, int] = {}
+    # Direction-resolved end-to-end round trips against the OBSERVED ends
+    # (per-replica relative). "lo_first" = an excursion that started at end 0,
+    # reached the opposite end, and returned to 0 (0->max->0). "hi_first" =
+    # max->0->max. A healthy ladder produces BOTH; a one-shot relaxation slide
+    # produces only one (or none). check_atm_mixing requires both directions
+    # under the hardened gate, against the DECLARED top (enforced via both_ends).
+    round_trips_lo_first: Dict[int, int] = {}
+    round_trips_hi_first: Dict[int, int] = {}
 
     end_lo = 0
     # Upper end is replica-relative (max observed state); the DECLARED ladder
@@ -3744,17 +3761,26 @@ def _summarize_state_transitions(
 
     for replica, states in seq.items():
         visited_states[replica] = sorted(set(states))
+        # Midpoint of THIS replica's post-warmup sample sequence. A transition
+        # at index t (from states[t-1] to states[t]) is "second half" iff its
+        # landing index t is at or past the midpoint. ceil midpoint keeps the
+        # second half from being larger than the first for odd lengths.
+        n_states_seq = len(states)
+        half_idx = (n_states_seq + 1) // 2
         prev: Optional[int] = None
         # Round-trip bookkeeping: track which ends have been touched and the
         # last end reached, counting a round trip each time the replica
         # returns to an end opposite to the one that started the excursion.
         last_end: Optional[int] = None
         excursion_started_at: Optional[int] = None
-        for s in states:
+        for t, s in enumerate(states):
             if prev is not None and abs(s - prev) == 1:
                 lo, hi = (prev, s) if prev < s else (s, prev)
                 key = f"{lo}-{hi}"
                 adjacent_crossings[key] = adjacent_crossings.get(key, 0) + 1
+                if t >= half_idx:
+                    second_half_crossings[key] = (
+                        second_half_crossings.get(key, 0) + 1)
             # End-touch / round-trip accounting against the OBSERVED upper
             # end (per-replica relative). check_atm_mixing additionally
             # requires the DECLARED upper end for both_ends.
@@ -3765,10 +3791,20 @@ def _summarize_state_transitions(
                         excursion_started_at = last_end
                     elif this_end == excursion_started_at:
                         round_trips[replica] = round_trips.get(replica, 0) + 1
+                        # Direction-resolved: the closed excursion returned to
+                        # the end it started from (excursion_started_at).
+                        if excursion_started_at == end_lo:
+                            round_trips_lo_first[replica] = (
+                                round_trips_lo_first.get(replica, 0) + 1)
+                        else:
+                            round_trips_hi_first[replica] = (
+                                round_trips_hi_first.get(replica, 0) + 1)
                         excursion_started_at = None
                 last_end = this_end
             prev = s
         round_trips.setdefault(replica, 0)
+        round_trips_lo_first.setdefault(replica, 0)
+        round_trips_hi_first.setdefault(replica, 0)
 
     # Formal second-eigenvalue / relaxation-time mixing metric on top of the
     # crossing counts (Hsu & Shirts 2024). Pure additive diagnostic; degrades
@@ -3778,8 +3814,13 @@ def _summarize_state_transitions(
     return {
         "log_path": log_path,
         "adjacent_crossings": adjacent_crossings,
+        "second_half_crossings": second_half_crossings,
         "visited_states": {int(k): v for k, v in sorted(visited_states.items())},
         "round_trips": {int(k): v for k, v in sorted(round_trips.items())},
+        "round_trips_lo_first": {
+            int(k): v for k, v in sorted(round_trips_lo_first.items())},
+        "round_trips_hi_first": {
+            int(k): v for k, v in sorted(round_trips_hi_first.items())},
         "observed_max_state": observed_max,
         "transition_mixing": transition_mixing,
         "n_samples": n_samples,
@@ -3794,6 +3835,11 @@ def check_atm_mixing(
     schedule_K: int,
     warmup_cycles: int = 20,
     min_crossings: int = 1,
+    require_hardened: bool = False,
+    second_half_min_crossings: int = 5,
+    overlaps: Optional[Dict[str, float]] = None,
+    overlap_floor: float = 0.10,
+    bhattacharyya: Optional[Dict[str, float]] = None,
 ) -> Dict[str, Any]:
     """Boundary-crossing / round-trip MIXING gate for the lambda-ladder.
 
@@ -3806,24 +3852,43 @@ def check_atm_mixing(
     ``parse_state_transitions_from_log``) using the SAME warmup boundary, and
     asserts ladder TRANSPORT rather than mere coverage.
 
-    PASS  iff, after ``warmup_cycles`` swap rounds, EVERY declared adjacent
-          ladder pair (0-1, 1-2, ..., (K-2)-(K-1)) recorded at least
-          ``min_crossings`` post-warmup crossings AND at least one replica
-          visited BOTH end states (0 and K-1).
-    FAIL  if ANY adjacent pair has < ``min_crossings`` post-warmup crossings
-          (a wall — including a pair whose upper state was never reached),
-          OR if zero replicas visited both ends.
-    INDETERMINATE (a non-PASS) when there are no post-warmup samples yet
-          (log too short / run just started) or the log is missing.
+    Two modes:
 
-    NECESSARY, NOT SUFFICIENT. A wall that opens once and then re-closes
-    still records a non-zero crossing and can false-PASS this gate; a single
-    crossing does not prove sustained two-way exchange. For the full pilot
-    acceptance conjunction this gate MUST be paired with a per-adjacent-pair
-    phase-space OVERLAP check (Bhattacharyya coefficient / MBAR-O >= 0.30)
-    and the occupancy gate — all three together, not any one alone. Set
-    ``min_crossings`` higher (and inspect ``round_trips``) to harden against
-    the open-once-then-close failure mode.
+    LEGACY (``require_hardened=False``, default — behaviour unchanged):
+      PASS  iff, after ``warmup_cycles`` swap rounds, EVERY declared adjacent
+            ladder pair (0-1, 1-2, ..., (K-2)-(K-1)) recorded at least
+            ``min_crossings`` post-warmup crossings AND at least one replica
+            visited BOTH end states (0 and K-1).
+      This mode is NECESSARY, NOT SUFFICIENT: a wall that opens once during the
+      identity-init relaxation transient and then re-seals still records a
+      non-zero whole-window crossing and false-PASSES.
+
+    HARDENED (``require_hardened=True`` — the acceptance gate):
+      PASS requires ALL of the legacy conjuncts PLUS:
+        (1) SECOND-HALF no-reseal: every adjacent pair recorded at least
+            ``second_half_min_crossings`` crossings in the SECOND HALF of the
+            post-warmup window (per-replica sequence midpoint split). A pair
+            that crosses early then seals (h2 == 0) FAILS — this is the
+            load-bearing fix for the open-once-then-reseal wall.
+        (2) BOTH-DIRECTION end-to-end round trips: at least one closed
+            0 -> (K-1) -> 0 round trip AND at least one closed
+            (K-1) -> 0 -> (K-1) round trip (transport is two-way, not a
+            one-shot slide).
+        (3) per-adjacent-pair PHASE-SPACE OVERLAP O >= ``overlap_floor`` for
+            EVERY declared pair, supplied via ``overlaps`` (computed by the
+            caller from the per-state usc/pertE histograms with the robust
+            MBAR harness). If ``overlaps`` is None the overlap conjunct
+            cannot be verified -> the gate returns INDETERMINATE (it refuses
+            to silent-PASS an unverified leg), NOT PASS.
+      The Bhattacharyya coefficient (``bhattacharyya``) and the Hsu-Shirts
+      lambda2 are REPORTING ONLY — logged as diagnostics, never gated (BC >=
+      0.30 is too strict and would reject legitimate thin-but-crossing
+      leg-switch pairs).
+
+    FAIL  if any required conjunct is violated.
+    INDETERMINATE (a non-PASS) when there are no post-warmup samples yet
+          (log too short / run just started), the log is missing, or (hardened
+          mode) the per-pair overlaps were not supplied.
 
     ``min_crossings`` and ``warmup_cycles`` are parameters; pass the SAME
     ``warmup_cycles`` the occupancy gate uses so the two gates judge the same
@@ -3833,9 +3898,13 @@ def check_atm_mixing(
     Returns a dict with ``verdict`` ("PASS"/"FAIL"/"INDETERMINATE"),
     ``passed`` (bool, True only for PASS), a human ``message``, the
     ``schedule_K`` / ``min_crossings`` used, ``per_pair_crossings`` (declared
-    adjacent pairs with their post-warmup counts), the list of
-    ``walls`` (pairs below threshold), ``both_ends_visited_count`` /
-    ``both_ends_replicas``, and ``round_trips`` per replica.
+    adjacent pairs with their post-warmup counts), ``per_pair_second_half``
+    (second-half-only counts), the list of ``walls`` (pairs below threshold),
+    ``second_half_walls`` (pairs that re-sealed), ``both_ends_visited_count`` /
+    ``both_ends_replicas``, ``round_trips`` per replica, the direction-resolved
+    ``round_trips_lo_first`` / ``round_trips_hi_first`` totals, ``overlaps`` /
+    ``overlap_walls`` (hardened mode), and REPORTING-ONLY ``bhattacharyya`` /
+    ``lambda2`` diagnostics.
     """
     if schedule_K < 2:
         return {
@@ -3882,14 +3951,21 @@ def check_atm_mixing(
         }
 
     crossings = tr["adjacent_crossings"]
+    second_half = tr.get("second_half_crossings", {})
     per_pair: Dict[str, int] = {}
+    per_pair_second_half: Dict[str, int] = {}
     walls: List[str] = []
+    second_half_walls: List[str] = []
     for i in range(schedule_K - 1):
         key = f"{i}-{i + 1}"
         cnt = crossings.get(key, 0)
         per_pair[key] = cnt
         if cnt < min_crossings:
             walls.append(key)
+        h2 = second_half.get(key, 0)
+        per_pair_second_half[key] = h2
+        if h2 < second_half_min_crossings:
+            second_half_walls.append(key)
 
     top = schedule_K - 1
     both_ends = [
@@ -3898,6 +3974,22 @@ def check_atm_mixing(
     ]
     round_trips = tr["round_trips"]
     total_round_trips = sum(round_trips.values())
+    rt_lo_first = tr.get("round_trips_lo_first", {})
+    rt_hi_first = tr.get("round_trips_hi_first", {})
+    total_rt_lo_first = sum(rt_lo_first.values())
+    total_rt_hi_first = sum(rt_hi_first.values())
+
+    # Per-adjacent-pair phase-space overlap (hardened conjunct). Supplied by the
+    # caller from the per-state usc/pertE histograms via the robust MBAR harness
+    # — kept out of this pure log-parser so it carries no GPU/pymbar dependency.
+    overlap_walls: List[str] = []
+    overlaps_present = overlaps is not None
+    if overlaps_present:
+        for i in range(schedule_K - 1):
+            key = f"{i}-{i + 1}"
+            o = overlaps.get(key)
+            if o is None or o < overlap_floor:
+                overlap_walls.append(key)
 
     # Formal eigenvalue mixing metric (ADDITIVE diagnostic; does NOT gate).
     # Surfaced here next to the round-trip counts for discoverability. Hsu &
@@ -3912,14 +4004,28 @@ def check_atm_mixing(
     common = {
         "schedule_K": schedule_K,
         "min_crossings": min_crossings,
+        "require_hardened": require_hardened,
+        "second_half_min_crossings": second_half_min_crossings,
+        "overlap_floor": overlap_floor,
         "warmup_cycles": warmup_cycles,
         "per_pair_crossings": per_pair,
+        "per_pair_second_half": per_pair_second_half,
         "walls": walls,
+        "second_half_walls": second_half_walls,
         "both_ends_visited_count": len(both_ends),
         "both_ends_replicas": sorted(both_ends),
         "round_trips": round_trips,
         "total_round_trips": total_round_trips,
-        # Eigenvalue mixing metric (additive; None when numpy/matrix degrades).
+        "round_trips_lo_first": rt_lo_first,
+        "round_trips_hi_first": rt_hi_first,
+        "total_round_trips_lo_first": total_rt_lo_first,
+        "total_round_trips_hi_first": total_rt_hi_first,
+        # Per-pair overlap conjunct (hardened mode; None when not supplied).
+        "overlaps": overlaps,
+        "overlap_walls": overlap_walls,
+        "overlaps_supplied": overlaps_present,
+        # REPORTING-ONLY diagnostics (never gate): Bhattacharyya + lambda2.
+        "bhattacharyya": bhattacharyya,
         "lambda2": lambda2,
         "tau_r_attempts": tau_r_attempts,
         "transition_mixing": tmix,
@@ -3927,6 +4033,7 @@ def check_atm_mixing(
         "transitions": tr,
     }
 
+    # ----- LEGACY gate (whole-window crossings + both-ends) -----
     if walls or not both_ends:
         reasons = []
         if walls:
@@ -3948,9 +4055,76 @@ def check_atm_mixing(
                 + ". This is a mid-ladder zero-overlap WALL: aggregate "
                 "occupancy can still PASS while replicas never exchange "
                 "across the wall, so UWHAM/MBAR overlap is broken and any "
-                "ΔΔG is INVALID. NOTE necessary-not-sufficient: pair with a "
-                "Bhattacharyya/MBAR-O>=0.30 overlap check + the occupancy "
-                "gate for full acceptance."
+                "ddG is INVALID."
+            ),
+            **common,
+        }
+
+    if not require_hardened:
+        return {
+            "verdict": "PASS",
+            "passed": True,
+            "message": (
+                f"Ladder transport OK (legacy gate) in {log_path}: all "
+                f"{schedule_K - 1} adjacent pairs crossed >= {min_crossings}x "
+                f"post-warmup (per_pair={per_pair}); {len(both_ends)} "
+                f"replica(s) visited both ends (0 and {top}); total "
+                f"round-trips={total_round_trips}. NECESSARY-NOT-SUFFICIENT: a "
+                f"wall that opens once then re-seals can still pass this legacy "
+                f"gate — use require_hardened=True (second-half no-reseal + "
+                f"both-direction round-trips + per-pair overlap) for acceptance."
+            ),
+            **common,
+        }
+
+    # ----- HARDENED gate (second-half no-reseal + both-direction round-trips
+    #       + per-pair overlap floor). The overlap conjunct refuses to PASS an
+    #       unverified leg: missing overlaps -> INDETERMINATE (not PASS). -----
+    hard_reasons: List[str] = []
+    if second_half_walls:
+        hard_reasons.append(
+            f"adjacent pair(s) below {second_half_min_crossings} SECOND-HALF "
+            f"crossing(s): {second_half_walls} "
+            f"(per_pair_second_half={per_pair_second_half}) — open-once-then-"
+            f"reseal wall (crossed early, then sealed)"
+        )
+    if total_rt_lo_first < 1 or total_rt_hi_first < 1:
+        hard_reasons.append(
+            f"round-trips not both-directional: 0->{top}->0={total_rt_lo_first}, "
+            f"{top}->0->{top}={total_rt_hi_first} (need >=1 of EACH for "
+            f"two-way end-to-end transport)"
+        )
+    if overlaps_present and overlap_walls:
+        hard_reasons.append(
+            f"adjacent pair(s) with phase-space overlap O < {overlap_floor}: "
+            f"{overlap_walls} (overlaps={overlaps})"
+        )
+
+    if hard_reasons:
+        return {
+            "verdict": "FAIL",
+            "passed": False,
+            "message": (
+                f"LADDER-MIXING HARDENED FAIL in {log_path}: "
+                + "; ".join(hard_reasons)
+                + ". A wall that opens once during the identity-init transient "
+                "then re-seals, or one-way-only transport, or a broken-overlap "
+                "pair, all make UWHAM/MBAR overlap invalid and any ddG INVALID."
+            ),
+            **common,
+        }
+
+    if not overlaps_present:
+        return {
+            "verdict": "INDETERMINATE",
+            "passed": False,
+            "message": (
+                f"Hardened gate cannot verify {log_path}: per-adjacent-pair "
+                f"overlaps were not supplied (overlaps=None). Crossing + "
+                f"second-half no-reseal + both-direction round-trips PASS, but "
+                f"the overlap conjunct (O >= {overlap_floor}) is unverified — "
+                f"refusing to PASS an unverified leg. Supply per-pair overlaps "
+                f"from the MBAR harness."
             ),
             **common,
         }
@@ -3959,13 +4133,14 @@ def check_atm_mixing(
         "verdict": "PASS",
         "passed": True,
         "message": (
-            f"Ladder transport OK in {log_path}: all {schedule_K - 1} "
-            f"adjacent pairs crossed >= {min_crossings}x post-warmup "
-            f"(per_pair={per_pair}); {len(both_ends)} replica(s) visited "
-            f"both ends (0 and {top}); total round-trips={total_round_trips}. "
-            f"NECESSARY-NOT-SUFFICIENT: a wall that opens once then re-closes "
-            f"can still pass — pair with a Bhattacharyya/MBAR-O>=0.30 overlap "
-            f"check + the occupancy gate before declaring acceptance."
+            f"Ladder transport OK (HARDENED gate) in {log_path}: all "
+            f"{schedule_K - 1} adjacent pairs crossed >= {min_crossings}x "
+            f"whole-window AND >= {second_half_min_crossings}x in the SECOND "
+            f"HALF (no reseal); both-direction round-trips "
+            f"(0->{top}->0={total_rt_lo_first}, {top}->0->{top}="
+            f"{total_rt_hi_first}); per-pair overlap O >= {overlap_floor} "
+            f"(overlaps={overlaps}). REPORTING-ONLY: bhattacharyya="
+            f"{bhattacharyya}, lambda2={lambda2}."
         ),
         **common,
     }

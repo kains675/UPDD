@@ -26,10 +26,10 @@ Design
   input file (`&general igb=0, /` + `&pb ipb=2 inp=2 istrng=0.150 /`).
 - Parse `FINAL_RESULTS_MMPBSA.dat` for ΔG_bind (PB polar + SASA nonpolar).
 
-Output JSON schema (bump: 0.6.8 → 0.6.9 with `solvent_model` extension)
-======================================================================
+Output JSON schema (bump: 0.6.9 → 0.6.10 with gas/solv split + sanity gate)
+==========================================================================
     {
-      "schema_version":   "0.6.9",
+      "schema_version":   "0.6.10",
       "protocol_variant": "1traj",            # or "3traj"
       "solvent_model":    "pbsa",             # NEW, alongside "gb"
       "gb_model":         "n2",               # preserved for back-compat
@@ -49,10 +49,28 @@ Output JSON schema (bump: 0.6.8 → 0.6.9 with `solvent_model` extension)
       "n_calc":   <int>,
       "mean_dg":  <kcal/mol>,
       "best_dg":  <kcal/mol>,
+      "mean_gas": <kcal/mol>,    # cohort-mean ΔG_gas (for variant-pair ΔΔ gate)
+      "mean_solv":<kcal/mol>,    # cohort-mean ΔG_solv (for variant-pair ΔΔ gate)
+      "sign_gate_pair": "N/A (single-system run; gate is variant-pair ΔΔ)",
+      "endpoint_cancellation_ratio_{min,mean,max}": <float>,  # logging only
       "results":  [ {snapshot, e_complex_kcal, e_receptor_kcal,
                      e_ligand_kcal, delta_g_kcal, delta_g_pb_polar_kcal,
-                     delta_g_pb_sasa_kcal, ...}, ... ]
+                     delta_g_pb_sasa_kcal,
+                     delta_g_gas_kcal,    # ΔE_vdW + ΔE_EEL
+                     delta_g_solv_kcal,   # ΔE_PB + ΔE_nonpolar
+                     # Per-snap endpoint logging only (NO gate flag):
+                     endpoint_cancellation_ratio, # abs(net)/(abs(gas)+abs(solv))
+                     sign_invalid_gas_dominated,  # None (retired Mode A flag)
+                     sanity_gate_reason,          # None at per-snap level
+                     ...}, ... ]
     }
+    NB: MM-PBSA here is ranking / cheap-triage only; it does not decide the
+    sign of ΔG_bind. The actual sign gate is the variant-pair ΔΔ gate
+    (Mode B, ``sanity_gate_pbsa.apply_pbsa_pair_sanity_gate``), which fires
+    only where a variant pair is defined. A single-system run has no pair,
+    so the gate is N/A here; the per-snap endpoint ratio is logged for
+    visibility. The gate tags ΔΔ sign reliability (no magnitude claim) and
+    routes numerically ill-conditioned pairs to expensive methods.
 
 Constraints
 ===========
@@ -103,6 +121,7 @@ except ImportError:
     pass
 
 from utils_common import KNOWN_COFACTORS  # noqa: E402
+from sanity_gate_pbsa import apply_pbsa_sanity_gate  # noqa: E402
 from run_mmgbsa import (  # noqa: E402
     split_complex,
     write_temp_pdb,
@@ -362,6 +381,11 @@ _RE_TOTAL = re.compile(r"^DELTA TOTAL\s+([-\d.]+)")
 _RE_EPB   = re.compile(r"^EPB\s+([-\d.]+)\s+([-\d.]+)")
 _RE_ENPOLAR = re.compile(r"^ENPOLAR\s+([-\d.]+)\s+([-\d.]+)")
 _RE_EDISPER = re.compile(r"^EDISPER\s+([-\d.]+)\s+([-\d.]+)")
+# Gas-phase (ΔE_vdW + ΔE_EEL) and solvation (ΔE_PB + ΔE_nonpolar) totals.
+# These appear as "DELTA G gas" / "DELTA G solv" in the Differences block
+# and are needed for the numerical sign-validity sanity gate downstream.
+_RE_GAS  = re.compile(r"^DELTA G gas\s+([-\d.]+)")
+_RE_SOLV = re.compile(r"^DELTA G solv\s+([-\d.]+)")
 
 
 def _run_mmpbsa_py(work_dir: str, cplx_prmtop: str, rec_prmtop: str,
@@ -431,7 +455,7 @@ def _parse_mmpbsa_output(dat_path: str) -> Optional[Dict]:
     if diff_start is None:
         return None
 
-    total = epb = enpolar = edisper = None
+    total = epb = enpolar = edisper = gas = solv = None
     for line in lines[diff_start:]:
         m = _RE_TOTAL.match(line)
         if m:
@@ -445,6 +469,12 @@ def _parse_mmpbsa_output(dat_path: str) -> Optional[Dict]:
         m = _RE_EDISPER.match(line)
         if m:
             edisper = float(m.group(1))
+        m = _RE_GAS.match(line)
+        if m:
+            gas = float(m.group(1))
+        m = _RE_SOLV.match(line)
+        if m:
+            solv = float(m.group(1))
 
     if total is None:
         return None
@@ -453,6 +483,8 @@ def _parse_mmpbsa_output(dat_path: str) -> Optional[Dict]:
         "delta_epb_kcal":     epb,
         "delta_enpolar_kcal": enpolar,
         "delta_edisper_kcal": edisper,
+        "delta_g_gas_kcal":   gas,
+        "delta_g_solv_kcal":  solv,
     }
 
 
@@ -689,6 +721,8 @@ def calc_mmpbsa_1traj(pdb_path: str, output_dir: str, ff: ForceField,
         "delta_epb_kcal":        parsed.get("delta_epb_kcal"),
         "delta_enpolar_kcal":    parsed.get("delta_enpolar_kcal"),
         "delta_edisper_kcal":    parsed.get("delta_edisper_kcal"),
+        "delta_g_gas_kcal":      parsed.get("delta_g_gas_kcal"),
+        "delta_g_solv_kcal":     parsed.get("delta_g_solv_kcal"),
         "favorable":             parsed["delta_g_kcal"] < 0,
         "protocol_variant":      "1traj",
         "solvent_model":         "pbsa",
@@ -706,10 +740,21 @@ def calc_mmpbsa_1traj(pdb_path: str, output_dir: str, ff: ForceField,
         },
     }
 
+    # Per-snap endpoint logging only — NO gate flag. A single endpoint is
+    # always deep in the gas/solv cancellation regime, so an endpoint-level
+    # test cannot discriminate and is not a gate. This only logs the
+    # endpoint cancellation ratio (additive keys, no existing key altered).
+    # The actual sign gate is the variant-pair ΔΔ gate (Mode B,
+    # apply_pbsa_pair_sanity_gate), which fires at the cross-variant level.
+    apply_pbsa_sanity_gate(result)
+
     out_json = os.path.join(output_dir, f"{basename}_mmpbsa.json")
     with open(out_json, "w", encoding="utf-8") as f:
         json.dump(result, f, indent=2)
     print(f"    ΔG_bind(PBSA) = {parsed['delta_g_kcal']:+.4f} kcal/mol")
+    _r_a = result.get("endpoint_cancellation_ratio")
+    if _r_a is not None:
+        print(f"    [endpoint cancellation r_A] {_r_a:.3f} (logged; gate is ΔΔ-level)")
     return result
 
 
@@ -931,13 +976,38 @@ def main():
 
     all_results.sort(key=lambda r: r["delta_g_kcal"])
     _n_fallback = sum(1 for r in all_results if r.get("fallback_triggered"))
+    # Cohort means of the gas / solv / net decomposition. These are what a
+    # downstream variant-pair ΔΔ gate (Mode B,
+    # sanity_gate_pbsa.apply_pbsa_pair_sanity_gate) consumes across two
+    # variant cohorts. None when this cohort lacks the gas/solv split.
+    _gas_vals = [r["delta_g_gas_kcal"] for r in all_results
+                 if r.get("delta_g_gas_kcal") is not None]
+    _solv_vals = [r["delta_g_solv_kcal"] for r in all_results
+                  if r.get("delta_g_solv_kcal") is not None]
+    _mean_gas = float(np.mean(_gas_vals)) if _gas_vals else None
+    _mean_solv = float(np.mean(_solv_vals)) if _solv_vals else None
+    # Per-snap endpoint cancellation ratios (logging only — NOT a gate).
+    _r_a_vals = [r["endpoint_cancellation_ratio"] for r in all_results
+                 if r.get("endpoint_cancellation_ratio") is not None]
     summary = {
-        "schema_version":   "0.6.9",
+        "schema_version":   "0.6.10",
         "protocol_variant": args.protocol,
         "solvent_model":    "pbsa",
         "gb_model":         "n2",
         "fallback_triggered": _n_fallback > 0,
         "n_fallback_snaps":  _n_fallback,
+        # The sign gate is variant-pair (Mode B) and undefined for a single
+        # system: this run has no variant pair, so the gate is N/A here. The
+        # endpoint ratios below are logged for visibility only.
+        "sign_gate_pair": "N/A (single-system run; gate is variant-pair ΔΔ)",
+        "endpoint_cancellation_ratio_min":
+            (float(min(_r_a_vals)) if _r_a_vals else None),
+        "endpoint_cancellation_ratio_mean":
+            (float(np.mean(_r_a_vals)) if _r_a_vals else None),
+        "endpoint_cancellation_ratio_max":
+            (float(max(_r_a_vals)) if _r_a_vals else None),
+        "mean_gas":  _mean_gas,
+        "mean_solv": _mean_solv,
         "pbsa_config": {
             "solver":           "ambertools_pbsa",
             "ionic_strength_M": args.ionic_strength,

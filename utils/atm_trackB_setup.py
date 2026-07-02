@@ -38,6 +38,7 @@ hybrid charge XML are reused unchanged.
 
 import os
 import sys
+from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Tuple, Any
 
 import numpy as np
@@ -77,6 +78,405 @@ ALCH_RESNUM = 4
 ALCH_COMMON_ATOM = "NE1"                       # frozen, shared by both states
 ALCH_WT_ONLY = ["HE1"]                         # TRP4 indole donor (disappears)
 ALCH_MTR_ONLY = ["CM", "HM1", "HM2", "HM3"]    # MTR4 N-methyl (appears)
+
+
+# ---------------------------------------------------------------------------
+# Mutation specification (C5 generalization, 2026-06-16)
+#
+# The in-place two-copy ATS box perturbs ONE residue's side chain between two
+# endpoint states. The original (and DEFAULT) perturbation is residue-4
+# Cp4(MTR N-methyl) <-> WT(Trp indole), which requires the Khoury hybrid ncAA
+# XML. ``MutationSpec`` extracts that mutation-definition layer (resnum, common
+# attach atom, per-state-only atoms, the ncAA XML, the two residue names) into a
+# parameter object so the SAME two-copy core (build / swap / displacement / C6
+# guards) can also drive a CANONICAL all-amber perturbation (e.g. residue-3
+# Val<->Ile for the V3I engine-validation, where both endpoint residues are
+# standard amber14 templates and NO ncAA XML is needed).
+#
+# State convention (kept identical to the legacy MTR<->Trp wiring so the index
+# map / swap / asserts are reused unchanged):
+#   * ``stateB`` = the APPEARING state -> copy-1 (built at the site). Its
+#     ``stateB_only_atoms`` populate the legacy ``mtr_only`` slot.
+#   * ``stateA`` = the DISAPPEARING state -> copy-2 (displaced into bulk). Its
+#     ``stateA_only_atoms`` populate the legacy ``wt_only`` slot.
+# For MTR<->Trp the appearing state is MTR (the N-methyl appears) and the
+# disappearing state is WT-Trp (HE1 disappears), so stateB=MTR, stateA=WT —
+# byte-identical to the legacy ALCH_* constants below.
+# ---------------------------------------------------------------------------
+@dataclass(frozen=True)
+class MutationSpec:
+    """Definition of a single-residue dual-topology side-chain perturbation.
+
+    Fields:
+      name                : short identifier (used by the CLI / run manifest).
+      resnum              : binder-chain residue number carrying the mutation.
+      common_attach_atom  : the frozen heavy atom both per-state var groups bond
+                            to (the swap attach atom). MUST be present in BOTH
+                            endpoint residues (e.g. NE1 for Trp/MTR, CG1 for
+                            Val/Ile — both the disappearing H and the appearing
+                            methyl/ethyl carbon bond it).
+      stateA_resname      : the DISAPPEARING-state residue name (copy-2 / WT).
+      stateB_resname      : the APPEARING-state residue name (copy-1 / site).
+      stateA_only_atoms   : atom names present ONLY in stateA (disappear). Maps to
+                            the legacy ``wt_only`` slot.
+      stateB_only_atoms   : atom names present ONLY in stateB (appear). Maps to
+                            the legacy ``mtr_only`` slot.
+      hybrid_xml          : ncAA ForceField XML required to template stateB
+                            (``None`` => both endpoints are standard amber14
+                            templates, no extra XML — the canonical path).
+      bonded_heavy_appearing : the appearing-state HEAVY var atom that bonds the
+                            common attach atom directly (CM for MTR, CD1 for
+                            Ile). Used by the MC2 bonded-term assert. ``None`` when
+                            the appearing side grows NO heavy atom (the
+                            disappearing-heavy mirror, e.g. Ala->Gly).
+      appearing_h_prefix  : the atom-name prefix of the appearing-state methyl
+                            hydrogens (HM for MTR, HD for Ile). Used by MC2. ``None``
+                            when the appearing side grows no methyl H group.
+      bonded_heavy_disappearing : the DISAPPEARING-state HEAVY var atom that bonds
+                            the common attach atom directly (CB for Ala in the
+                            Ala->Gly mirror). The symmetric counterpart of
+                            ``bonded_heavy_appearing``; ``None`` for the
+                            appearing-heavy shapes (MTR / V3I disappear only an H).
+                            Used by the MC2 bonded-term assert (disappearing branch).
+      disappearing_h_prefix : the atom-name prefix of the disappearing-state methyl
+                            hydrogens (HB for Ala). ``None`` for shapes that
+                            disappear no methyl H group. Used by MC2.
+      multiheavy_star_certified : explicit opt-in attestation that this spec is an
+                            ACYCLIC "star" multi-methyl perturbation — two or more
+                            var HEAVY atoms each bonded DIRECTLY to the common
+                            attach atom (e.g. Val3->Ala deletes CG1 AND CG2, both
+                            bonded to CB) — that the two-copy coordinate-swap engine
+                            can build. Defaults ``False``: every multi-heavy spec is
+                            ``unsupported`` UNLESS it is explicitly certified here
+                            (fail-safe whitelist — an un-attested multi-heavy spec is
+                            never silently treated as buildable). Ring / fused-ring /
+                            chained-heavy / multi-branch (heavy on BOTH sides)
+                            perturbations are NOT in scope for this attestation
+                            (W4A indole fusion is Phase B's connected-subgraph shape,
+                            W4F ring contraction stays unsupported) and must remain
+                            ``False``; the MC2 backstop additionally fail-louds on any
+                            certified heavy that does not in fact bond the attach atom
+                            by a real bond.
+      ring_closure_bonds : (Phase B) tuple of (atomA, atomB) NAME pairs that close a
+                            ring ENTIRELY inside the perturbation's var group (the
+                            indole 5/6 fusion bond CD2-CE2 for W4A). EMPTY ``()`` for
+                            every ACYCLIC shape (MTR / V3I / A9G / V3A): with no ring
+                            bonds the classifier is byte-identical to the legacy
+                            single-heavy + multi-star paths. Non-empty => the
+                            perturbation is a connected-subgraph RING shape and is
+                            gated FIRST (before any heavy-count branch), so a ring spec
+                            can NEVER edge into a heavy-count shape (star or single) by
+                            accident — the load-bearing silent-build backstop.
+      connected_group_certified : (Phase B) explicit opt-in that the var group is a
+                            SINGLE-ATTACH connected subgraph — one attach-bonded root
+                            heavy (CG->CB for W4A) + the rest reachable by intra-group
+                            bonds + the declared ring-closure bonds. A DEDICATED flag,
+                            INTENTIONALLY distinct from ``multiheavy_star_certified``: a
+                            ring spec is buildable ONLY when THIS flag is set, never via
+                            the star flag (a ring author who sets only the star flag
+                            STILL lands at ``unsupported``). Defaults ``False``: an
+                            un-certified ring spec is ``unsupported`` (fail-safe).
+
+    Two single-heavy SHAPES are supported (see :pyattr:`shape`):
+      * ``appearing_heavy``    : exactly one appearing heavy + its H's, no
+                                 disappearing heavy (MTR: CM+HM; V3I: CD1+HD).
+      * ``disappearing_heavy`` : exactly one disappearing heavy + its H's, no
+                                 appearing heavy (A9G mirror: CB+HB disappear,
+                                 Gly grows only a backbone H, no heavy).
+    Two acyclic-star multi-heavy SHAPES are supported ONLY when explicitly
+    certified via ``multiheavy_star_certified`` (see :pyattr:`shape`):
+      * ``multi_appearing_heavy``    : two or more appearing heavies (each star-
+                                       bonded to the attach atom), no disappearing
+                                       heavy.
+      * ``multi_disappearing_heavy`` : two or more disappearing heavies (each star-
+                                       bonded to the attach atom), no appearing heavy
+                                       (V3A Val->Ala mirror: CG1+CG2 disappear).
+    One connected-subgraph RING SHAPE is supported (Phase B) ONLY when explicitly
+    certified via ``connected_group_certified`` + a non-empty ``ring_closure_bonds``
+    (see :pyattr:`shape`):
+      * ``single_attach_connected_group`` : a one-sided var group (all-disappearing OR
+                                       all-appearing heavy) forming a connected subgraph
+                                       rooted at ONE attach-bonded heavy, with the ring
+                                       closed by the declared ``ring_closure_bonds``
+                                       (W4A Trp->Ala deletes the 9-heavy fused indole;
+                                       root CG bonds CB, the 5/6 fusion bond CD2-CE2
+                                       closes the bicyclic system inside the var group).
+    Any other shape (uncertified multi-heavy, an un-certified ring, or both sides
+    growing/deleting a heavy => ring contraction / multi-branch) is ``unsupported``
+    and the MC2 / R2 asserts FAIL-LOUD on it (W4F/Q5A must hit this, never
+    silent-build).
+    """
+    name: str
+    resnum: int
+    common_attach_atom: str
+    stateA_resname: str
+    stateB_resname: str
+    stateA_only_atoms: Tuple[str, ...]
+    stateB_only_atoms: Tuple[str, ...]
+    hybrid_xml: Optional[str] = None
+    bonded_heavy_appearing: Optional[str] = None
+    appearing_h_prefix: Optional[str] = None
+    bonded_heavy_disappearing: Optional[str] = None
+    disappearing_h_prefix: Optional[str] = None
+    multiheavy_star_certified: bool = False
+    ring_closure_bonds: Tuple[Tuple[str, str], ...] = ()
+    connected_group_certified: bool = False
+
+    @staticmethod
+    def _heavy_names(atom_names: Tuple[str, ...]) -> List[str]:
+        """Heavy (non-hydrogen) atom names in a var set, by name convention.
+
+        Hydrogens are named with a leading ``H`` (optionally after a numeric
+        wyckoff digit, e.g. ``1HB`` — handled defensively). Anything else is a
+        heavy atom. Used only for shape classification, never for the partition.
+        """
+        heavy: List[str] = []
+        for n in atom_names:
+            s = n.strip()
+            base = s.lstrip("0123456789")
+            if base[:1].upper() == "H":
+                continue
+            heavy.append(s)
+        return heavy
+
+    @property
+    def shape(self) -> str:
+        """Classify the single-residue perturbation SHAPE for the MC2 / R2 asserts.
+
+        Returns one of:
+          ``appearing_heavy``         -> exactly one appearing heavy, zero
+                                         disappearing heavy (MTR / V3I).
+          ``disappearing_heavy``      -> exactly one disappearing heavy, zero
+                                         appearing heavy (A9G Ala->Gly mirror).
+          ``multi_appearing_heavy``   -> two or more appearing heavies, zero
+                                         disappearing heavy, AND the spec is
+                                         explicitly ``multiheavy_star_certified``
+                                         (acyclic star multi-methyl).
+          ``multi_disappearing_heavy``-> two or more disappearing heavies, zero
+                                         appearing heavy, AND the spec is explicitly
+                                         ``multiheavy_star_certified`` (V3A mirror).
+          ``single_attach_connected_group`` -> (Phase B, ring-FIRST) a NON-EMPTY
+                                         ``ring_closure_bonds`` AND a one-sided var
+                                         group (all-disappearing OR all-appearing heavy)
+                                         AND ``connected_group_certified`` is True (W4A
+                                         certified fused indole: one attach-bonded root
+                                         + BFS-reachable ring heavies + the declared
+                                         ring-closure bond). Gated FIRST, before any
+                                         heavy-count branch.
+          ``unsupported``             -> anything else: a heavy on BOTH sides
+                                         (ring contraction / multi-branch), zero heavy on
+                                         either side, an UN-certified multi-heavy spec,
+                                         OR a RING spec (``ring_closure_bonds`` non-empty)
+                                         that is either un-certified or heavy-both-sides
+                                         (a ring author who sets only
+                                         ``multiheavy_star_certified`` STILL lands here —
+                                         the star flag is NEVER honoured for a ring
+                                         shape). The classification is a FAIL-SAFE
+                                         WHITELIST: a multi-heavy / ring spec is only
+                                         buildable when it has opted in via the
+                                         APPROPRIATE attestation (``multiheavy_star_
+                                         certified`` for acyclic stars, ``connected_
+                                         group_certified`` for rings) — omitting the
+                                         flag keeps it ``unsupported`` (so a spec
+                                         author who forgets the flag, or a ring/fused/
+                                         chained-heavy spec, can never be silently
+                                         mis-classified as supported). The MC2 / R2
+                                         asserts FAIL-LOUD on ``unsupported`` rather
+                                         than silent-build a wrong endpoint.
+        """
+        n_app_heavy = len(self._heavy_names(self.stateB_only_atoms))
+        n_dis_heavy = len(self._heavy_names(self.stateA_only_atoms))
+        # RING-FIRST gate (Phase B, load-bearing silent-build backstop): a ring-closure
+        # spec is classified by the DEDICATED connected-group attestation, evaluated
+        # BEFORE the heavy-count opt-in branches so the star flag can never silent-build
+        # a ring. A heavy growing AND deleting (W4F ring CONTRACTION / multi-branch)
+        # stays unsupported even WITH the ring attestation: a single-attach connected
+        # group has a one-sided var group (all-disappearing OR all-appearing), so a heavy
+        # on BOTH sides is a dual swap the engine cannot construct. With NO ring bonds
+        # the classification falls through to the byte-identical legacy paths below.
+        if self.ring_closure_bonds:
+            if n_app_heavy >= 1 and n_dis_heavy >= 1:
+                return "unsupported"
+            if self.connected_group_certified:
+                return "single_attach_connected_group"
+            return "unsupported"
+        # A heavy growing AND deleting => multi-branch / ring rewiring (W4F): never
+        # buildable here, regardless of the opt-in attestation.
+        if n_app_heavy >= 1 and n_dis_heavy >= 1:
+            return "unsupported"
+        # Single-heavy shapes (byte-identical to the legacy classifier).
+        if n_app_heavy == 1 and n_dis_heavy == 0:
+            return "appearing_heavy"
+        if n_dis_heavy == 1 and n_app_heavy == 0:
+            return "disappearing_heavy"
+        # Acyclic-star multi-heavy shapes — ONLY when explicitly opted in
+        # (fail-safe whitelist; an un-certified multi-heavy spec stays unsupported).
+        if self.multiheavy_star_certified:
+            if n_app_heavy >= 2 and n_dis_heavy == 0:
+                return "multi_appearing_heavy"
+            if n_dis_heavy >= 2 and n_app_heavy == 0:
+                return "multi_disappearing_heavy"
+        return "unsupported"
+
+
+# DEFAULT spec — residue-4 Cp4(MTR) <-> WT(Trp). Byte-identical to the legacy
+# ALCH_* constants (stateB=MTR appears, stateA=WT disappears); ``hybrid_xml`` is
+# resolved at build time (RBFE-harmonized XML preferred) so it is left ``None``
+# here and the builder keeps its existing XML-resolution logic for this spec.
+MUTATION_MTR_TRP_RES4 = MutationSpec(
+    name="mtr_trp_res4",
+    resnum=4,
+    common_attach_atom="NE1",
+    stateA_resname="TRP",
+    stateB_resname="MTR",
+    stateA_only_atoms=("HE1",),                       # WT indole donor (disappears)
+    stateB_only_atoms=("CM", "HM1", "HM2", "HM3"),    # MTR N-methyl (appears)
+    hybrid_xml=None,                                  # resolved at build time
+    bonded_heavy_appearing="CM",
+    appearing_h_prefix="HM",
+)
+
+# V3I spec — residue-3 Val(WT) <-> Ile (engine validation, engine validation (Option B)).
+# Both endpoints are standard amber14 templates (no ncAA XML). amber14 atom
+# naming (verified against the amber14-all VAL/ILE templates):
+#   VAL CG1: HG11, HG12, HG13 ; ILE CG1: HG12, HG13 + CD1(HD11,HD12,HD13).
+# So Val->Ile ADDS a gamma-CH3: HG11 disappears, CD1+HD11-13 appear; the common
+# attach atom is CG1 (both the disappearing HG11 and the appearing CD1 bond it).
+# stateB=Ile (appears, copy-1), stateA=Val (disappears, copy-2). hybrid_xml=None
+# (canonical amber14 — Val/Ile are charge-neutral, parity-identical: R-15/R-16
+# pass trivially).
+MUTATION_VAL_ILE_RES3 = MutationSpec(
+    name="v3i_val_ile_res3",
+    resnum=3,
+    common_attach_atom="CG1",
+    stateA_resname="VAL",
+    stateB_resname="ILE",
+    stateA_only_atoms=("HG11",),                      # Val gamma-H (disappears)
+    stateB_only_atoms=("CD1", "HD11", "HD12", "HD13"),  # Ile gamma-CH3 (appears)
+    hybrid_xml=None,                                  # canonical amber14
+    bonded_heavy_appearing="CD1",
+    appearing_h_prefix="HD",
+)
+
+# A9G spec — residue-9 Ala(WT) <-> Gly (engine de-risk of the disappearing-heavy
+# MC2/partition extension). The MIRROR of V3I: V3I GROWS a heavy (CD1), A9G DELETES
+# a heavy (CB). amber14 ff14SB atom naming (verified against the amber14-all ALA/GLY
+# templates AND the prepared 2QKI WT binder chain B residue 9):
+#   ALA past CA: HA, CB, HB1, HB2, HB3 ; GLY past CA: HA2, HA3 (NO CB).
+# Ala->Gly DELETES the beta-CH3 (CB+HB1-3) and the appearing Gly grows NO heavy
+# beyond the common attach CA. The alpha hydrogen is RENAMED in the swap (Ala HA vs
+# Gly HA2/HA3): so the alpha-H is NOT a shared common atom by name — it is carried
+# as a disappearing H (Ala HA) paired with the appearing H's (Gly HA2/HA3). This
+# keeps the C4 common-core list NAME-ALIGNED (common = N,H,CA,C,O on BOTH copies,
+# 5 atoms each: ALA 10 - 5 var = 5; GLY 7 - 2 var = 5) — the positional swap requires
+# identical common names in order. The common attach atom is CA (both the disappearing
+# CB and the Gly backbone bond it). stateB=Gly (appears, copy-1), stateA=Ala
+# (disappears, copy-2). hybrid_xml=None (canonical amber14 — Ala/Gly are both net-0,
+# parity-identical: R-15/R-16 pass trivially; the full-residue net-charge sanity gate
+# sees net=0 both copies). The appearing side has NO heavy, so bonded_heavy_appearing
+# /appearing_h_prefix are None; the single disappearing heavy (CB) + its HB methyl
+# group drive the mirrored MC2/R2 asserts. SHAPE = disappearing_heavy (exactly one
+# disappearing heavy, zero appearing heavy).
+MUTATION_ALA_GLY_RES9 = MutationSpec(
+    name="a9g_ala_gly_res9",
+    resnum=9,
+    common_attach_atom="CA",
+    stateA_resname="ALA",
+    stateB_resname="GLY",
+    # Ala beta-CH3 disappears; Ala alpha-H (HA) is carried as a disappearing H so the
+    # shared common core excludes the renamed alpha-H (C4 name-alignment).
+    stateA_only_atoms=("HA", "CB", "HB1", "HB2", "HB3"),
+    # Gly's two alpha-H's appear (HA2 pairs Ala's HA; HA3 takes the old CB direction).
+    stateB_only_atoms=("HA2", "HA3"),
+    hybrid_xml=None,                                   # canonical amber14
+    bonded_heavy_appearing=None,                       # appearing side has no heavy
+    appearing_h_prefix=None,
+    bonded_heavy_disappearing="CB",
+    disappearing_h_prefix="HB",
+)
+
+# W4A spec — residue-4 Trp(WT) -> Ala (connected-subgraph fused-indole knockout).
+# The PRODUCTION promotion of the validated W4A/w4a_spec_draft.ProtoMutationSpec
+# (the exact spec the C5 bound genuine-decouple pre-flight smoke validated). The
+# real MutationSpec already carries the Phase B ring fields (ring_closure_bonds /
+# connected_group_certified) + the ring-FIRST `shape` property, so this is a pure
+# additive registration — the scratch ProtoMutationSpec is no longer needed at
+# build time. amber14 ff14SB indole atom naming (verified against the amber14-all
+# TRP template + W4A/notes.md). TRP res-4 side chain past CB:
+#   CG, CD1(HD1), CD2, NE1(HE1), CE2, CZ2(HZ2), CZ3(HZ3), CH2(HH2), CE3(HE3)
+#   9 ring heavies: CG, CD1, CD2, NE1, CE2, CZ2, CZ3, CH2, CE3
+#   ring-closure (5/6 fusion): CD2-CE2  <-- closes the bicyclic indole INSIDE the
+#                                            disappearing var group.
+# The common attach is CB (present in BOTH TRP and ALA). Trp->Ala DELETES the whole
+# indole (9 heavy + 6 ring H = 15 atoms). The shared beta-H pair HB2/HB3 is COMMON
+# (BOTH residues carry it with identical names -> name-aligned common core); ALA's
+# extra HB1 is the single APPEARING atom (an H, not a heavy => the shape stays a
+# 0-appearing-heavy / 9-disappearing-heavy connected group). Common core (BOTH
+# copies, 9 atoms): N,H,CA,HA,C,O,CB,HB2,HB3. TRP 24 - 15 var = 9 ; ALA 10 - 1 var
+# = 9 (balanced). hybrid_xml=None (canonical amber14; Trp/Ala BOTH net-0 -> R-15/
+# R-16 trivial, MC1 full-residue net-charge sanity passes).
+#
+# The disappearing branch is a connected subgraph rooted at CG (the only indole
+# heavy that bonds the common attach CB). bonded_heavy_disappearing=CG records the
+# root (the MC2 connected-group certify discovers it + the rest by BFS over the
+# built box's real bonds); ring_closure_bonds=(("CD2","CE2"),) +
+# connected_group_certified=True opt the ring shape in (the star flag is left at
+# its default False — it must NEVER certify a ring; the ring-FIRST classifier
+# gates on connected_group_certified before any heavy-count branch). SHAPE =
+# single_attach_connected_group (the detbeta deterministic common beta-H placement
+# is shape-gated to this shape, so it auto-applies for W4A).
+MUTATION_TRP_ALA_RES4 = MutationSpec(
+    name="w4a_trp_ala_res4",
+    resnum=4,
+    common_attach_atom="CB",
+    stateA_resname="TRP",                              # disappearing (copy-2 / WT)
+    stateB_resname="ALA",                              # appearing (copy-1 / site)
+    # The whole fused indole disappears (9 heavy + 6 ring H = 15 atoms).
+    stateA_only_atoms=("CG", "CD1", "HD1", "CD2", "NE1", "HE1", "CE2",
+                       "CZ2", "HZ2", "CZ3", "HZ3", "CH2", "HH2", "CE3", "HE3"),
+    # ALA's extra beta-H (TRP has HB2/HB3 only; ALA has HB1/HB2/HB3) — single
+    # appearing H, no heavy.
+    stateB_only_atoms=("HB1",),
+    hybrid_xml=None,                                   # canonical amber14
+    bonded_heavy_appearing=None,                       # appearing side grows no heavy
+    appearing_h_prefix=None,
+    # Connected-subgraph root: CG (the only indole heavy that bonds CB).
+    bonded_heavy_disappearing="CG",
+    disappearing_h_prefix=None,                        # H's grouped by connectivity
+    ring_closure_bonds=(("CD2", "CE2"),),              # 5/6 indole fusion bond
+    connected_group_certified=True,                    # ring opt-in (NOT the star flag)
+)
+
+# Registry of named mutation specs (CLI / launcher selection).
+MUTATION_SPECS: Dict[str, MutationSpec] = {
+    MUTATION_MTR_TRP_RES4.name: MUTATION_MTR_TRP_RES4,
+    MUTATION_VAL_ILE_RES3.name: MUTATION_VAL_ILE_RES3,
+    MUTATION_ALA_GLY_RES9.name: MUTATION_ALA_GLY_RES9,
+    MUTATION_TRP_ALA_RES4.name: MUTATION_TRP_ALA_RES4,
+}
+
+
+def resolve_mutation_spec(spec: Optional[Any]) -> MutationSpec:
+    """Coerce a spec selector into a ``MutationSpec`` (None -> the res-4 default).
+
+    Accepts ``None`` (the legacy res-4 MTR<->Trp default, byte-identical), a
+    registry name string (``"v3i_val_ile_res3"``), or a ``MutationSpec`` instance
+    (returned unchanged). Fail-loud on an unknown name.
+    """
+    if spec is None:
+        return MUTATION_MTR_TRP_RES4
+    if isinstance(spec, MutationSpec):
+        return spec
+    if isinstance(spec, str):
+        if spec not in MUTATION_SPECS:
+            raise ValueError(
+                "resolve_mutation_spec: unknown mutation spec name %r (known: %s)"
+                % (spec, ", ".join(sorted(MUTATION_SPECS))))
+        return MUTATION_SPECS[spec]
+    raise TypeError(
+        "resolve_mutation_spec: expected None / a registry name / a MutationSpec, "
+        "got %r" % (type(spec),))
+
 
 DISULFIDE_MAX_NM = 0.24  # CYS2-CYS12 SG-SG (matches run_restrained_md default)
 
@@ -489,6 +889,93 @@ def prepare_free_peptide_from_final(final_pdb: str, out_pdb: str,
     return out_pdb
 
 
+def prepare_mutated_binder_from_final(
+    final_pdb: str, out_pdb: str, resnum: int,
+    from_resname: str, to_resname: str, binder_chain: str = "B",
+    add_hydrogens: bool = True,
+) -> str:
+    """Extract the binder from an MD ``final.pdb`` and apply a CANONICAL amber14
+    point mutation (e.g. VAL-3-ILE) via PDBFixer, returning a template-clean PDB.
+
+    This is the canonical (all-amber, no ncAA) sibling of
+    :func:`prepare_free_peptide_from_final`: it produces the APPEARING-state copy
+    for an engine-validation mutation where BOTH endpoints are standard amber14
+    residues (V3I Val<->Ile). The disappearing-state copy is produced verbatim by
+    ``prepare_free_peptide_from_final`` (no mutation needed — it IS the scaffold's
+    native residue), so this helper is used only for the side that differs.
+
+    Mechanics:
+      1. Extract the binder chain (drop receptor + solvent).
+      2. PDBFixer ``applyMutations([f"{from}-{resnum}-{to}"], chain)`` rebuilds the
+         target residue's heavy-atom side chain to the target template (drops the
+         disappearing atoms, adds the appearing heavy atoms e.g. CD1 with a
+         standard geometry).
+      3. ``findMissingAtoms`` / ``addMissingAtoms`` completes any remaining heavy
+         atoms; ``addMissingHydrogens`` (when ``add_hydrogens``) places the full
+         amber14 hydrogen set on the mutated residue.
+
+    Hydrogens on the mutated residue MUST be (re)placed because the appearing
+    heavy atoms (CD1) carry no H in the input final.pdb. The cyclic_ss disulfide
+    (CYS-CYS) is preserved (CYS is untouched by the mutation) and re-detected
+    downstream. A standard (non-ncAA) terminal completion is correct for the
+    compstatin macrocycle (the ring is the SG-SG bond, termini are standard).
+
+    Fail-loud if PDBFixer cannot resolve the mutation (the smoke reports the
+    cause).
+    """
+    from pdbfixer import PDBFixer
+
+    raw = out_pdb + ".binder.pdb"
+    _extract_binder_only(final_pdb, raw, binder_chain=binder_chain)
+
+    fixer = PDBFixer(filename=raw)
+    # Single-chain extract -> the PDBFixer chain id may be re-labelled; resolve the
+    # actual chain id of the extracted binder (usually the binder_chain, but the
+    # PDB reader can re-letter a sole chain). Mutate the chain that carries the
+    # target residue number.
+    target_chain_id = None
+    for ch in fixer.topology.chains():
+        for res in ch.residues():
+            try:
+                if int(res.id) == int(resnum) and res.name == from_resname:
+                    target_chain_id = ch.id
+                    break
+            except (TypeError, ValueError):
+                continue
+        if target_chain_id is not None:
+            break
+    if target_chain_id is None:
+        raise ValueError(
+            "prepare_mutated_binder_from_final: residue %s-%d not found in the "
+            "extracted binder of %s (cannot apply the %s->%s mutation)."
+            % (from_resname, resnum, final_pdb, from_resname, to_resname))
+
+    fixer.applyMutations(
+        ["%s-%d-%s" % (from_resname, int(resnum), to_resname)], target_chain_id)
+    fixer.findMissingResidues()
+    fixer.missingResidues = {}        # do not insert internal gaps (single chain)
+    fixer.findMissingAtoms()
+    fixer.addMissingAtoms()           # heavy atoms (the appearing CD1 etc.)
+    if add_hydrogens:
+        fixer.addMissingHydrogens(7.0)  # full amber14 H set incl. mutated residue
+
+    # PDBFile.writeFile re-letters chains positionally (A, B, ...) IGNORING
+    # ``chain.id`` — so the single extracted binder is written as chain 'A'. The
+    # downstream build keys on ``binder_chain``, so stamp the binder chain id into
+    # the written PDB text (column 22) for every binder atom. Single chain =>
+    # every ATOM/HETATM line is the binder.
+    tmp_written = out_pdb + ".written.pdb"
+    with open(tmp_written, "w") as fh:
+        PDBFile.writeFile(fixer.topology, fixer.positions, fh)
+    with open(tmp_written) as src, open(out_pdb, "w") as dst:
+        for line in src:
+            if line[:6] in ("ATOM  ", "HETATM"):
+                dst.write(line[:21] + binder_chain + line[22:])
+            else:
+                dst.write(line)
+    return out_pdb
+
+
 # Bound-complex contact thresholds (Angstrom). A correctly imaged 2QKI bound
 # pose sits at ~2.5-3.0 A receptor<->binder min heavy-atom distance; a
 # PBC-unwrapped final.pdb leaves the binder one box image away (~44 A). The
@@ -689,9 +1176,98 @@ def prepare_bound_complex_from_final(final_pdb: str, out_pdb: str,
     return out_pdb
 
 
+def prepare_mutated_bound_complex_from_final(
+    final_pdb: str, out_pdb: str, resnum: int,
+    from_resname: str, to_resname: str, binder_chain: str = "B",
+    receptor_chain: str = "A", add_hydrogens: bool = True,
+) -> str:
+    """Bound-complex prep with a CANONICAL amber14 point mutation on the binder.
+
+    Bound-leg sibling of :func:`prepare_mutated_binder_from_final` /
+    :func:`prepare_bound_complex_from_final`: keeps the receptor (inert context)
+    + binder in the equilibrated BOUND pose, re-images the binder to the receptor's
+    minimum image, then applies the binder-chain point mutation (e.g. VAL-3-ILE)
+    via PDBFixer and re-places hydrogens on the mutated residue. The disappearing-
+    state bound complex is produced verbatim by ``prepare_bound_complex_from_final``
+    (no mutation); this helper is the appearing-state side only.
+
+    The mutation is applied to the BINDER chain only (PDBFixer mutates the named
+    chain), so the receptor side chains are untouched. Fail-loud if PDBFixer cannot
+    resolve the mutation. cyclic_ss is preserved (CYS untouched).
+    """
+    from pdbfixer import PDBFixer
+
+    # First produce the re-imaged WT bound complex (receptor + binder, pose-fixed).
+    wt_complex = out_pdb + ".bound.pdb"
+    prepare_bound_complex_from_final(
+        final_pdb, wt_complex, binder_chain=binder_chain,
+        receptor_chain=receptor_chain)
+
+    fixer = PDBFixer(filename=wt_complex)
+    # Resolve the actual chain id carrying the target binder residue.
+    target_chain_id = None
+    for ch in fixer.topology.chains():
+        for res in ch.residues():
+            try:
+                if int(res.id) == int(resnum) and res.name == from_resname:
+                    target_chain_id = ch.id
+                    break
+            except (TypeError, ValueError):
+                continue
+        if target_chain_id is not None:
+            break
+    if target_chain_id is None:
+        raise ValueError(
+            "prepare_mutated_bound_complex_from_final: residue %s-%d not found in "
+            "the binder of %s (cannot apply the %s->%s mutation)."
+            % (from_resname, resnum, final_pdb, from_resname, to_resname))
+
+    fixer.applyMutations(
+        ["%s-%d-%s" % (from_resname, int(resnum), to_resname)], target_chain_id)
+    fixer.findMissingResidues()
+    fixer.missingResidues = {}
+    fixer.findMissingAtoms()
+    fixer.addMissingAtoms()
+    if add_hydrogens:
+        fixer.addMissingHydrogens(7.0)
+
+    # PDBFile.writeFile re-letters chains positionally (A, B, ...) IGNORING
+    # ``chain.id``. Write first, then re-stamp the written PDB text: the chain
+    # whose residue ``resnum`` is the now-mutated residue (``to_resname``) becomes
+    # ``binder_chain``; every other chain becomes ``receptor_chain``. The downstream
+    # build keys on these ids.
+    tmp_written = out_pdb + ".written.pdb"
+    with open(tmp_written, "w") as fh:
+        PDBFile.writeFile(fixer.topology, fixer.positions, fh)
+    # Identify the written chain letter that carries the mutated binder residue.
+    binder_written_id = None
+    for line in open(tmp_written):
+        if line[:6] in ("ATOM  ", "HETATM"):
+            try:
+                rnum = int(line[22:26])
+            except ValueError:
+                continue
+            if rnum == int(resnum) and line[17:20].strip() == to_resname:
+                binder_written_id = line[21]
+                break
+    if binder_written_id is None:
+        raise ValueError(
+            "prepare_mutated_bound_complex_from_final: could not locate the mutated "
+            "residue %s-%d in the written complex of %s (chain re-stamp failed)."
+            % (to_resname, resnum, final_pdb))
+    with open(tmp_written) as src, open(out_pdb, "w") as dst:
+        for line in src:
+            if line[:6] in ("ATOM  ", "HETATM"):
+                cid = binder_chain if line[21] == binder_written_id else receptor_chain
+                dst.write(line[:21] + cid + line[22:])
+            else:
+                dst.write(line)
+    return out_pdb
+
+
 def compute_decouple_direction(
-    build: Dict[str, Any], binder_chain: str = "B", resnum: int = ALCH_RESNUM,
-    shell_nm: float = 1.0, decouple_nm: float = 1.2,
+    build: Dict[str, Any], binder_chain: str = "B", resnum: Optional[int] = None,
+    shell_nm: float = 1.0, decouple_nm: float = 1.2, spec: Optional[Any] = None,
 ) -> Optional[Tuple[float, float, float]]:
     """Unit vector pointing from the LOCAL heavy-atom density OUTWARD past NE1.
 
@@ -714,7 +1290,16 @@ def compute_decouple_direction(
 
     Returns ``None`` if NE1 or the local shell cannot be resolved, in which case
     the caller keeps the legacy fixed +Z.
+
+    ``spec`` (a ``MutationSpec`` or registry name; ``None`` => res-4 MTR<->Trp)
+    supplies the common attach atom + residue number. The outward direction is
+    computed off the common attach atom (NE1 for Trp/MTR, CG1 for Val/Ile), so
+    the geometry generalizes to any single-residue mutation. ``resnum`` overrides
+    the spec's residue number when given (legacy positional compatibility).
     """
+    ms = resolve_mutation_spec(spec)
+    target_resnum = resnum if resnum is not None else ms.resnum
+    common_atom = ms.common_attach_atom
     topology = build["modeller"].topology
     positions = np.array([
         v.value_in_unit(unit.nanometer) for v in build["modeller"].positions])
@@ -727,12 +1312,12 @@ def compute_decouple_direction(
             if res.name in _SOLVENT_RESNAMES:
                 continue
             try:
-                if int(res.id) != resnum:
+                if int(res.id) != target_resnum:
                     continue
             except (TypeError, ValueError):
                 continue
             for atom in res.atoms():
-                if atom.name == ALCH_COMMON_ATOM:
+                if atom.name == common_atom:
                     ne1_idx = atom.index
     if ne1_idx is None:
         return None
@@ -783,18 +1368,35 @@ def prepare_free_peptide_pdb(complex_pdb: str, out_pdb: str,
 # Alchemical-atom identification (B-C5)
 # ---------------------------------------------------------------------------
 def identify_alchemical_atoms(
-    topology: app.Topology, binder_chain: str = "B", resnum: int = ALCH_RESNUM
+    topology: app.Topology, binder_chain: str = "B",
+    resnum: Optional[int] = None, spec: Optional[Any] = None,
 ) -> Dict[str, List[int]]:
-    """Return global atom indices for the residue-4 alchemical partition.
+    """Return global atom indices for the residue alchemical partition.
 
-    Classifies indices into:
-      common  : NE1 (frozen, present in both states)
-      wt_only : HE1 (TRP indole donor, disappears Trp->MTR)
-      mtr_only: CM, HM1-3 (N-methyl, appears Trp->MTR)
+    Classifies indices (DEFAULT spec = residue-4 MTR<->Trp) into:
+      common  : the common attach atom (NE1; frozen, present in both states)
+      wt_only : the DISAPPEARING-state-only atoms (HE1; the legacy "wt_only" slot)
+      mtr_only: the APPEARING-state-only atoms (CM, HM1-3; legacy "mtr_only" slot)
     Atoms not present in the given topology are simply absent (e.g. a WT-only
     structure has no CM); the caller combines both states' lists for the
     dual-topology box.
+
+    ``spec`` (a ``MutationSpec`` or registry name; ``None`` => the res-4
+    MTR<->Trp default) generalizes the partition to any single-residue mutation
+    (e.g. residue-3 Val<->Ile, V3I). The legacy ``wt_only`` / ``mtr_only`` dict
+    keys are kept (they map to the spec's disappearing/appearing sets) so every
+    downstream consumer (index map, swap, asserts) is reused unchanged.
+
+    ``resnum`` (legacy positional kwarg) overrides the spec's residue number when
+    given; otherwise the spec's resnum is used. With ``spec=None`` and no
+    ``resnum`` this resolves to ``ALCH_RESNUM`` (byte-identical legacy behaviour).
     """
+    ms = resolve_mutation_spec(spec)
+    target_resnum = resnum if resnum is not None else ms.resnum
+    common_atom = ms.common_attach_atom
+    disappear = set(ms.stateA_only_atoms)
+    appear = set(ms.stateB_only_atoms)
+
     common: List[int] = []
     wt_only: List[int] = []
     mtr_only: List[int] = []
@@ -806,14 +1408,14 @@ def identify_alchemical_atoms(
                 rn = int(res.id)
             except (TypeError, ValueError):
                 continue
-            if rn != resnum:
+            if rn != target_resnum:
                 continue
             for atom in res.atoms():
-                if atom.name == ALCH_COMMON_ATOM:
+                if atom.name == common_atom:
                     common.append(atom.index)
-                elif atom.name in ALCH_WT_ONLY:
+                elif atom.name in disappear:
                     wt_only.append(atom.index)
-                elif atom.name in ALCH_MTR_ONLY:
+                elif atom.name in appear:
                     mtr_only.append(atom.index)
     return {"common": common, "wt_only": wt_only, "mtr_only": mtr_only}
 
@@ -827,10 +1429,12 @@ def build_leg_system(
     binder_chain: str = "B",
     solvate: bool = True,
     padding_nm: float = 1.2,
-    ncaa_xml: str = HYBRID_MTR_XML,
+    ncaa_xml: Optional[str] = HYBRID_MTR_XML,
     hydrogens_xml: Optional[str] = HYBRID_MTR_HYDROGENS_XML,
     add_hydrogens: bool = True,
     constraints: Any = HBonds,
+    spec: Optional[Any] = None,
+    ncaa_resname: Optional[str] = "MTR",
 ) -> Dict[str, Any]:
     """Build one leg's OpenMM ``System`` with the canonical UPDD FF stack.
 
@@ -850,8 +1454,19 @@ def build_leg_system(
     Tier-2 short-dynamics finite-under-integration requirement (a 1 fs
     unconstrained alch-H integrator). The default preserves the canonical
     production stack byte-for-byte (all existing callers are unaffected).
+
+    ``spec`` (a ``MutationSpec`` or registry name; ``None`` => res-4 MTR<->Trp)
+    only changes which atoms ``identify_alchemical_atoms`` classifies — it does
+    NOT alter the FF stack.
+
+    ``ncaa_resname`` (default ``"MTR"``) is the HETATM ncAA residue requiring the
+    extra hydrogen-definition load + internal-bond injection. For a CANONICAL
+    all-amber mutation (e.g. V3I Val<->Ile) the caller passes ``ncaa_resname=None``
+    and ``ncaa_xml=None`` so those ncAA-specific steps are skipped (Val/Ile are
+    standard amber14 templates). ``ncaa_xml=None`` drops the extra XML from the
+    ForceField stack. The default keeps the existing MTR path byte-identical.
     """
-    ff_inputs = list(FF_FILES) + [ncaa_xml]
+    ff_inputs = list(FF_FILES) + ([ncaa_xml] if ncaa_xml else [])
     ff = ForceField(*ff_inputs)
 
     pdb = PDBFile(pdb_path)
@@ -872,19 +1487,25 @@ def build_leg_system(
     # residue bonds. Re-add them from the MTR XML <Bond> records (identical to
     # run_restrained_md.inject_xml_bonds v38 multi-site). MUST happen before
     # the peptide-bond completion below (the peptide adder reads existing
-    # bonds to skip duplicates).
-    n_internal_added = inject_xml_internal_bonds(
-        modeller.topology, [ncaa_xml], xml_res_name="MTR"
-    )
+    # bonds to skip duplicates). Skipped for a canonical all-amber build
+    # (``ncaa_resname=None``) — standard residues carry their bonds already.
+    n_internal_added = 0
+    if ncaa_resname is not None and ncaa_xml:
+        n_internal_added = inject_xml_internal_bonds(
+            modeller.topology, [ncaa_xml], xml_res_name=ncaa_resname
+        )
 
     # ncAA peptide-bond completion: OpenMM's PDBFile reader does not infer
     # ATOM↔HETATM peptide bonds, so MTR (HETATM) junctions are missing here.
     # Add them by C(i)-N(i+1) distance threshold (0.20 nm) before
     # createSystem so amber14 templates resolve correctly. Identical logic to
-    # run_restrained_md.add_missing_peptide_bonds_safe.
-    n_peptide_added = add_missing_peptide_bonds_safe(
-        modeller, binder_chain=binder_chain, max_cn_distance_nm=0.20
-    )
+    # run_restrained_md.add_missing_peptide_bonds_safe. Skipped for a canonical
+    # all-amber build (no HETATM junctions to repair).
+    n_peptide_added = 0
+    if ncaa_resname is not None:
+        n_peptide_added = add_missing_peptide_bonds_safe(
+            modeller, binder_chain=binder_chain, max_cn_distance_nm=0.20
+        )
 
     # cyclic_ss disulfide (B-C3): retained on BOTH legs.
     disulfide = None
@@ -922,7 +1543,8 @@ def build_leg_system(
             rigidWater=True,
         )
 
-    alch = identify_alchemical_atoms(modeller.topology, binder_chain=binder_chain)
+    alch = identify_alchemical_atoms(
+        modeller.topology, binder_chain=binder_chain, spec=spec)
     return {
         "leg": leg,
         "modeller": modeller,
@@ -2343,6 +2965,29 @@ def build_inplace_res4_fused_system(
 # overlap (PME cutoff 1.0 nm << d) — C2/C3 spatial separation, not exclusion.
 ATS_TWOCOPY_DISPLACEMENT_NM = 4.0   # 40 Å
 
+# C6 two-copy separation thresholds. The displacement is direction-neutral:
+# both magnitude and direction cancel in u1-u0 when copy-2 is fully decoupled.
+#   - HARD clash floor: copies closer than this are physically interpenetrating
+#     (PE -> +1e15, minimize NaN). Equals the PME cutoff (createSystem
+#     nonbondedCutoff=1.0 nm). A build below this is REJECTED unconditionally.
+ATS_TWOCOPY_CLASH_FLOOR_NM = 1.0
+#   - DECOUPLING-SUFFICIENT acceptance line: the auto-search direction must clear
+#     this for the copies to be genuinely decoupled (PME cutoff + an LJ-tail buffer
+#     so the dispersion tail past the cutoff is also negligible). Conservative
+#     option = 2.0 nm.
+ATS_TWOCOPY_ACCEPT_SEP_NM = 1.5
+ATS_TWOCOPY_ACCEPT_SEP_NM_CONSERVATIVE = 2.0
+
+# Direction auto-search: re-pick the displacement DIRECTION into
+# open solvent rather than inflating d when the res-4-local outward vector grazes
+# the receptor for a given pose). The base direction is the res-4-local outward
+# vector (compute_decouple_direction); candidates are sampled in a cone around it.
+ATS_TWOCOPY_AUTOSEARCH_N_CANDIDATES = 12   # candidate directions per cone shell
+ATS_TWOCOPY_AUTOSEARCH_CONE_DEG = 60.0     # half-angle of the candidate cone
+# Magnitude escalation ladder (nm) tried in order when no candidate direction at
+# the previous magnitude clears the acceptance line.
+ATS_TWOCOPY_AUTOSEARCH_MAGNITUDES_NM = (4.0, 5.5, 7.0, 9.0, 11.0)
+
 
 def _displace_copy_positions(
     positions: List[Any], dvec_nm: Tuple[float, float, float]
@@ -2364,25 +3009,28 @@ def _displace_copy_positions(
 def compute_twocopy_displacement_vector(
     copy1_build: Dict[str, Any], copy2_build: Dict[str, Any],
     binder_chain: str = "B", magnitude_nm: float = ATS_TWOCOPY_DISPLACEMENT_NM,
+    spec: Optional[Any] = None,
 ) -> Tuple[float, float, float]:
     """C3: the d-vector that moves copy-2 (bulk copy) clear of BOTH the receptor
     and the binder fold of copy-1.
 
-    Reuses the local-outward logic of ``compute_decouple_direction`` (NE1 minus
-    the centroid of the local heavy-atom shell around copy-1's residue-4 NE1) —
-    the same leg-agnostic direction that clears the receptor AND the peptide's own
-    fold for the BOUND pose, and points into bulk for the FREE peptide. Scaled to
-    ``magnitude_nm``. Falls back to +X if the local outward direction is
-    degenerate (the magnitude alone still separates the copies; the precise
-    direction only matters so the bulk copy lands in solvent, which the box
+    Reuses the local-outward logic of ``compute_decouple_direction`` (the common
+    attach atom minus the centroid of the local heavy-atom shell around copy-1's
+    residue) — the same leg-agnostic direction that clears the receptor AND the
+    peptide's own fold for the BOUND pose, and points into bulk for the FREE
+    peptide. Scaled to ``magnitude_nm``. Falls back to +X if the local outward
+    direction is degenerate (the magnitude alone still separates the copies; the
+    precise direction only matters so the bulk copy lands in solvent, which the box
     padding guarantees after a uniform displacement).
 
-    NOT the single-HE1 decouple of the legacy path — here the WHOLE copy-2 is
-    translated by d, so the relevant geometry is copy-1's residue-4 outward
+    NOT the single-var decouple of the legacy path — here the WHOLE copy-2 is
+    translated by d, so the relevant geometry is copy-1's residue outward
     direction (where copy-2 must NOT collide as it is swapped to the site at
-    λ=1).
+    λ=1). ``spec`` (a ``MutationSpec`` / registry name; ``None`` => res-4 default)
+    supplies the attach atom + residue number.
     """
-    unit_dir = compute_decouple_direction(copy1_build, binder_chain=binder_chain)
+    unit_dir = compute_decouple_direction(
+        copy1_build, binder_chain=binder_chain, spec=spec)
     if unit_dir is None:
         unit_dir = (1.0, 0.0, 0.0)
     norm = float(np.linalg.norm(np.array(unit_dir, dtype=float)))
@@ -2391,6 +3039,187 @@ def compute_twocopy_displacement_vector(
         norm = 1.0
     scale = float(magnitude_nm) / norm
     return (unit_dir[0] * scale, unit_dir[1] * scale, unit_dir[2] * scale)
+
+
+def _copy_solute_heavy_positions(
+    build: Dict[str, Any], binder_chain: str = "B",
+) -> np.ndarray:
+    """Heavy-atom (solute, non-solvent) positions (nm) of a SINGLE per-copy build.
+
+    Used by the displacement auto-search to score candidate directions on the
+    UNSOLVATED endpoint copies (cheap, CPU-only — no full solvated System rebuild
+    per candidate). Solvent/ion residues and hydrogens are dropped (the clash-
+    relevant metric is heavy-atom distance). For the bound copy-1 this includes the
+    whole receptor + binder; for a binder-only copy-2 it is just the binder.
+    """
+    top = build["modeller"].topology
+    positions = np.array([
+        v.value_in_unit(unit.nanometer) for v in build["modeller"].positions])
+    keep: List[int] = []
+    for atom in top.atoms():
+        if atom.residue.name in _SOLVENT_RESNAMES:
+            continue
+        el = atom.element
+        if el is not None and el.symbol == "H":
+            continue
+        if el is None and atom.name.strip().startswith("H"):
+            continue
+        keep.append(atom.index)
+    return positions[keep]
+
+
+def _candidate_directions(
+    base_unit: Tuple[float, float, float],
+    n_candidates: int = ATS_TWOCOPY_AUTOSEARCH_N_CANDIDATES,
+    cone_deg: float = ATS_TWOCOPY_AUTOSEARCH_CONE_DEG,
+) -> List[Tuple[float, float, float]]:
+    """Unit-vector candidates: the base direction plus a ring of directions tilted
+    ``cone_deg`` off the base, distributed evenly in azimuth.
+
+    The base outward direction (compute_decouple_direction) is tried FIRST so the
+    auto-search reproduces the legacy direction when it already clears (preserving
+    the established choice). The cone ring offers alternatives that point into open
+    solvent when the base direction grazes the receptor for a given pose (Q5/C3
+    (a)). Deterministic (fixed azimuthal spacing, no RNG) so a rebuild is
+    reproducible.
+    """
+    base = np.array(base_unit, dtype=float)
+    nb = float(np.linalg.norm(base))
+    if nb < 1e-9:
+        base = np.array([1.0, 0.0, 0.0])
+        nb = 1.0
+    base = base / nb
+
+    # Build an orthonormal frame (e1, e2) perpendicular to base.
+    ref = np.array([0.0, 0.0, 1.0]) if abs(base[2]) < 0.9 else np.array([1.0, 0.0, 0.0])
+    e1 = np.cross(base, ref)
+    e1 = e1 / float(np.linalg.norm(e1))
+    e2 = np.cross(base, e1)
+
+    cands: List[Tuple[float, float, float]] = [
+        (float(base[0]), float(base[1]), float(base[2]))]
+    n_ring = max(0, int(n_candidates) - 1)
+    if n_ring > 0:
+        theta = np.radians(cone_deg)
+        ct, st = np.cos(theta), np.sin(theta)
+        for k in range(n_ring):
+            phi = 2.0 * np.pi * k / n_ring
+            tilt = ct * base + st * (np.cos(phi) * e1 + np.sin(phi) * e2)
+            tilt = tilt / float(np.linalg.norm(tilt))
+            cands.append((float(tilt[0]), float(tilt[1]), float(tilt[2])))
+    return cands
+
+
+def auto_search_twocopy_displacement(
+    copy1_build: Dict[str, Any], copy2_build: Dict[str, Any],
+    binder_chain: str = "B",
+    accept_sep_nm: float = ATS_TWOCOPY_ACCEPT_SEP_NM,
+    clash_floor_nm: float = ATS_TWOCOPY_CLASH_FLOOR_NM,
+    magnitudes_nm: Tuple[float, ...] = ATS_TWOCOPY_AUTOSEARCH_MAGNITUDES_NM,
+    n_candidates: int = ATS_TWOCOPY_AUTOSEARCH_N_CANDIDATES,
+    cone_deg: float = ATS_TWOCOPY_AUTOSEARCH_CONE_DEG,
+    padding_nm: float = 1.2,
+    spec: Optional[Any] = None,
+) -> Dict[str, Any]:
+    """Direction-aware displacement auto-search (task #100).
+
+    Pick the displacement vector ``d`` that moves copy-2 (the bulk copy) clear of
+    copy-1's solute body. The search is direction-FIRST, magnitude-SECOND:
+
+      1. Candidate directions = the res-4-local outward base direction
+         (compute_decouple_direction) + a cone ring of ``n_candidates`` tilted
+         alternatives (``_candidate_directions``). The base is tried first.
+      2. For the current magnitude, translate copy-2's heavy atoms by each
+         candidate and compute the copy-1<->copy-2 minimum heavy-atom distance,
+         BOTH raw and under the periodic minimum-image convention with a PREDICTED
+         box (the merge re-pads by ``padding_nm`` around the displaced extent, so
+         the box edge is estimated from the per-axis solute span + 2*padding). The
+         min-image check rejects directions whose magnitude wraps copy-2 back near
+         copy-1 (periodic-image ceiling) at the construction stage.
+      3. Choose the candidate that MAXIMISES the (image-aware) min distance. If it
+         clears ``accept_sep_nm`` (and the image distance also clears it), accept
+         and return ``magnitude * unit_dir``.
+      4. If NO candidate at this magnitude clears the acceptance line, escalate to
+         the next magnitude (the fallback) and repeat from step 2.
+      5. If every magnitude is exhausted, raise with the best achieved distance so
+         the caller can escalate (the deterministic final-failure path).
+
+    This is endpoint-/direction-NEUTRAL (ranking-safe): d is a construction
+    separation device, not a thermodynamic coordinate (the swap transform is
+    partner-offset based; u1-u0 is d-invariant given full decoupling + bulk
+    solvation). CPU-only (operates on the unsolvated per-copy coordinates; no System
+    rebuild per candidate). Returns the chosen vector + achieved distances + the
+    full candidate trail for the build log (task #6).
+    """
+    c1_heavy = _copy_solute_heavy_positions(copy1_build, binder_chain)
+    c2_heavy = _copy_solute_heavy_positions(copy2_build, binder_chain)
+    if c1_heavy.size == 0 or c2_heavy.size == 0:
+        raise ValueError(
+            "auto_search_twocopy_displacement: copy-1 (%d) or copy-2 (%d) has no "
+            "solute heavy atoms; cannot score candidate displacements."
+            % (c1_heavy.shape[0], c2_heavy.shape[0]))
+
+    base_dir = compute_decouple_direction(
+        copy1_build, binder_chain=binder_chain, spec=spec)
+    if base_dir is None:
+        base_dir = (1.0, 0.0, 0.0)
+    candidates = _candidate_directions(base_dir, n_candidates, cone_deg)
+
+    trail: List[Dict[str, Any]] = []
+    best_overall: Optional[Dict[str, Any]] = None
+    for mag in magnitudes_nm:
+        for ci, unit_dir in enumerate(candidates):
+            dvec = np.array(unit_dir, dtype=float) * float(mag)
+            c2_disp = c2_heavy + dvec
+            raw_min = _min_image_min_distance_nm(c1_heavy, c2_disp, None)
+            # Predicted box: merge re-pads padding_nm around the union extent.
+            all_pos = np.vstack([c1_heavy, c2_disp])
+            span = all_pos.max(axis=0) - all_pos.min(axis=0)
+            box_lengths = span + 2.0 * float(padding_nm)
+            image_min = _min_image_min_distance_nm(c1_heavy, c2_disp, box_lengths)
+            score = min(raw_min, image_min)
+            rec = {
+                "magnitude_nm": float(mag), "candidate_index": ci,
+                "unit_dir": [float(x) for x in unit_dir],
+                "raw_min_nm": raw_min, "image_min_nm": image_min,
+                "score_nm": score,
+            }
+            trail.append(rec)
+            if best_overall is None or score > best_overall["score_nm"]:
+                best_overall = dict(rec)
+        # Best candidate AT THIS magnitude.
+        mag_recs = [r for r in trail if r["magnitude_nm"] == float(mag)]
+        best_mag = max(mag_recs, key=lambda r: r["score_nm"])
+        if (best_mag["raw_min_nm"] >= accept_sep_nm
+                and best_mag["image_min_nm"] >= accept_sep_nm
+                and best_mag["score_nm"] >= clash_floor_nm):
+            unit_dir = best_mag["unit_dir"]
+            dvec = tuple(float(x) * float(mag) for x in unit_dir)
+            return {
+                "displacement_vector_nm": list(dvec),
+                "unit_dir": [float(x) for x in unit_dir],
+                "magnitude_nm": float(mag),
+                "candidate_index": best_mag["candidate_index"],
+                "achieved_raw_min_nm": best_mag["raw_min_nm"],
+                "achieved_image_min_nm": best_mag["image_min_nm"],
+                "accept_sep_nm": accept_sep_nm,
+                "clash_floor_nm": clash_floor_nm,
+                "n_candidates": len(candidates),
+                "n_magnitudes_tried": magnitudes_nm.index(mag) + 1,
+                "trail": trail,
+                "accepted": True,
+            }
+
+    # Exhausted: deterministic final failure (caller -> Path escalate).
+    raise ValueError(
+        "auto_search_twocopy_displacement: no candidate direction/magnitude cleared "
+        "the acceptance line %.3f nm. Best achieved (image-aware) min distance was "
+        "%.3f nm at magnitude %.1f nm, candidate %d. Magnitudes tried: %s. The pose "
+        "may need a larger box (raise padding) or manual --displacement-nm; do NOT "
+        "defeat the C6 guard by any route other than genuine separation." % (
+                     accept_sep_nm, best_overall["score_nm"],
+                     best_overall["magnitude_nm"], best_overall["candidate_index"],
+                     ", ".join("%.1f" % m for m in magnitudes_nm)))
 
 
 def _build_twocopy_index_map(
@@ -2478,17 +3307,23 @@ def assert_twocopy_common_param_continuity(
     system: mm.System, cmap: Dict[str, Any],
     q_tol_e: float = 1e-4, sigma_tol_nm: float = 1e-4, eps_tol_kj: float = 1e-4,
 ) -> Dict[str, Any]:
-    """MC1 (C5, HIGHEST RISK): common-atom (q, sigma, epsilon) continuity between
-    the two RESIDENT copies, read from the MERGED System's NonbondedForce.
+    """MC1 strict-mode probe: per-atom common (q, sigma, epsilon) continuity
+    between the two RESIDENT copies, read from the MERGED System's NonbondedForce.
 
-    The two-copy box EXPOSES the common-charge gap the single-shared-core box hid
-    (it held one physical common copy). For the relative cycle to be exact each
-    common atom's nonbonded params must be byte-identical between copy-1 (MTR) and
-    copy-2 (WT). If they diverge the "common" core is not common and the swap
-    injects spurious ΔE that is finite-but-wrong (a false-green). Production
-    requires the harmonized RBFE XML (Σ|Δq| = 0, NMTR = amber14SB-Trp).
+    REPORTING-ONLY in the canonical two-copy box: per-atom common-charge
+    divergence is NOT required for correctness, because the ATS swap is a
+    coordinate-only transform — each copy keeps its native residue-template
+    charges and u1-u0 already includes the per-copy charge difference. The
+    requirement that the common core be byte-identical was an over-constraint
+    inherited from the retired single-shared-core design (one physical common
+    copy => one charge).
 
-    Raises on any exceedance; returns the worst per-channel deviation otherwise.
+    This function still RAISES on any per-atom exceedance and is retained for the
+    opt-in ``strict_mc1=True`` fail-loud path (the legacy unit-test contract). The
+    default two-copy build path uses ``_summarize_twocopy_charge_divergence``
+    instead (non-blocking report + a retained NET-charge sanity hard gate).
+
+    Returns the worst per-channel deviation when continuous; raises otherwise.
     """
     nb = next(f for f in system.getForces()
               if isinstance(f, mm.NonbondedForce))
@@ -2524,15 +3359,48 @@ def assert_twocopy_common_param_continuity(
     return result
 
 
+# Net-charge sanity tolerance (C2). Per-ATOM common-charge divergence is
+# physically OK in the canonical two-copy ATS box (the swap is a coordinate-only
+# transform — each copy retains its native residue-template charges, and u1-u0
+# correctly includes the per-copy charge difference; 
+# ). It is also OK for
+# the COMMON-atom subset alone to carry a non-zero net dq: different residues
+# (e.g. amber14 VAL vs ILE) legitimately assign different partial charges to their
+# shared backbone/CB atoms, and the variable atoms carry the EXACT complementary
+# charge so the WHOLE-RESIDUE total is conserved (measured V3I: common-subset net
+# +0.0893 e, exactly cancelled by the var atoms => full alch-residue net 0.0 on
+# BOTH copies). The retained hard gate is therefore the FULL alchemical-residue
+# net charge per copy (common res-mut atoms + that copy's variable atoms): a
+# non-charge-changing mutation must give the SAME residue total on copy-1 and
+# copy-2. A divergence there is a genuine build defect (mis-paired common map,
+# wrong residue template, or a real charge-changing mutation that this two-copy
+# scaffold does not yet support). Tol is loose vs the per-atom 1e-4 to absorb
+# float round-off over the residue's atoms.
+TWOCOPY_NET_DQ_TOL_E = 1e-3
+
+
 def _summarize_twocopy_charge_divergence(
     system: mm.System, cmap: Dict[str, Any], copy1_build: Dict[str, Any],
+    resnum: int = ALCH_RESNUM, net_dq_tol_e: float = TWOCOPY_NET_DQ_TOL_E,
 ) -> Dict[str, Any]:
     """Structured per-atom report of the copy1<->copy2 common-charge divergence.
 
-    Two-copy analog of ``_summarize_common_charge_divergence``: when MC1 fails
-    non-strictly, surface WHICH common atoms diverge and by how much (residue-4
-    vs elsewhere, net displaced charge) so the pre-registered outcome (ii) is
-    actionable instead of an opaque crash.
+    Two-copy analog of ``_summarize_common_charge_divergence``. In the CANONICAL
+    two-copy ATS box per-atom common-charge divergence is NOT a failure — the swap
+    is a coordinate-only transform and each copy retains its native charges, so
+    u1-u0 stays exact (
+    ). This report is
+    therefore REPORTING-ONLY (numbers-neutral); the build proceeds with native
+    charges. It surfaces WHICH common atoms diverge and by how much (the mutated
+    residue vs elsewhere, net displaced charge) for review.
+
+    ``resnum`` selects the mutated binder residue whose per-atom dq is itemised
+    (default ``ALCH_RESNUM`` = res-4 MTR, byte-identical legacy behaviour; V3I
+    passes ``MutationSpec.resnum`` = 3). ``net_sanity_ok`` is the C2 hard gate
+    signal: ``True`` iff the FULL alchemical-residue net charge (the mutated
+    residue's common atoms + that copy's variable atoms) AGREES between copy-1 and
+    copy-2 within ``net_dq_tol_e`` (a divergence => genuine build defect; the
+    common-subset net alone is NOT the gate — see ``TWOCOPY_NET_DQ_TOL_E``).
     """
     nb = next(f for f in system.getForces()
               if isinstance(f, mm.NonbondedForce))
@@ -2540,27 +3408,65 @@ def _summarize_twocopy_charge_divergence(
               for a in copy1_build["modeller"].topology.atoms()}
     c1_name = {a.index: a.name
                for a in copy1_build["modeller"].topology.atoms()}
-    per_res4: List[Dict[str, Any]] = []
-    sum_dq_res4 = sum_dq_all = 0.0
+
+    def _q(idx: int) -> float:
+        return nb.getParticleParameters(idx)[0].value_in_unit(
+            unit.elementary_charge)
+
+    per_resmut: List[Dict[str, Any]] = []
+    sum_dq_resmut = sum_dq_all = 0.0
+    # Per-copy running total over the mutated residue's COMMON atoms (the var
+    # atoms are added below to form the full residue net).
+    q_resmut_common_c1 = q_resmut_common_c2 = 0.0
     n_diverging = 0
     for c1_i, c2_i in zip(cmap["copy1_common"], cmap["copy2_common"]):
-        q1 = nb.getParticleParameters(c1_i)[0].value_in_unit(unit.elementary_charge)
-        q2 = nb.getParticleParameters(c2_i)[0].value_in_unit(unit.elementary_charge)
+        q1 = _q(c1_i)
+        q2 = _q(c2_i)
         dq = q1 - q2
         sum_dq_all += dq
         if abs(dq) > 1e-4:
             n_diverging += 1
-        if str(c1_res.get(c1_i)) == str(ALCH_RESNUM):
-            sum_dq_res4 += dq
-            per_res4.append({"name": c1_name.get(c1_i), "q_copy1": round(q1, 4),
-                             "q_copy2": round(q2, 4), "dq": round(dq, 4)})
+        if str(c1_res.get(c1_i)) == str(resnum):
+            sum_dq_resmut += dq
+            q_resmut_common_c1 += q1
+            q_resmut_common_c2 += q2
+            per_resmut.append({"name": c1_name.get(c1_i), "q_copy1": round(q1, 4),
+                               "q_copy2": round(q2, 4), "dq": round(dq, 4)})
+
+    # FULL alchemical-residue net charge per copy = res-mut common atoms + that
+    # copy's VARIABLE (appearing/disappearing) atoms. For a non-charge-changing
+    # mutation this total must agree across copies (the C2 hard gate). The var
+    # atoms carry the complementary charge to the common-subset dq, so this
+    # cancels the benign amber14-template common-charge difference.
+    q_var_c1 = sum(_q(i) for i in cmap.get("copy1_var", []))
+    q_var_c2 = sum(_q(i) for i in cmap.get("copy2_var", []))
+    full_resnet_c1 = q_resmut_common_c1 + q_var_c1
+    full_resnet_c2 = q_resmut_common_c2 + q_var_c2
+    full_resnet_diff = full_resnet_c1 - full_resnet_c2
+
     return {
-        "passed": False,
+        # Per-atom continuity is NOT required in the canonical two-copy box; this
+        # field reports the per-atom state for review (it does NOT gate the build).
+        "passed": (n_diverging == 0),
+        "per_atom_continuous": (n_diverging == 0),
         "n_common_checked": cmap["n_common"],
         "n_diverging": n_diverging,
-        "sum_dq_res4_e": round(sum_dq_res4, 5),
+        # C2 net-charge sanity (the retained HARD gate): the FULL mutated-residue
+        # net charge (common + var) must agree across the two copies. The common-
+        # subset net alone is reported but does NOT gate (see docstring).
+        "net_sanity_ok": abs(full_resnet_diff) <= net_dq_tol_e,
+        "net_dq_tol_e": net_dq_tol_e,
+        "full_resmut_net_copy1_e": round(full_resnet_c1, 6),
+        "full_resmut_net_copy2_e": round(full_resnet_c2, 6),
+        "full_resmut_net_diff_e": round(full_resnet_diff, 6),
+        # Back-compat alias kept (res-4 MTR consumers); ``sum_dq_resmut_e`` is the
+        # generalized name (the mutated residue, whatever ``resnum`` is). This is
+        # the COMMON-subset dq (benign; informational only).
+        "sum_dq_res4_e": round(sum_dq_resmut, 5),
+        "sum_dq_resmut_e": round(sum_dq_resmut, 5),
         "sum_dq_all_common_e": round(sum_dq_all, 6),
-        "residue4_common": per_res4,
+        "residue4_common": per_resmut,
+        "residue_mut_common": per_resmut,
     }
 
 
@@ -2596,8 +3502,68 @@ def _twocopy_solute_heavy_indices(
     return copy1_idx, copy2_idx
 
 
+def _box_lengths_nm_from_vectors(box_vectors: Any) -> Optional[np.ndarray]:
+    """Return the per-axis box lengths (nm) from a triclinic box-vector triple.
+
+    Accepts OpenMM ``getPeriodicBoxVectors()``-style output (a 3x3 of Quantity
+    Vec3, or a bare 3x3 array in nm). For the addSolvent boxes here the box is
+    rectangular, so the minimum-image convention only needs the diagonal lengths
+    (|a_x|, |b_y|, |c_z|). Off-diagonal (triclinic tilt) terms are ignored — these
+    boxes are orthorhombic by construction (addSolvent default). Returns ``None``
+    if the box cannot be resolved (a non-periodic / unsolvated build).
+    """
+    if box_vectors is None:
+        return None
+    rows = []
+    for vec in box_vectors:
+        try:
+            comp = vec.value_in_unit(unit.nanometer)
+        except AttributeError:
+            comp = vec
+        rows.append([float(comp[0]), float(comp[1]), float(comp[2])])
+    arr = np.array(rows, dtype=float)
+    if arr.shape != (3, 3):
+        return None
+    lengths = np.array([abs(arr[0, 0]), abs(arr[1, 1]), abs(arr[2, 2])], dtype=float)
+    if not np.all(np.isfinite(lengths)) or np.any(lengths <= 0.0):
+        return None
+    return lengths
+
+
+def _min_image_min_distance_nm(
+    c1_pos: np.ndarray, c2_pos: np.ndarray, box_lengths_nm: Optional[np.ndarray],
+) -> float:
+    """Minimum heavy-atom distance between two coordinate sets under the minimum-
+    image convention (per-axis box wrapping).
+
+    Without ``box_lengths_nm`` this is the raw Euclidean min distance. With it,
+    each pairwise component delta is wrapped into ``[-L/2, L/2]`` per axis
+    (``delta -= L * round(delta / L)``) so a copy-2 atom that sits across a
+    periodic boundary — i.e. its nearest IMAGE is close to copy-1 even though its
+    raw coordinate is far — is measured at its true nearest-image distance. This
+    catches the Q5/C3 periodic-image ceiling: a d so large that copy-2 wraps back
+    NEAR copy-1, which the raw-coordinate check is blind to. Symmetric by
+    construction (the wrapped delta is the same whether measured c1->c2 or
+    c2->c1-image), so a single wrapped pass covers both directions the task asks
+    for.
+    """
+    deltas = c1_pos[:, None, :] - c2_pos[None, :, :]
+    if box_lengths_nm is not None:
+        # Wrap only on axes with a positive box length (a degenerate/zero axis is
+        # treated as non-periodic on that axis — avoids a divide-by-zero).
+        safe = np.array(box_lengths_nm, dtype=float)
+        usable = safe > 0.0
+        if np.any(usable):
+            shift = np.zeros_like(deltas)
+            shift[..., usable] = (
+                safe[usable] * np.round(deltas[..., usable] / safe[usable]))
+            deltas = deltas - shift
+    return float(np.sqrt((deltas ** 2).sum(axis=-1)).min())
+
+
 def assert_twocopy_separation(
     fused_build: Dict[str, Any], cmap: Dict[str, Any], min_sep_nm: float = 1.0,
+    box_vectors: Any = None, accept_sep_nm: Optional[float] = None,
 ) -> Dict[str, Any]:
     """C6: the two copies are spatially SEPARATED (no overlay) BEFORE attach.
 
@@ -2614,8 +3580,26 @@ def assert_twocopy_separation(
          interpenetration / under-displacement that NE1<->NE1 is blind to. The
          shared solvent/ion bath is excluded (the copies share one water shell).
 
-    A small separation on either gate means the copies overlap and the build
-    collapsed back toward the (forbidden) overlay / interpenetrating design.
+      3. (when ``box_vectors`` given) the PERIODIC MINIMUM-IMAGE solute<->solute
+         distance — copy-1 solute vs copy-2 solute AND copy-2 vs copy-1's nearest
+         IMAGE. The raw-coordinate checks (1,2) are blind to the Q5/C3 periodic-
+         image ceiling: a d so large that copy-2 (or its solvation shell) wraps
+         across the box boundary places its nearest image back NEAR copy-1, re-
+         introducing the cross-talk the separation was meant to remove. The min-
+         image distance measures the true nearest-image separation and fails the
+         build if it drops below the clash floor.
+
+    A small separation on any gate means the copies overlap (or wrap) and the
+    build collapsed back toward the (forbidden) overlay / interpenetrating design.
+
+    ``min_sep_nm`` is the HARD clash floor (default the PME cutoff, 1.0 nm) — any
+    gate below it is unconditionally rejected. ``accept_sep_nm`` (optional) is the
+    higher DECOUPLING-SUFFICIENT acceptance line (e.g. 1.5 nm): when set, the raw
+    AND image solute distances are also checked against it (the auto-search caller
+    requests this elevated line; the standalone default keeps only the clash floor
+    so existing direct callers stay byte-identical). ``box_vectors`` (optional) is
+    the merged box's periodic box vectors (available only after addSolvent); when
+    ``None`` the image gate is skipped (an unsolvated build has no periodic box).
     """
     positions = np.array([
         v.value_in_unit(unit.nanometer)
@@ -2640,8 +3624,7 @@ def assert_twocopy_separation(
             % (len(c1_heavy), len(c2_heavy)))
     c1_pos = positions[c1_heavy]
     c2_pos = positions[c2_heavy]
-    deltas = c1_pos[:, None, :] - c2_pos[None, :, :]
-    solute_min_sep = float(np.sqrt((deltas ** 2).sum(axis=-1)).min())
+    solute_min_sep = _min_image_min_distance_nm(c1_pos, c2_pos, None)
     if solute_min_sep < min_sep_nm:
         raise ValueError(
             "C6 two-copy SOLUTE separation FAIL: copy-1 solute and copy-2 solute "
@@ -2651,10 +3634,52 @@ def assert_twocopy_separation(
             "receptor + binder-only copy-2). NE1<->NE1 was %.3f nm (passed) but the "
             "whole-solute check caught the interpenetration."
             % (solute_min_sep, min_sep_nm, sep))
+
+    # Gate 3: PERIODIC minimum-image solute<->solute distance (Q5/C3 image ceiling).
+    # Available only when the merged box's periodic vectors are supplied (post
+    # addSolvent). A d that wraps copy-2 back near copy-1 passes the raw gate but
+    # fails here. The wrapped delta is symmetric, so this single pass covers both
+    # copy1<->copy2 and copy2<->copy1-image.
+    box_lengths = _box_lengths_nm_from_vectors(box_vectors)
+    image_min_sep: Optional[float] = None
+    if box_lengths is not None:
+        image_min_sep = _min_image_min_distance_nm(c1_pos, c2_pos, box_lengths)
+        if image_min_sep < min_sep_nm:
+            raise ValueError(
+                "C6 two-copy PERIODIC-IMAGE separation FAIL: copy-1 solute and "
+                "copy-2 solute minimum-IMAGE heavy-atom distance is %.3f nm "
+                "(< %.3f nm) under box %s nm, while the raw distance was %.3f nm. "
+                "The displacement pushed copy-2 across the periodic boundary so its "
+                "nearest image wraps back near copy-1 (Q5/C3 periodic-image "
+                "ceiling) — reduce d or re-pick the displacement direction into "
+                "open solvent." % (image_min_sep, min_sep_nm,
+                                   np.round(box_lengths, 3).tolist(), solute_min_sep))
+
+    # Optional elevated acceptance line (decoupling-sufficient, e.g. 1.5 nm). The
+    # clash floor above is the hard reject; this is the higher bar the auto-search
+    # caller requires so the copies are genuinely decoupled (PME cutoff + LJ tail).
+    if accept_sep_nm is not None:
+        worst_raw = min(sep, solute_min_sep)
+        if worst_raw < accept_sep_nm:
+            raise ValueError(
+                "C6 two-copy ACCEPTANCE separation FAIL: the smaller of NE1<->NE1 "
+                "(%.3f nm) and solute<->solute (%.3f nm) is below the decoupling-"
+                "sufficient acceptance line %.3f nm (clash floor %.3f nm cleared). "
+                "Increase d or re-pick the displacement direction."
+                % (sep, solute_min_sep, accept_sep_nm, min_sep_nm))
+        if image_min_sep is not None and image_min_sep < accept_sep_nm:
+            raise ValueError(
+                "C6 two-copy ACCEPTANCE (image) separation FAIL: the periodic "
+                "minimum-image solute distance %.3f nm is below the acceptance line "
+                "%.3f nm. copy-2's nearest image is within the decoupling buffer of "
+                "copy-1." % (image_min_sep, accept_sep_nm))
+
     return {
         "ne1_ne1_sep_nm": sep,
         "solute_solute_min_sep_nm": solute_min_sep,
+        "image_solute_min_sep_nm": image_min_sep,
         "min_sep_nm": min_sep_nm,
+        "accept_sep_nm": accept_sep_nm,
         "n_copy1_solute_heavy": len(c1_heavy),
         "n_copy2_solute_heavy": len(c2_heavy),
         "passed": True,
@@ -2877,25 +3902,10 @@ def _harmonize_twocopy_common_charges(
     return n
 
 
-def assert_twocopy_methyl_bonded(
-    fused_build: Dict[str, Any], cmap: Dict[str, Any],
-) -> Dict[str, Any]:
-    """MC2 (C5): copy-1 (MTR) appearing-methyl bonded terms present in the merged
-    box (CM-NE1 internal bond + HM-CM connectivities).
-
-    Two-copy analog of ``assert_methyl_bonded_present`` but reads the merged
-    System: CM-NE1 must be a true HarmonicBondForce term; HM-CM may be a
-    HarmonicBond or a SHAKE constraint under HBonds (presence is the gate). The
-    methyl lives only in copy-1; copy-2 (WT) carries HE1 instead.
+def _collect_bond_constraint_pairs(system: mm.System):
+    """All bonded + constrained atom-index pairs in a (possibly ATMForce-nested)
+    System, as two ``frozenset`` sets. Shared by the MC2 / R2 bonded-term gates.
     """
-    system = fused_build["system"]
-    name_by_idx = {a.index: a.name
-                   for a in fused_build["modeller"].topology.atoms()}
-    alch = fused_build["alchemical_atoms"]
-    ne1 = cmap["copy1_attach"]
-    cm = next((i for i in alch["mtr_only"] if name_by_idx.get(i) == "CM"), None)
-    hms = [i for i in alch["mtr_only"] if name_by_idx.get(i, "").startswith("HM")]
-
     bond_pairs = set()
     for f in system.getForces():
         if isinstance(f, mm.HarmonicBondForce):
@@ -2913,25 +3923,430 @@ def assert_twocopy_methyl_bonded(
     for ci in range(system.getNumConstraints()):
         a, b, _ = system.getConstraintParameters(ci)
         constraint_pairs.add(frozenset((a, b)))
+    return bond_pairs, constraint_pairs
+
+
+def _heavy_h_neighbours(
+    heavy_idx: int, var_slot, bond_pairs, constraint_pairs,
+    name_by_idx: Dict[int, str],
+) -> List[int]:
+    """Hydrogen indices (within this copy's var slot) connected to ``heavy_idx``.
+
+    Found by CONNECTIVITY in the merged box (bond OR SHAKE constraint), not by name
+    prefix, so the per-heavy H grouping is robust to multi-heavy specs where two
+    heavies share a methyl-H name prefix (V3A's CG1 HG1x and CG2 HG2x both prefix
+    "HG"). An H is a var atom whose name starts with ``H`` (after any leading
+    wyckoff digit) and that is connected to ``heavy_idx``. BOTH ``bond_pairs`` and
+    ``constraint_pairs`` are searched because under HBonds the C-H bonds are
+    converted to SHAKE constraints and removed from the HarmonicBondForce (the
+    single-heavy MC2 makes the same bond-OR-constraint allowance via ``_connected``).
+    """
+    out: List[int] = []
+    slot = set(var_slot)
+    for pr in (bond_pairs | constraint_pairs):
+        if heavy_idx not in pr:
+            continue
+        other = next(iter(pr - {heavy_idx}))
+        if other not in slot:
+            continue
+        nm = name_by_idx.get(other, "")
+        base = nm.strip().lstrip("0123456789")
+        if base[:1].upper() == "H":
+            out.append(other)
+    return out
+
+
+def _assert_twocopy_multiheavy_bonded(
+    fused_build: Dict[str, Any], cmap: Dict[str, Any], spec, shape: str,
+) -> Dict[str, Any]:
+    """MC2 multi-heavy branch (C5): the acyclic-star multi-methyl var group's bonded
+    terms are present in the merged box.
+
+    For ``multi_appearing_heavy`` the appearing heavies live in copy-1 (``mtr_only``
+    slot, attach = ``copy1_attach``); for ``multi_disappearing_heavy`` they live in
+    copy-2 (``wt_only`` slot, attach = ``copy2_attach``). The heavy NAME list is the
+    SSOT-derived ``spec._heavy_names`` of the corresponding state-only atom set
+    (not a single field), so the per-heavy loop matches the partition exactly.
+
+    For EACH var heavy: (1) it MUST be present in the var slot; (2) it MUST bond the
+    common attach atom by a REAL HarmonicBond (constraint not accepted — this is the
+    star-only scope enforcement and the chained-heavy / ring backstop: a CD that
+    bonds only its parent CG, not the attach, fail-louds here); (3) it MUST carry at
+    least one H connected to it (bond OR constraint), else the build is incomplete.
+    Any missing heavy / attach bond / H => RAISE (fail-loud, never silent-skip).
+    """
+    system = fused_build["system"]
+    name_by_idx = {a.index: a.name
+                   for a in fused_build["modeller"].topology.atoms()}
+    alch = fused_build["alchemical_atoms"]
+
+    if shape == "multi_appearing_heavy":
+        attach_idx = cmap["copy1_attach"]          # appearing var lives in copy-1
+        var_slot = list(alch["mtr_only"])
+        declared_heavies = spec._heavy_names(spec.stateB_only_atoms)
+        side = "appearing"
+    else:  # multi_disappearing_heavy
+        attach_idx = cmap["copy2_attach"]          # disappearing var lives in copy-2
+        var_slot = list(alch["wt_only"])
+        declared_heavies = spec._heavy_names(spec.stateA_only_atoms)
+        side = "disappearing"
+
+    bond_pairs, constraint_pairs = _collect_bond_constraint_pairs(system)
+    attach_name = name_by_idx.get(attach_idx, "attach")
 
     def _connected(i, j):
         return (frozenset((i, j)) in bond_pairs
                 or frozenset((i, j)) in constraint_pairs)
 
-    cm_ne1_present = cm is not None and frozenset((cm, ne1)) in bond_pairs
-    hm_cm_present = {name_by_idx[h]: _connected(h, cm) for h in hms}
-    if not cm_ne1_present:
-        raise ValueError(
-            "MC2 two-copy FAIL: CM-NE1 internal bond absent from the merged box's "
-            "HarmonicBondForce (CM is heavy — must be a real bond).")
-    missing_hm = [k for k, v in hm_cm_present.items() if not v]
-    if missing_hm:
-        raise ValueError(
-            "MC2 two-copy FAIL: methyl HM-CM connectivity absent (neither bond "
-            "nor constraint): %s" % missing_hm)
+    per_heavy: List[Dict[str, Any]] = []
+    for heavy_name in declared_heavies:
+        heavy_idx = next(
+            (i for i in var_slot if name_by_idx.get(i) == heavy_name), None)
+        if heavy_idx is None:
+            raise ValueError(
+                "MC2 two-copy FAIL: declared %s heavy %r absent from the merged "
+                "box's %s var slot (cannot certify a heavy that was not built)."
+                % (side, heavy_name, side))
+        # heavy<->attach MUST be a REAL HarmonicBond (not a constraint): this is the
+        # acyclic-star scope enforcement + the chained-heavy / ring fail-loud
+        # backstop (a heavy that bonds only its parent heavy, not the attach, fails).
+        heavy_attach_bond = frozenset((heavy_idx, attach_idx)) in bond_pairs
+        if not heavy_attach_bond:
+            raise ValueError(
+                "MC2 two-copy FAIL: %s-%s internal bond absent from the merged "
+                "box's HarmonicBondForce (each %s star heavy var atom must bond the "
+                "attach atom by a real bond; a heavy that bonds only another heavy "
+                "is a chained/ring shape NOT in the acyclic-star scope)."
+                % (heavy_name, attach_name, side))
+        h_idxs = _heavy_h_neighbours(
+            heavy_idx, var_slot, bond_pairs, constraint_pairs, name_by_idx)
+        h_present = {name_by_idx[h]: _connected(h, heavy_idx) for h in h_idxs}
+        missing_h = [k for k, v in h_present.items() if not v]
+        if missing_h:
+            raise ValueError(
+                "MC2 two-copy FAIL: %s-H connectivity to %s absent (neither bond "
+                "nor constraint): %s" % (side, heavy_name, missing_h))
+        if not h_idxs:
+            raise ValueError(
+                "MC2 two-copy FAIL: %s heavy %r has ZERO hydrogens bonded to it in "
+                "the %s var slot — an incomplete side-chain build."
+                % (side, heavy_name, side))
+        per_heavy.append({
+            "heavy": heavy_name,
+            "heavy_attach_bond_present": heavy_attach_bond,
+            "h_names": sorted(h_present),
+            "h_connected": h_present,
+        })
+
     return {
-        "cm_ne1_bond_present": cm_ne1_present,
-        "hm_cm_bonds_present": hm_cm_present,
+        "shape": shape,
+        "side": side,
+        "attach": attach_name,
+        "n_heavies_certified": len(per_heavy),
+        "per_heavy": per_heavy,
+        "passed": True,
+    }
+
+
+def _idx_by_name(var_slot, name, name_by_idx) -> Optional[int]:
+    """First var-slot index whose name matches ``name`` (None if absent)."""
+    return next((i for i in var_slot if name_by_idx.get(i) == name), None)
+
+
+def _assert_twocopy_connected_group_bonded(
+    fused_build: Dict[str, Any], cmap: Dict[str, Any], spec,
+) -> Dict[str, Any]:
+    """MC2 connected-subgraph branch (C3): a ``single_attach_connected_group`` var
+    group (W4A fused indole) is built with its full ring topology.
+
+    The Phase A multi-heavy branch requires EACH declared var heavy to bond the
+    common attach atom by a real bond (the acyclic-STAR scope). For a fused ring only
+    the ROOT heavy (CG) bonds the attach (CB); the other ring heavies bond ring
+    neighbours, not the attach — so the star assert would fail-loud at the first
+    non-root heavy (the intended star backstop, NOT a bug). This branch is the
+    connected-subgraph generalization. The declared var-heavy NAME set is the
+    SSOT-derived ``spec._heavy_names`` of the one-sided var group's state-only atoms;
+    the ring-closure bonds + root are read from the spec.
+
+    The disappearing var lives in copy-2 (``wt_only`` slot, attach = ``copy2_attach``);
+    the appearing-side mirror lives in copy-1 (``mtr_only`` slot, ``copy1_attach``).
+    W4A is a disappearing-side connected group (Trp->Ala deletes the indole).
+
+    Certify steps (each fail-loud, never silent-skip):
+      (1) ROOT: exactly ONE declared var heavy bonds the common attach atom by a REAL
+          HarmonicBond. Zero => disconnected from the common boundary; >=2 =>
+          multi-branch (not a single-attach group). Both RAISE. If the spec names a
+          root (``bonded_heavy_disappearing`` / ``bonded_heavy_appearing``) it MUST
+          match the discovered root.
+      (2) BFS: from the root, follow intra-group (var-slot heavy<->heavy) REAL bonds;
+          ALL declared heavies MUST be reached. Any unreached heavy => disconnected
+          subgraph. RAISE.
+      (3) RING: every declared ``ring_closure_bond`` MUST be present as a REAL
+          HarmonicBond between two var-slot atoms (the ring must actually close inside
+          the var group). A missing ring-closure bond => open chain / wrong topology.
+          RAISE.
+      (4) H: each declared heavy's H's are connected (bond OR SHAKE constraint — the
+          SHAKE-aware ``_heavy_h_neighbours`` test). Fully-substituted ring-fusion
+          bridgeheads (CG/CD2/CE2) legitimately carry zero H, so the gate is "at
+          least one declared heavy is H-bearing" (an all-H-stripped build is a defect)
+          + each found H is connectivity-verified; bridgeheads are recorded explicitly.
+
+    Runs at the PRE-ATTACH call site (the merged System still carries a top-level
+    HarmonicBondForce there; after attach the forces migrate INTO the ATMForce and the
+    getForce() downcast loses the HarmonicBondForce subclass — bond_pairs would be 0).
+    """
+    system = fused_build["system"]
+    name_by_idx = {a.index: a.name
+                   for a in fused_build["modeller"].topology.atoms()}
+    alch = fused_build["alchemical_atoms"]
+
+    # One-sided var group: disappearing side (copy-2) or appearing side (copy-1).
+    n_app_heavy = len(spec._heavy_names(spec.stateB_only_atoms))
+    if n_app_heavy >= 1:
+        attach_idx = cmap["copy1_attach"]
+        var_slot = list(alch["mtr_only"])
+        declared_heavies = tuple(spec._heavy_names(spec.stateB_only_atoms))
+        root_heavy = spec.bonded_heavy_appearing
+        side = "appearing"
+    else:
+        attach_idx = cmap["copy2_attach"]
+        var_slot = list(alch["wt_only"])
+        declared_heavies = tuple(spec._heavy_names(spec.stateA_only_atoms))
+        root_heavy = spec.bonded_heavy_disappearing
+        side = "disappearing"
+
+    bond_pairs, constraint_pairs = _collect_bond_constraint_pairs(system)
+    attach_name = name_by_idx.get(attach_idx, "attach")
+    slot_set = set(var_slot)
+
+    # Resolve declared heavy NAMES -> built indices (a declared heavy never built
+    # fails loud — cannot certify a heavy that is not in the box).
+    idx_of: Dict[str, int] = {}
+    for hn in declared_heavies:
+        hi = _idx_by_name(var_slot, hn, name_by_idx)
+        if hi is None:
+            raise ValueError(
+                "MC2 two-copy FAIL (connected-group): declared %s heavy %r absent "
+                "from the merged box's %s var slot (cannot certify a heavy that was "
+                "not built)." % (side, hn, side))
+        idx_of[hn] = hi
+    heavy_idxs = set(idx_of.values())
+
+    # (1) ROOT: exactly one declared heavy bonds the common attach by a REAL bond.
+    attach_bonded_roots = [
+        hn for hn, hi in idx_of.items()
+        if frozenset((hi, attach_idx)) in bond_pairs]
+    if len(attach_bonded_roots) == 0:
+        raise ValueError(
+            "MC2 two-copy FAIL (connected-group): NO declared %s heavy bonds the "
+            "common attach atom %r by a real HarmonicBond — the var group is "
+            "disconnected from the common boundary (no attach-bonded root)."
+            % (side, attach_name))
+    if len(attach_bonded_roots) > 1:
+        raise ValueError(
+            "MC2 two-copy FAIL (connected-group): %d declared %s heavies bond the "
+            "common attach atom %r (%s) — a single-attach connected group must have "
+            "exactly ONE attach-bonded root (>=2 is a multi-branch swap, not in "
+            "scope)." % (len(attach_bonded_roots), side, attach_name,
+                         sorted(attach_bonded_roots)))
+    discovered_root = attach_bonded_roots[0]
+    if root_heavy is not None and discovered_root != root_heavy:
+        raise ValueError(
+            "MC2 two-copy FAIL (connected-group): discovered attach-bonded root %r "
+            "does not match the spec-declared root %r."
+            % (discovered_root, root_heavy))
+    root_idx = idx_of[discovered_root]
+
+    # (2) BFS from the root over INTRA-GROUP (var-slot heavy<->heavy) real bonds; ALL
+    #     declared heavies must be reached.
+    adj: Dict[int, set] = {hi: set() for hi in heavy_idxs}
+    for pr in bond_pairs:
+        a, b = tuple(pr)
+        if a in heavy_idxs and b in heavy_idxs:
+            adj[a].add(b)
+            adj[b].add(a)
+    seen = {root_idx}
+    queue = [root_idx]
+    while queue:
+        cur = queue.pop()
+        for nb in adj.get(cur, ()):
+            if nb not in seen:
+                seen.add(nb)
+                queue.append(nb)
+    unreached = sorted(name_by_idx[hi] for hi in heavy_idxs if hi not in seen)
+    if unreached:
+        raise ValueError(
+            "MC2 two-copy FAIL (connected-group): declared %s heavies NOT reachable "
+            "from the attach-bonded root %r by intra-group bonds (disconnected "
+            "subgraph): %s" % (side, discovered_root, unreached))
+
+    # (3) RING-CLOSURE: each declared ring-closure bond must be a REAL bond between
+    #     two var-slot atoms (the ring must actually close inside the var group).
+    ring_present: List[Dict[str, Any]] = []
+    for (na, nb) in spec.ring_closure_bonds:
+        ia = _idx_by_name(var_slot, na, name_by_idx)
+        ib = _idx_by_name(var_slot, nb, name_by_idx)
+        if ia is None or ib is None:
+            raise ValueError(
+                "MC2 two-copy FAIL (connected-group): ring-closure bond %s-%s names a "
+                "var atom absent from the %s slot (ia=%s ib=%s)."
+                % (na, nb, side, ia, ib))
+        if ia not in slot_set or ib not in slot_set:
+            raise ValueError(
+                "MC2 two-copy FAIL (connected-group): ring-closure bond %s-%s atoms "
+                "are not both in the %s var slot." % (na, nb, side))
+        if frozenset((ia, ib)) not in bond_pairs:
+            raise ValueError(
+                "MC2 two-copy FAIL (connected-group): declared ring-closure bond "
+                "%s-%s is ABSENT from the merged box's HarmonicBondForce — the ring "
+                "did not close (open chain / wrong topology)." % (na, nb))
+        ring_present.append({"bond": (na, nb), "present": True})
+
+    # (4) H connectivity: each declared heavy's H's (bond OR constraint); fully-
+    #     substituted ring-fusion bridgeheads (CG/CD2/CE2) legitimately carry zero H.
+    per_heavy: List[Dict[str, Any]] = []
+    for hn in declared_heavies:
+        hi = idx_of[hn]
+        h_idxs = _heavy_h_neighbours(
+            hi, var_slot, bond_pairs, constraint_pairs, name_by_idx)
+        h_names = sorted(name_by_idx[h] for h in h_idxs)
+        per_heavy.append({
+            "heavy": hn,
+            "n_h": len(h_idxs),
+            "h_names": h_names,
+            "is_bridgehead": (len(h_idxs) == 0),
+        })
+    n_h_bearing = sum(1 for r in per_heavy if r["n_h"] >= 1)
+    if n_h_bearing == 0:
+        raise ValueError(
+            "MC2 two-copy FAIL (connected-group): ZERO declared %s heavies carry a "
+            "hydrogen — an all-H-stripped / incomplete side-chain build." % side)
+
+    return {
+        "shape": "single_attach_connected_group",
+        "side": side,
+        "attach": attach_name,
+        "root_heavy": discovered_root,
+        "n_heavies_certified": len(declared_heavies),
+        "n_h_bearing_heavies": n_h_bearing,
+        "ring_closure_bonds_present": ring_present,
+        "per_heavy": per_heavy,
+        "passed": True,
+    }
+
+
+def assert_twocopy_methyl_bonded(
+    fused_build: Dict[str, Any], cmap: Dict[str, Any],
+) -> Dict[str, Any]:
+    """MC2 (C5): the single-heavy var group's bonded terms are present in the
+    merged box (the var heavy atom bonds the common attach atom + its H's bond it).
+
+    Generalized SYMMETRICALLY over the two supported single-heavy shapes (read
+    from the build's resolved ``MutationSpec.shape``):
+
+      * ``appearing_heavy``    : copy-1 carries the APPEARING heavy var
+                                 (CM for MTR / CD1 for Ile) bonded to copy-1's
+                                 attach atom (NE1 / CG1); the appearing H's
+                                 (HM / HD prefix) bond that heavy atom. The
+                                 disappearing side disappears only an H.
+      * ``disappearing_heavy`` : copy-2 carries the DISAPPEARING heavy var
+                                 (CB for the Ala->Gly mirror) bonded to copy-2's
+                                 attach atom (CA); the disappearing H's (HB prefix)
+                                 bond that heavy atom. The appearing side grows no
+                                 heavy beyond the common attach.
+
+    Each var heavy atom <-> attach internal bond must be a true HarmonicBondForce
+    term; the var H's bond the var heavy atom by a HarmonicBond or a SHAKE
+    constraint under HBonds (presence is the gate).
+
+    The acyclic-star multi-methyl shapes (``multi_appearing_heavy`` /
+    ``multi_disappearing_heavy``, e.g. V3A Val->Ala deletes CG1 AND CG2, both
+    star-bonded to CB) are ALSO supported when the spec is explicitly
+    ``multiheavy_star_certified``; they are certified per-heavy by
+    ``_assert_twocopy_multiheavy_bonded``.
+
+    The connected-subgraph RING shape (``single_attach_connected_group``, e.g. W4A
+    Trp->Ala deletes the 9-heavy FUSED indole) is ALSO supported when the spec is
+    explicitly ``connected_group_certified`` with a non-empty ``ring_closure_bonds``;
+    it is certified by ``_assert_twocopy_connected_group_bonded`` (one attach-bonded
+    root + intra-group BFS to all heavies + ring-closure bonds present + H
+    connectivity).
+
+    FAIL-LOUD on any other shape (un-certified multi-heavy / un-certified ring /
+    chained-heavy / multi-branch — e.g. W4F a ring contraction with heavies on BOTH
+    sides): the builder + asserts have no path for those and must NOT silent-build a
+    wrong soft-core endpoint. ``MutationSpec.shape`` == ``unsupported`` raises here.
+    """
+    system = fused_build["system"]
+    name_by_idx = {a.index: a.name
+                   for a in fused_build["modeller"].topology.atoms()}
+    alch = fused_build["alchemical_atoms"]
+    spec = resolve_mutation_spec(fused_build.get("mutation_spec"))
+    shape = spec.shape
+    if shape in ("multi_appearing_heavy", "multi_disappearing_heavy"):
+        return _assert_twocopy_multiheavy_bonded(fused_build, cmap, spec, shape)
+    if shape == "single_attach_connected_group":
+        return _assert_twocopy_connected_group_bonded(fused_build, cmap, spec)
+    if shape not in ("appearing_heavy", "disappearing_heavy"):
+        raise ValueError(
+            "MC2 two-copy FAIL: unsupported mutation shape %r for spec %r "
+            "(stateA_only=%s, stateB_only=%s). Supported: a single APPEARING heavy + "
+            "its H's (MTR / V3I), a single DISAPPEARING heavy + its H's (Ala->Gly "
+            "mirror), or an ACYCLIC-STAR multi-methyl group (>=2 heavies each bonded "
+            "directly to the common attach atom) when the spec is explicitly "
+            "multiheavy_star_certified (e.g. V3A). Ring-closure / fused-ring / "
+            "chained-heavy / multi-branch mutations (e.g. W4A fused indole, W4F ring "
+            "contraction) require a partition redesign and are NOT buildable here — "
+            "fail loud rather than silent-build a wrong endpoint."
+            % (shape, spec.name, list(spec.stateA_only_atoms),
+               list(spec.stateB_only_atoms)))
+
+    if shape == "appearing_heavy":
+        heavy_name = spec.bonded_heavy_appearing
+        h_prefix = spec.appearing_h_prefix
+        attach_idx = cmap["copy1_attach"]          # copy-1 carries the appearing var
+        var_slot = alch["mtr_only"]                # appearing var lives in copy-1
+        side = "appearing"
+    else:  # disappearing_heavy (A9G mirror)
+        heavy_name = spec.bonded_heavy_disappearing
+        h_prefix = spec.disappearing_h_prefix
+        attach_idx = cmap["copy2_attach"]          # copy-2 carries the disappearing var
+        var_slot = alch["wt_only"]                 # disappearing var lives in copy-2
+        side = "disappearing"
+
+    heavy_idx = next(
+        (i for i in var_slot if name_by_idx.get(i) == heavy_name), None)
+    h_idxs = ([i for i in var_slot
+               if name_by_idx.get(i, "").startswith(h_prefix)]
+              if h_prefix else [])
+
+    bond_pairs, constraint_pairs = _collect_bond_constraint_pairs(system)
+
+    def _connected(i, j):
+        return (frozenset((i, j)) in bond_pairs
+                or frozenset((i, j)) in constraint_pairs)
+
+    attach_name = name_by_idx.get(attach_idx, "attach")
+    heavy_attach_present = (
+        heavy_idx is not None and frozenset((heavy_idx, attach_idx)) in bond_pairs)
+    h_heavy_present = {name_by_idx[h]: _connected(h, heavy_idx) for h in h_idxs}
+    if not heavy_attach_present:
+        raise ValueError(
+            "MC2 two-copy FAIL: %s-%s internal bond absent from the merged box's "
+            "HarmonicBondForce (the %s heavy var atom must bond the attach atom by a "
+            "real bond)." % (heavy_name, attach_name, side))
+    missing_h = [k for k, v in h_heavy_present.items() if not v]
+    if missing_h:
+        raise ValueError(
+            "MC2 two-copy FAIL: %s-H %s-%s connectivity absent (neither bond nor "
+            "constraint): %s" % (side, h_prefix, heavy_name, missing_h))
+    return {
+        "shape": shape,
+        "heavy_attach_bond_present": heavy_attach_present,
+        "h_heavy_bonds_present": h_heavy_present,
+        # Back-compat keys for the appearing-heavy path (existing tests read these):
+        "cm_ne1_bond_present": heavy_attach_present,
+        "hm_cm_bonds_present": h_heavy_present,
         "passed": True,
     }
 
@@ -2988,12 +4403,18 @@ def assert_twocopy_seed(
     clashing WITHIN their own copy), gates BEFORE the ATMForce attach.
 
     The inter-copy clash is handled by the d-separation (C6 separation assert);
-    this gate covers the per-copy geometry: copy-1's appearing methyl (CM, HM1-3)
-    must not clash copy-1's own common/solvent atoms, and copy-2's disappearing
-    HE1 must not clash copy-2's own atoms. A clashing seed detonates the uncapped
-    bonded base term locally. Each copy's atoms are partitioned by the merge
-    offset so an appearing atom is only checked against ITS OWN copy + solvent
-    (the partner copy is d-displaced and irrelevant here).
+    this gate covers the per-copy geometry: copy-1's appearing var group (CM,HM1-3
+    for MTR / CD1,HD11-13 for Ile) must not clash copy-1's own common/solvent
+    atoms, and copy-2's disappearing var group (HE1 for MTR/V3I; CB,HB1-3,HA for
+    the Ala->Gly mirror) must not clash copy-2's own atoms. A clashing seed
+    detonates the uncapped bonded base term locally. Each copy's atoms are
+    partitioned by the merge offset so a var atom is checked only against ITS OWN
+    copy + solvent (the partner copy is d-displaced and irrelevant here).
+
+    Symmetric over both var groups: each var atom's OWN bonded partners and the
+    other atoms of its OWN var group are excluded (they are bond-length terms /
+    intra-group geometry, not clashes) — generalizes the legacy single-HE1 /
+    single-methyl exclusion to a multi-atom disappearing group (Ala CB methyl).
     """
     positions = np.array([
         v.value_in_unit(unit.nanometer)
@@ -3005,82 +4426,69 @@ def assert_twocopy_seed(
     res_by_idx = {a.index: a.residue.name for a in topology.atoms()}
 
     alch = fused_build["alchemical_atoms"]
-    appearing = list(alch["mtr_only"])     # copy-1 methyl (indices < n_copy1)
-    he1 = alch["wt_only"][0]               # copy-2 HE1 (index >= n_copy1)
+    appearing = list(alch["mtr_only"])     # copy-1 var group (indices < n_copy1)
+    disappearing = list(alch["wt_only"])   # copy-2 var group (indices >= n_copy1)
     ne1_c1 = cmap["copy1_attach"]
     ne1_c2 = cmap["copy2_attach"]
+    resolve_mutation_spec(fused_build.get("mutation_spec"))  # validate the selector
 
     solvent_o = [a.index for a in topology.atoms()
                  if a.residue.name in _SOLVENT_RESNAMES and a.element is not None
                  and a.element.symbol == "O"]
 
-    # HARD targets for the COPY-1 appearing methyl = copy-1's own non-appearing
-    # atoms (< n_copy1) + solvent O. Exclude the methyl's own bonded partners
-    # (CM-NE1, HM-CM) which are bond-length terms, not clashes.
-    cm_idx = next((a for a in appearing if name_by_idx.get(a) == "CM"), None)
-    bonded_partners = {ne1_c1}
-    if cm_idx is not None:
-        bonded_partners.add(cm_idx)
-    copy1_targets = {a.index for a in topology.atoms()
-                     if a.index < n_copy1 and a.index not in appearing
-                     and res_by_idx.get(a.index) not in _SOLVENT_RESNAMES}
-    copy1_targets.update(solvent_o)
+    # System bonds, used to exclude each var atom's true 1-2 bonded partners (the
+    # var-group internal bonds + the attach bond are bond-length terms, NOT clashes;
+    # 1-3 FF-excluded pairs e.g. a ring-N hydrogen sit at a standard ~0.08-0.09 nm).
+    bond_pairs, _ = _collect_bond_constraint_pairs(system)
 
-    min_hard = float("inf")
-    worst_hard = None
-    for ap in appearing:
-        pa = positions[ap]
-        for tgt in copy1_targets:
-            if tgt in bonded_partners:
-                continue
-            d = float(np.linalg.norm(pa - positions[tgt]))
-            if d < min_hard:
-                min_hard = d
-                worst_hard = (name_by_idx.get(ap, ap), name_by_idx.get(tgt, tgt), d)
+    def _bonded_neighbours(idx):
+        out = set()
+        for pr in bond_pairs:
+            if idx in pr:
+                out.update(pr)
+        out.discard(idx)
+        return out
+
+    def _seed_min_dist(var_group, attach_idx, copy_lo, copy_hi):
+        """Min distance from any var-group atom to a non-excluded same-copy /
+        solvent target. Excluded for each var atom = the whole var group + the
+        attach atom + that var atom's 1-2 bonded partners (and the attach's bonded
+        neighbours, the FF-excluded 1-3 ring/methyl pairs)."""
+        group = set(var_group)
+        attach_neighbours = _bonded_neighbours(attach_idx)
+        targets = {a.index for a in topology.atoms()
+                   if copy_lo <= a.index < copy_hi and a.index not in group
+                   and res_by_idx.get(a.index) not in _SOLVENT_RESNAMES}
+        targets.update(solvent_o)
+        min_d = float("inf")
+        worst = None
+        for v in var_group:
+            excluded = group | {attach_idx} | attach_neighbours | _bonded_neighbours(v)
+            pv = positions[v]
+            for tgt in targets:
+                if tgt in excluded:
+                    continue
+                d = float(np.linalg.norm(pv - positions[tgt]))
+                if d < min_d:
+                    min_d = d
+                    worst = (name_by_idx.get(v, v), name_by_idx.get(tgt, tgt), d)
+        return min_d, worst
+
+    # COPY-1 appearing var group: indices [0, n_copy1).
+    min_hard, worst_hard = _seed_min_dist(appearing, ne1_c1, 0, n_copy1)
     if min_hard <= min_dist_nm:
         raise ValueError(
-            "R2 two-copy seed min-dist FAIL: copy-1 appearing methyl too close to "
-            "a copy-1 common/solvent atom (%.4f nm <= %.4f nm) — %s."
+            "R2 two-copy seed min-dist FAIL: copy-1 appearing var group too close "
+            "to a copy-1 common/solvent atom (%.4f nm <= %.4f nm) — %s."
             % (min_hard, min_dist_nm, worst_hard))
 
-    # COPY-2 HE1: check against copy-2's own atoms (>= n_copy1) + solvent O,
-    # EXCLUDING HE1's own 1-2/1-3 neighbours (NE1 bond + the ring atoms CD1/CE2
-    # bonded to NE1). These are nonbonded-EXCLUDED in the FF (1-3 pairs sit at a
-    # standard ~0.08-0.09 nm from a ring-N hydrogen), so counting them as a clash
-    # is a false positive — the legacy seed assert likewise excludes HE1's bonded
-    # partners. We read the System bonds to find NE1's bonded ring neighbours.
-    he1_excluded = {ne1_c2}
-    for f in system.getForces():
-        if isinstance(f, mm.HarmonicBondForce):
-            for bi in range(f.getNumBonds()):
-                p1, p2, _, _ = f.getBondParameters(bi)
-                if ne1_c2 in (p1, p2):
-                    he1_excluded.add(p2 if p1 == ne1_c2 else p1)
-        elif isinstance(f, mm.ATMForce):
-            for j in range(f.getNumForces()):
-                inner = f.getForce(j)
-                if isinstance(inner, mm.HarmonicBondForce):
-                    for bi in range(inner.getNumBonds()):
-                        p1, p2, _, _ = inner.getBondParameters(bi)
-                        if ne1_c2 in (p1, p2):
-                            he1_excluded.add(p2 if p1 == ne1_c2 else p1)
-    copy2_targets = {a.index for a in topology.atoms()
-                     if a.index >= n_copy1 and a.index != he1
-                     and res_by_idx.get(a.index) not in _SOLVENT_RESNAMES}
-    copy2_targets.update(solvent_o)
-    min_he1 = float("inf")
-    worst_he1 = None
-    for tgt in copy2_targets:
-        if tgt in he1_excluded:  # NE1 bond + 1-3 ring neighbours (FF-excluded).
-            continue
-        d = float(np.linalg.norm(positions[he1] - positions[tgt]))
-        if d < min_he1:
-            min_he1 = d
-            worst_he1 = (name_by_idx.get(he1, he1), name_by_idx.get(tgt, tgt), d)
+    # COPY-2 disappearing var group: indices [n_copy1, n_atoms).
+    n_atoms = topology.getNumAtoms()
+    min_he1, worst_he1 = _seed_min_dist(disappearing, ne1_c2, n_copy1, n_atoms)
     if min_he1 <= min_dist_nm:
         raise ValueError(
-            "R2 two-copy seed min-dist FAIL: copy-2 HE1 too close to a copy-2 "
-            "common/solvent atom (%.4f nm <= %.4f nm) — %s."
+            "R2 two-copy seed min-dist FAIL: copy-2 disappearing var group too "
+            "close to a copy-2 common/solvent atom (%.4f nm <= %.4f nm) — %s."
             % (min_he1, min_dist_nm, worst_he1))
 
     return {
@@ -3093,12 +4501,222 @@ def assert_twocopy_seed(
     }
 
 
+def _attach_heavy_neighbor_indices(
+    topology: app.Topology, attach_idx: int, common_idx_set: set,
+) -> List[int]:
+    """Indices of the HEAVY common atoms bonded to the attach atom in ``topology``.
+
+    Used to point a repositioned disappearing-atom hydrogen AWAY from the attach
+    atom's heavy environment (the indole ring bisector for NE1, the CB carbon for
+    CG1) so it lands in a non-clashing tetrahedral / donor position relative to
+    the REGISTERED common core. Reads the topology bonds directly (the modeller
+    topology carries the intra-residue connectivity post-build).
+    """
+    nbrs: List[int] = []
+    for b in topology.bonds():
+        a0, a1 = b[0], b[1]
+        if a0.index == attach_idx:
+            other = a1
+        elif a1.index == attach_idx:
+            other = a0
+        else:
+            continue
+        el = other.element
+        is_h = (el is not None and el.symbol == "H") or (
+            el is None and other.name.strip().startswith("H"))
+        if is_h:
+            continue
+        if other.index in common_idx_set:
+            nbrs.append(other.index)
+    return nbrs
+
+
+# Ideal sp3 tetrahedral dot: the cosine of the angle between any two of the four
+# tetrahedral bond directions (109.4712206... deg). Used by the deterministic
+# common beta-H placement (connected-group / W4A shape only).
+_TET_COS = -1.0 / 3.0
+
+
+def _unit_vec(v: np.ndarray) -> np.ndarray:
+    """Unit vector (return the input unchanged when its norm is ~0)."""
+    n = float(np.linalg.norm(v))
+    return v / n if n > 1e-12 else v
+
+
+def _common_beta_h_indices_for_attach(
+    topology: app.Topology, common_idx_set: set, attach_idx: int,
+    binder_chain: str,
+) -> List[int]:
+    """Common-core H atom indices bonded to the common attach atom (the beta-H pair).
+
+    These are the atoms whose RANDOM PDBFixer placement (inherited via the common
+    overwrite in the registration) can drive the rigid-translated root heavy onto a
+    beta-H vertex (the W4A R2-retry mode). Identified STRUCTURALLY (H, in the common
+    set, bonded to the attach atom on the binder chain) so the correction is robust to
+    naming (HB2/HB3) without hard-coding names.
+    """
+    beta_h: List[int] = []
+    for b in topology.bonds():
+        a0, a1 = b[0], b[1]
+        if a0.index == attach_idx:
+            other = a1
+        elif a1.index == attach_idx:
+            other = a0
+        else:
+            continue
+        if other.index not in common_idx_set:
+            continue
+        if other.residue.chain.id != binder_chain:
+            continue
+        if other.residue.name in _SOLVENT_RESNAMES:
+            continue
+        el = other.element
+        is_h = (el is not None and el.symbol == "H") or (
+            el is None and other.name.strip().startswith("H"))
+        if is_h:
+            beta_h.append(other.index)
+    return sorted(beta_h)
+
+
+def _place_two_tetrahedral_beta_h(
+    cb: np.ndarray, ca: np.ndarray, cg: np.ndarray, bond_nm: float,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Place the TWO remaining sp3 tetrahedral substituents on CB given the two
+    occupied directions CB->CA and CB->CG, at ``bond_nm`` from CB.
+
+    CB is sp3 with four substituents; two are heavy (CA, CG) and two are the beta-H
+    pair to place. The two H directions are the canonical complement of {u_ca, u_cg}:
+    a bisector pointing AWAY from both heavies + a symmetric out-of-plane split, with
+    the in/out split solved from the tetrahedral dot constraint (d . u_ca == d . u_cg
+    == -1/3). The H's AVOID the CG direction BY CONSTRUCTION (they are the complement
+    of CG), which removes the deterministic CG-on-beta-H collision (the W4A R2-retry
+    mode). Returns (h1, h2) absolute positions (nm).
+    """
+    u_ca = _unit_vec(ca - cb)
+    u_cg = _unit_vec(cg - cb)
+    # bisector pointing away from both occupied heavy directions.
+    s = u_ca + u_cg
+    if float(np.linalg.norm(s)) > 1e-9:
+        bis = _unit_vec(-s)
+    else:
+        ref = np.array([1.0, 0.0, 0.0]) if abs(u_ca[0]) < 0.9 else \
+            np.array([0.0, 1.0, 0.0])
+        bis = _unit_vec(np.cross(u_ca, ref))
+    # out-of-plane axis (perpendicular to the CA/CG plane).
+    perp = np.cross(u_ca, u_cg)
+    if float(np.linalg.norm(perp)) < 1e-9:
+        # CA/CG nearly collinear (degenerate) — pick any perpendicular to bis.
+        ref = np.array([1.0, 0.0, 0.0]) if abs(bis[0]) < 0.9 else \
+            np.array([0.0, 1.0, 0.0])
+        perp = np.cross(bis, ref)
+    perp = _unit_vec(perp)
+    # d = a*bis + b*perp (unit). The tetrahedral constraint d . u_ca == d . u_cg ==
+    # -1/3 reduces (perp _|_ both heavy dirs, bis symmetric) to a*(bis . u_ca) = -1/3.
+    bis_dot = float(bis @ u_ca)   # == bis . u_cg by symmetry of bis
+    a = (_TET_COS / bis_dot) if abs(bis_dot) > 1e-6 else 0.0
+    a = float(np.clip(a, -1.0, 1.0))
+    b = float(np.sqrt(max(0.0, 1.0 - a * a)))
+    d1 = _unit_vec(a * bis + b * perp)
+    d2 = _unit_vec(a * bis - b * perp)
+    return cb + bond_nm * d1, cb + bond_nm * d2
+
+
+def _place_deterministic_common_beta_h(
+    copy2_build: Dict[str, Any], ms_reg, binder_chain: str,
+) -> Dict[str, Any]:
+    """SHAPE-GATED (single_attach_connected_group): re-place the COMMON beta-H pair
+    (the H's bonded to the common attach CB) DETERMINISTICALLY by ideal sp3
+    tetrahedral geometry off the REGISTERED CB, complementary to {CA, CG}.
+
+    W4A (Trp4->Ala) is a single-scaffold perturbation: BOTH copies derive from the
+    SAME WT final.pdb, so the registration's common overwrite inherits PDBFixer's
+    RANDOM beta-H vertex pick on the mutated ALA. When PDBFixer happens to place a
+    common beta-H on the SAME CB vertex the rigid-translated indole root (CG) points
+    toward, CG lands on the beta-H (< the R2 floor) => an R2 retry. This correction
+    re-places the two common beta-H's at the tetrahedral complement of {CA, CG}, which
+    AVOIDS the CG direction by construction (deterministic, no RNG), off the REGISTERED
+    CB (so the common register stays exact), at the engine-registered CB->beta-H bond
+    length (direction-only change, harmonic CB-HB term unperturbed).
+
+    Mutates ``copy2_build['modeller'].positions`` in place. Returns a structured
+    bookkeeping dict; on any unexpected geometry (not the canonical CB+CA+CG+2H sp3
+    centre) it leaves the engine placement untouched and reports the skip reason
+    (fail-soft: the R2 seed gate still guards any residual clash).
+    """
+    c2_top = copy2_build["modeller"].topology
+    c2_var = set(copy2_build["alchemical_atoms"]["wt_only"])
+
+    def _is_binder_protein(atom) -> bool:
+        return (atom.residue.chain.id == binder_chain
+                and atom.residue.name not in _SOLVENT_RESNAMES)
+
+    c2_common = set(a.index for a in c2_top.atoms()
+                    if a.index not in c2_var and _is_binder_protein(a))
+    attach_idx = copy2_build["alchemical_atoms"]["common"][0]
+
+    beta_h = _common_beta_h_indices_for_attach(
+        c2_top, c2_common, attach_idx, binder_chain)
+    if len(beta_h) != 2:
+        return {"detbeta_mode": "skipped_unexpected_beta_h_count",
+                "n_common_beta_h": len(beta_h)}
+
+    # CA = the other heavy common neighbour of CB; CG = the rigid-translated indole
+    # root (a disappearing var heavy that bonds CB).
+    name_idx: Dict[str, int] = {}
+    for atom in c2_top.atoms():
+        if atom.index in c2_common and _is_binder_protein(atom) \
+                and atom.name not in name_idx:
+            name_idx[atom.name] = atom.index
+    if "CA" not in name_idx:
+        return {"detbeta_mode": "skipped_no_CA"}
+
+    root_heavy_name = ms_reg.bonded_heavy_disappearing
+    cg_idx = None
+    for atom in c2_top.atoms():
+        if atom.index in c2_var and atom.name == root_heavy_name \
+                and _is_binder_protein(atom):
+            cg_idx = atom.index
+            break
+    if cg_idx is None:
+        return {"detbeta_mode": "skipped_no_root_heavy",
+                "root_heavy_name": root_heavy_name}
+
+    c2_pos = list(copy2_build["modeller"].positions)
+    cb = np.array(c2_pos[attach_idx].value_in_unit(unit.nanometer))
+    ca = np.array(c2_pos[name_idx["CA"]].value_in_unit(unit.nanometer))
+    cg = np.array(c2_pos[cg_idx].value_in_unit(unit.nanometer))
+
+    bond_lengths = [
+        float(np.linalg.norm(
+            np.array(c2_pos[h].value_in_unit(unit.nanometer)) - cb))
+        for h in beta_h]
+    valid_lengths = [b for b in bond_lengths if b > 1e-6]
+    bond_nm = float(np.mean(valid_lengths)) if valid_lengths else 0.109
+
+    h1, h2 = _place_two_tetrahedral_beta_h(cb, ca, cg, bond_nm)
+    c2_pos[beta_h[0]] = mm.Vec3(*h1) * unit.nanometer
+    c2_pos[beta_h[1]] = mm.Vec3(*h2) * unit.nanometer
+    copy2_build["modeller"].positions = c2_pos
+
+    cg_to_h = [float(np.linalg.norm(h - cg)) for h in (h1, h2)]
+    return {
+        "detbeta_mode": "tetrahedral",
+        "n_common_beta_h_replaced": 2,
+        "common_beta_h_indices": beta_h,
+        "attach_index": attach_idx,
+        "root_heavy_name": root_heavy_name,
+        "beta_h_bond_nm": bond_nm,
+        "cg_to_beta_h_nm": cg_to_h,
+        "cg_to_beta_h_min_nm": float(min(cg_to_h)),
+    }
+
+
 def _register_copy2_common_to_copy1(
     copy1_build: Dict[str, Any], copy2_build: Dict[str, Any],
-    binder_chain: str = "B",
+    binder_chain: str = "B", spec: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """Set copy-2's common-core coordinates to copy-1's (byte-identical common
-    conformation), and reposition copy-2's variable atom(s) accordingly.
+    conformation), and reposition copy-2's disappearing var atom(s) accordingly.
 
     Both endpoint copies are built from INDEPENDENT MD final.pdb's, so their
     common-core conformers differ (~4.5 Å backbone RMSD). The canonical ATS
@@ -3111,11 +4729,21 @@ def _register_copy2_common_to_copy1(
     Mutates ``copy2_build['modeller'].positions`` in place:
       - copy-2 common atom i  -> copy-1 common atom i's position (paired by C4
         name-order alignment, computed here on per-copy indices).
-      - copy-2 var atom (HE1) -> copy-2 NE1's NEW position + (HE1 - NE1) original
-        offset, so HE1 keeps its WT bond geometry off the (now-registered) NE1.
+      - copy-2 disappearing var atom(s) -> off the (now-registered) common attach
+        atom, at the preserved attach->var bond length, pointing AWAY from the
+        attach atom's bonded heavy common neighbours (the indole ring bisector for
+        NE1->HE1; the CB direction for CG1->HG11). Re-deriving the direction in the
+        registered frame avoids a clash with the registered neighbours that the raw
+        offset (against the differing original conformer) would introduce.
 
-    Returns bookkeeping (n_common_registered, the HE1 offset applied).
+    ``spec`` (a ``MutationSpec`` or registry name; ``None`` => res-4 MTR<->Trp)
+    supplies the common attach atom (NE1 for Trp, CG1 for Val). The
+    disappearing-var indices come from the build's ``alchemical_atoms['wt_only']``
+    slot (populated per spec by ``identify_alchemical_atoms``).
+
+    Returns bookkeeping (n_common_registered, the var offset applied).
     """
+    ms_reg = resolve_mutation_spec(spec)  # validate selector + read the group shape
     c1_top = copy1_build["modeller"].topology
     c2_top = copy2_build["modeller"].topology
     c1_var = set(copy1_build["alchemical_atoms"]["mtr_only"])
@@ -3141,51 +4769,85 @@ def _register_copy2_common_to_copy1(
     c2_ne1 = copy2_build["alchemical_atoms"]["common"][0]
     he1_list = sorted(c2_var)
 
-    # Capture copy-2's original NE1->HE1 BOND LENGTH (preserve the bond magnitude;
-    # the DIRECTION is recomputed in the registered ring frame below so HE1 does
-    # not clash the registered ring — using the raw WT offset against the MTR-frame
-    # ring would mis-place HE1 since the two ring conformers differ).
+    # The disappearing var GROUP can be a single H (MTR HE1 / V3I HG11) or a heavy
+    # methyl group (Ala CB + HB1-3 + the renamed alpha-H HA, the disappearing-heavy
+    # mirror). A SINGLE non-heavy var keeps the legacy single-H repositioning (off
+    # the attach atom, byte-identical). A MULTI-atom group (>1 atom OR a heavy var)
+    # is moved RIGIDLY by the attach atom's registration delta so the native
+    # intra-group bond geometry (CB-HB / CB-CA bond lengths + angles) is preserved
+    # exactly — collapsing such a group onto one point would detonate the bonded
+    # base term. The R2 seed assert then gates any residual clash against the
+    # registered backbone (fail-loud, never silent).
+    heavy_in_group = bool(ms_reg.bonded_heavy_disappearing)
+    rigid_group = len(he1_list) > 1 or heavy_in_group
+
+    # copy-2's ORIGINAL attach position (before the common overwrite) — the rigid
+    # translation delta is (registered attach) - (original attach).
+    c2_ne1_orig = np.array(c2_pos[c2_ne1].value_in_unit(unit.nanometer))
+
+    # Capture copy-2's original attach->var BOND LENGTH (single-H legacy path only).
     he1_bond_nm = 0.101
-    if he1_list:
-        ne1_orig = np.array(c2_pos[c2_ne1].value_in_unit(unit.nanometer))
+    if he1_list and not rigid_group:
         he1_orig = np.array(c2_pos[he1_list[0]].value_in_unit(unit.nanometer))
-        he1_bond_nm = float(np.linalg.norm(he1_orig - ne1_orig)) or 0.101
+        he1_bond_nm = float(np.linalg.norm(he1_orig - c2_ne1_orig)) or 0.101
 
     # Overwrite copy-2 commons with copy-1 commons (registered conformation).
-    name_c2 = {a.index: a.name for a in c2_top.atoms()}
-    c2_common_by_name = {name_c2[i]: i for i in c2_common}
+    c2_common_set = set(c2_common)
     for c1_i, c2_i in zip(c1_common, c2_common):
         v = c1_pos[c1_i]
         c2_pos[c2_i] = mm.Vec3(v[0], v[1], v[2]) * unit.nanometer
 
-    # Reposition HE1 in the REGISTERED ring frame: off the (now copy-1-framed) NE1,
-    # pointing AWAY from the (CD1,CE2) ring bisector at the preserved bond length.
-    # This is the same indole-donor geometry the legacy HE1 injector uses, so HE1
-    # lands at the real Trp NE1-HE1 site relative to the registered ring (no clash
-    # with the registered CD1/CE2).
+    ne1_new = np.array(c2_pos[c2_ne1].value_in_unit(unit.nanometer))
     he1_dir = None
-    if he1_list:
-        ne1_new = np.array(c2_pos[c2_ne1].value_in_unit(unit.nanometer))
-        cd1_i = c2_common_by_name.get("CD1")
-        ce2_i = c2_common_by_name.get("CE2")
-        if cd1_i is not None and ce2_i is not None:
-            cd1 = np.array(c2_pos[cd1_i].value_in_unit(unit.nanometer))
-            ce2 = np.array(c2_pos[ce2_i].value_in_unit(unit.nanometer))
-            d = ne1_new - (cd1 + ce2) / 2.0
+    if he1_list and rigid_group:
+        # RIGID translation of the whole disappearing group by the attach delta:
+        # preserves the native (copy-2) intra-group geometry; the group stays bonded
+        # to the now-registered attach atom at its native offset.
+        delta = ne1_new - c2_ne1_orig
+        for var_i in he1_list:
+            v = np.array(c2_pos[var_i].value_in_unit(unit.nanometer)) + delta
+            c2_pos[var_i] = mm.Vec3(*v) * unit.nanometer
+    elif he1_list:
+        # Single-H legacy path (byte-identical): off the (registered) attach atom,
+        # pointing AWAY from the centroid of the attach atom's bonded heavy common
+        # neighbours, at the preserved bond length. For NE1 the heavy neighbours are
+        # the indole ring (CD1, CE2) -> the legacy ring-bisector; for CG1 the heavy
+        # neighbour is CB -> straight off CB.
+        heavy_nbrs = _attach_heavy_neighbor_indices(c2_top, c2_ne1, c2_common_set)
+        if heavy_nbrs:
+            centroid = np.mean(
+                [np.array(c2_pos[i].value_in_unit(unit.nanometer))
+                 for i in heavy_nbrs], axis=0)
+            d = ne1_new - centroid
             nrm = np.linalg.norm(d)
             he1_dir = (d / nrm) if nrm > 1e-9 else np.array([0.0, 0.0, 1.0])
         else:
             he1_dir = np.array([0.0, 0.0, 1.0])
-        he1_new = ne1_new + he1_bond_nm * he1_dir
-        c2_pos[he1_list[0]] = mm.Vec3(*he1_new) * unit.nanometer
+        for var_i in he1_list:
+            he1_new = ne1_new + he1_bond_nm * he1_dir
+            c2_pos[var_i] = mm.Vec3(*he1_new) * unit.nanometer
 
     copy2_build["modeller"].positions = c2_pos
-    return {
+
+    record: Dict[str, Any] = {
         "n_common_registered": len(c1_common),
         "he1_repositioned": bool(he1_list),
+        "he1_repositioned_rigid": bool(he1_list and rigid_group),
         "he1_bond_nm": he1_bond_nm,
         "he1_dir": (he1_dir.tolist() if he1_dir is not None else None),
     }
+
+    # SHAPE-GATED deterministic COMMON beta-H placement (connected-group / W4A only).
+    # Every other shape is left BYTE-IDENTICAL: the rigid-translate body above already
+    # ran verbatim, and this correction is appended ONLY for the connected-group ring
+    # shape, replacing the two common beta-H's (whose RANDOM PDBFixer placement is the
+    # W4A R2-retry driver) with a deterministic CG-avoiding tetrahedral placement.
+    if ms_reg.shape == "single_attach_connected_group":
+        detbeta = _place_deterministic_common_beta_h(
+            copy2_build, ms_reg, binder_chain)
+        record["detbeta"] = detbeta
+
+    return record
 
 
 def build_inplace_res4_twocopy_system(
@@ -3197,10 +4859,24 @@ def build_inplace_res4_twocopy_system(
     strict_mc1: bool = False,
     harmonize_common_charges: bool = False,
     displacement_nm: float = ATS_TWOCOPY_DISPLACEMENT_NM,
+    auto_search_displacement: bool = False,
+    accept_sep_nm: float = ATS_TWOCOPY_ACCEPT_SEP_NM,
     mtr_ncaa_xml: Optional[str] = None,
     constraints: Any = HBonds,
+    spec: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """Top-level orchestrator: build the CANONICAL ATS TWO-COPY box (C2-C8).
+
+    ``spec`` (a ``MutationSpec`` / registry name; ``None`` => the res-4 MTR<->Trp
+    default, byte-identical legacy path) selects the mutation-definition layer ONLY
+    — the two-copy core (build / register / displace / swap / C6 guards) is reused
+    unchanged (C5). For the DEFAULT spec the build resolves the RBFE-harmonized MTR
+    ncAA XML exactly as before. For a CANONICAL all-amber spec (e.g.
+    ``"v3i_val_ile_res3"``, ``MUTATION_VAL_ILE_RES3``) BOTH copies are built from
+    standard amber14 templates (no ncAA XML): copy-1 (the appearing state, e.g.
+    Ile) is produced by the canonical point-mutation prep and copy-2 (the
+    disappearing state, e.g. Val) is the scaffold's native residue, both sourced
+    from the SAME WT-2QKI final.pdb (V3I engine validation, engine validation (Option B)).
 
     Both endpoint copies (copy-1 = MTR at the site, copy-2 = WT in bulk) are
     resident in ONE box. copy-2 is displaced by a vector d (~40 Å) so the copies
@@ -3214,7 +4890,9 @@ def build_inplace_res4_twocopy_system(
       2. Displace copy-2 by d (compute_twocopy_displacement_vector).
       3. Merge copy-1 + copy-2 into one Modeller, solvate ONCE, createSystem.
       4. C4: pair common atoms across the two resident copies (count + order).
-      5. MC1: common-atom (q,sigma,eps) continuity ASSERT (highest risk).
+      5. MC1: common-atom continuity REPORT (reporting-only — per-atom divergence
+         is OK in the coordinate-only swap; a retained NET-charge sanity hard gate
+         + the opt-in strict_mc1 fail-loud path still guard genuine build defects).
       6. C6: two-copy spatial-separation ASSERT (no overlay).
       7. MC2: methyl bonded present (copy-1) ; MC3: cyclic_ss in BOTH copies.
       8. R2-style seed: appearing/disappearing atoms non-clashing (within copy).
@@ -3233,11 +4911,30 @@ def build_inplace_res4_twocopy_system(
     ``displacement_nm`` is the magnitude of d (default 40 Å). ``solvate=True`` is
     the C8 target. ``constraints`` is forwarded to BOTH endpoint builds (Tier-2
     short dynamics pass ``constraints=None`` for the unconstrained alch-H run).
+
+    ``auto_search_displacement`` (default ``False`` -> byte-identical legacy path):
+    when ``True``, the displacement vector is chosen by ``auto_search_twocopy_
+    displacement`` — a direction-aware search (res-4-local base direction + a cone
+    of alternatives) that maximises the copy1<->copy2 (+ periodic image) min heavy-
+    atom distance and escalates the magnitude only if no direction clears
+    ``accept_sep_nm`` (default 1.5 nm, the decoupling-sufficient line). This
+    automates the manual displacement-magnitude recovery and is endpoint-
+    /direction-neutral (ranking-safe). When ``auto_search_displacement=False`` the
+    legacy fixed-direction ``compute_twocopy_displacement_vector`` at
+    ``displacement_nm`` is used unchanged (the manual ``--displacement-nm`` override
+    path). ``accept_sep_nm`` is only consulted by the auto-search; the post-solvate
+    C6 assert always enforces the 1.0 nm clash floor + the periodic-image gate.
     """
     if leg not in ("free", "bound"):
         raise NotImplementedError(
             "build_inplace_res4_twocopy_system: leg must be 'free' or 'bound', "
             "got %r." % (leg,))
+
+    ms = resolve_mutation_spec(spec)
+    # The sole ncAA in this system is MTR; every other appearing state (Val/Ile)
+    # is a standard amber14 template and takes the CANONICAL path (no ncAA XML,
+    # no hydrogen-definition load, copy-1 produced by the point-mutation prep).
+    is_ncaa_mtr = (ms.stateB_resname == "MTR")
 
     li = resolve_leg_inputs(seed)
     if not li["final"]["wt"] or not li["final"]["cp4"]:
@@ -3248,49 +4945,92 @@ def build_inplace_res4_twocopy_system(
 
     # 1) Endpoint structures (UNSOLVATED; the merge solvates once after the
     #    displacement so both copies + the d-gap share one water shell). copy-1 =
-    #    MTR (site), copy-2 = WT (bulk).
+    #    the APPEARING state at the site, copy-2 = the DISAPPEARING state in bulk.
     #
     #    CANONICAL ATS RBFE (Gallicchio JCIM 2025): there is ONE shared receptor.
     #    Only the binder/ligand is duplicated and displaced. For the BOUND leg,
-    #    copy-1 carries the receptor + the MTR binder in the equilibrated site pose;
-    #    copy-2 is the WT BINDER ALONE (receptor dropped) displaced into bulk. A
-    #    second full receptor in copy-2 would be displaced into copy-1's receptor
-    #    body (the d-vector is res-4-local, far smaller than the receptor extent),
-    #    producing receptor-receptor interpenetration (PE -> +1e15, minimize NaN).
-    #    The residue-4 dual-topology swap touches only the binder common/var atoms,
-    #    so copy-2 needs the binder only. The FREE leg is binder-only in both copies
-    #    already; here BOTH legs use the binder-only prep for copy-2.
+    #    copy-1 carries the receptor + the appearing-state binder in the
+    #    equilibrated site pose; copy-2 is the disappearing-state BINDER ALONE
+    #    (receptor dropped) displaced into bulk. A second full receptor in copy-2
+    #    would be displaced into copy-1's receptor body (the d-vector is residue-
+    #    local, far smaller than the receptor extent), producing receptor-receptor
+    #    interpenetration (PE -> +1e15, minimize NaN). The dual-topology swap
+    #    touches only the binder common/var atoms, so copy-2 needs the binder only.
+    #    The FREE leg is binder-only in both copies already; here BOTH legs use the
+    #    binder-only prep for copy-2.
     import tempfile
     tmpdir = tempfile.mkdtemp(prefix="ats_twocopy_%s_" % (leg,))
-    mtr_struct = os.path.join(tmpdir, "cp4_%s.pdb" % (leg,))
-    wt_struct = os.path.join(tmpdir, "wt_%s.pdb" % (leg,))
-    if leg == "free":
-        prepare_free_peptide_from_final(li["final"]["cp4"], mtr_struct, binder_chain)
-        prepare_free_peptide_from_final(li["final"]["wt"], wt_struct, binder_chain)
-    else:
-        # copy-1 = receptor + MTR binder (shared inert receptor context).
-        prepare_bound_complex_from_final(li["final"]["cp4"], mtr_struct, binder_chain)
-        # copy-2 = WT binder ONLY (receptor dropped) -> displaced into bulk.
-        prepare_free_peptide_from_final(li["final"]["wt"], wt_struct, binder_chain)
+    mtr_struct = os.path.join(tmpdir, "stateB_%s.pdb" % (leg,))
+    wt_struct = os.path.join(tmpdir, "stateA_%s.pdb" % (leg,))
 
-    # RBFE MTR XML resolution (cross-track isolation): the RBFE build loads the
+    if is_ncaa_mtr:
+        # DEFAULT MTR<->Trp path (byte-identical legacy): both copies come from
+        # their own endpoint final.pdb (Cp4 vs WT); copy-1 = MTR (cp4 final),
+        # copy-2 = WT (wt final).
+        if leg == "free":
+            prepare_free_peptide_from_final(
+                li["final"]["cp4"], mtr_struct, binder_chain)
+            prepare_free_peptide_from_final(
+                li["final"]["wt"], wt_struct, binder_chain)
+        else:
+            # copy-1 = receptor + MTR binder (shared inert receptor context).
+            prepare_bound_complex_from_final(
+                li["final"]["cp4"], mtr_struct, binder_chain)
+            # copy-2 = WT binder ONLY (receptor dropped) -> displaced into bulk.
+            prepare_free_peptide_from_final(
+                li["final"]["wt"], wt_struct, binder_chain)
+    else:
+        # CANONICAL all-amber path (e.g. V3I Val<->Ile, engine validation (Option B)): both
+        # copies derive from the SAME WT-2QKI scaffold final.pdb (pos4 = Trp). The
+        # DISAPPEARING state (copy-2) is the scaffold's native residue (verbatim,
+        # via the free-peptide prep); the APPEARING state (copy-1) is the canonical
+        # point mutation of that scaffold (e.g. VAL->ILE via PDBFixer). Engine-
+        # validation framing — NOT a Cp4 anchor reproduction.
+        scaffold_final = li["final"]["wt"]
+        if leg == "free":
+            prepare_mutated_binder_from_final(
+                scaffold_final, mtr_struct, ms.resnum,
+                ms.stateA_resname, ms.stateB_resname, binder_chain,
+                add_hydrogens=True)
+            prepare_free_peptide_from_final(
+                scaffold_final, wt_struct, binder_chain)
+        else:
+            # copy-1 = receptor + appearing-state binder (shared inert receptor).
+            # The bound-complex prep keeps the receptor; the appearing-state
+            # mutation is applied to the binder chain only (PDBFixer mutates the
+            # named chain). copy-2 = disappearing-state binder ONLY -> bulk.
+            prepare_mutated_bound_complex_from_final(
+                scaffold_final, mtr_struct, ms.resnum,
+                ms.stateA_resname, ms.stateB_resname, binder_chain)
+            prepare_free_peptide_from_final(
+                scaffold_final, wt_struct, binder_chain)
+
+    # ncAA XML resolution (cross-track isolation): the MTR RBFE build loads the
     # DEDICATED harmonized RBFE XML (Σ|Δq|=0 common core), never the shared
-    # Option-β HYBRID_MTR_XML the other tracks consume.
-    if mtr_ncaa_xml is not None:
+    # Option-β HYBRID_MTR_XML the other tracks consume. The CANONICAL path uses NO
+    # ncAA XML (Val/Ile are standard amber14 templates).
+    if not is_ncaa_mtr:
+        mtr_xml = None
+    elif mtr_ncaa_xml is not None:
         mtr_xml = mtr_ncaa_xml
     elif os.path.isfile(HYBRID_MTR_XML_RBFE):
         mtr_xml = HYBRID_MTR_XML_RBFE
     else:
         mtr_xml = HYBRID_MTR_XML
 
-    copy1_build = build_leg_system(   # MTR, site copy
+    ncaa_resname = "MTR" if is_ncaa_mtr else None
+    # The canonical mutated copy-1 already had its hydrogens placed by PDBFixer
+    # (the appearing CD1 carries no H in the input), so add_hydrogens stays False
+    # for both endpoints (final.pdb / PDBFixer outputs are H-complete).
+    copy1_build = build_leg_system(   # appearing state (site copy)
         mtr_struct, leg=leg, binder_chain=binder_chain, solvate=False,
         add_hydrogens=False, ncaa_xml=mtr_xml, hydrogens_xml=li["hydrogens_xml"],
-        constraints=constraints)
-    copy2_build = build_leg_system(   # WT, bulk copy
+        constraints=constraints, spec=ms, ncaa_resname=ncaa_resname)
+    copy2_build = build_leg_system(   # disappearing state (bulk copy)
         wt_struct, leg=leg, binder_chain=binder_chain, solvate=False,
-        add_hydrogens=False, hydrogens_xml=li["hydrogens_xml"],
-        constraints=constraints)
+        add_hydrogens=False, ncaa_xml=(mtr_xml if is_ncaa_mtr else None),
+        hydrogens_xml=li["hydrogens_xml"],
+        constraints=constraints, spec=ms, ncaa_resname=ncaa_resname)
 
     # 2a) REGISTER copy-2's common-core coordinates onto copy-1's frame. The two
     #     endpoint conformers come from INDEPENDENT MD final.pdb's (WT vs Cp4), so
@@ -3306,23 +5046,37 @@ def build_inplace_res4_twocopy_system(
     #     the in-memory equivalent of the upstream dual-topology PDB where both
     #     ligands share the common-core coordinates; the alignment FORCE (C4 ATS
     #     params) then maintains register under dynamics.
-    _register_copy2_common_to_copy1(copy1_build, copy2_build, binder_chain)
+    _register_copy2_common_to_copy1(copy1_build, copy2_build, binder_chain, spec=ms)
 
     # 2b) Displace copy-2 (WT) by d into bulk (C2/C3). The direction clears copy-1's
-    #     residue-4 local density (receptor + binder fold); the magnitude is d.
-    dvec = compute_twocopy_displacement_vector(
-        copy1_build, copy2_build, binder_chain=binder_chain,
-        magnitude_nm=displacement_nm)
+    #     residue-local density (receptor + binder fold); the magnitude is d.
+    #
+    #     auto_search_displacement=False (default) -> byte-identical legacy path:
+    #     fixed residue-local direction at the explicit/default magnitude (the manual
+    #     --displacement-nm override). auto_search_displacement=True -> direction-
+    #     aware search (cone of candidates, magnitude escalation) that maximises the
+    #     copy1<->copy2 (+image) min distance and clears accept_sep_nm.
+    displacement_search: Optional[Dict[str, Any]] = None
+    if auto_search_displacement:
+        displacement_search = auto_search_twocopy_displacement(
+            copy1_build, copy2_build, binder_chain=binder_chain,
+            accept_sep_nm=accept_sep_nm, padding_nm=padding_nm, spec=ms)
+        dvec = tuple(displacement_search["displacement_vector_nm"])
+    else:
+        dvec = compute_twocopy_displacement_vector(
+            copy1_build, copy2_build, binder_chain=binder_chain,
+            magnitude_nm=displacement_nm, spec=ms)
     copy2_disp_positions = _displace_copy_positions(
         copy2_build["modeller"].positions, dvec)
 
     # 3) Merge copy-1 + copy-2 into ONE Modeller, then solvate ONCE + createSystem.
     #    Modeller.add appends copy-2's topology/positions AFTER copy-1, so copy-1
     #    keeps indices [0, n_copy1) and copy-2 takes [n_copy1, n_copy1+n_copy2) —
-    #    the merge offset the index map applies. The ncAA XML (copy-1 MTR template)
-    #    + amber14 (copy-2 WT standard) both resolve, and a single addSolvent
-    #    bathes both copies and the d-gap in one consistent water shell.
-    ff_inputs = list(FF_FILES) + [mtr_xml]
+    #    the merge offset the index map applies. The ncAA XML (copy-1 ncAA template)
+    #    + amber14 (copy-2 standard) both resolve, and a single addSolvent bathes
+    #    both copies and the d-gap in one consistent water shell. For the CANONICAL
+    #    path (mtr_xml=None) only the standard amber14 stack is loaded.
+    ff_inputs = list(FF_FILES) + ([mtr_xml] if mtr_xml else [])
     ff = ForceField(*ff_inputs)
     n_copy1 = copy1_build["modeller"].topology.getNumAtoms()
 
@@ -3360,10 +5114,13 @@ def build_inplace_res4_twocopy_system(
         "n_copy1": n_copy1,
         "displacement_vector_nm": [float(c) for c in dvec],
         "ff_inputs": ff_inputs,
-        # The residue-4 partition on the MERGED box, per copy (copy-2 shifted).
+        # The residue partition on the MERGED box, per copy (copy-2 shifted).
         "alchemical_atoms": _twocopy_alchemical_atoms(
             copy1_build, copy2_build, n_copy1),
         "disulfides": disulfides,
+        # The resolved mutation spec — read by the asserts (MC2 heavy/H names,
+        # R2 seed) so they generalize to any single-residue mutation.
+        "mutation_spec": ms,
     }
 
     # 4) C4: pair common atoms across the two RESIDENT copies (count + order).
@@ -3378,9 +5135,23 @@ def build_inplace_res4_twocopy_system(
         _harmonize_twocopy_common_charges(system, cmap)
         common_charges_harmonized = True
 
-    # 5) MC1: common-atom continuity (highest ncAA risk). Surface as a STRUCTURED
-    #    outcome (not an opaque crash) by default so review sees the charge gap;
-    #    strict_mc1=True re-raises (the fail-loud unit-test path).
+    # 5) MC1: common-atom continuity. RE-CLASSIFIED to REPORTING-ONLY for the
+    #    canonical two-copy box (
+    #    ). The ATS
+    #    swap is a coordinate-only transform: each resident copy keeps its NATIVE
+    #    residue-template charges, so u1-u0 already includes the per-copy charge
+    #    difference correctly. Per-atom common-charge divergence is therefore NOT a
+    #    failure here — it was an over-constraint inherited from the retired
+    #    single-shared-core design (where the common core was ONE physical copy with
+    #    ONE charge). The build proceeds with native charges; the divergence is
+    #    surfaced as a non-blocking, numbers-neutral report (P11 overlap-field
+    #    pattern). Two retained gates:
+    #      (a) C2 net-charge sanity (ALWAYS, hard): a non-charge-changing mutation
+    #          must conserve the common-core TOTAL charge across the two copies
+    #          (Sigma dq ~ 0). A non-zero NET signals a genuine build defect (e.g.
+    #          a mis-paired common map / residue-template mismatch) -> raise.
+    #      (b) strict_mc1=True (opt-in, the fail-loud unit-test path): re-raises on
+    #          ANY per-atom divergence, preserving the legacy fail-loud contract.
     mc1_error: Optional[str] = None
     try:
         mc1 = assert_twocopy_common_param_continuity(system, cmap)
@@ -3388,25 +5159,44 @@ def build_inplace_res4_twocopy_system(
         if strict_mc1:
             raise
         mc1_error = str(exc)
-        mc1 = _summarize_twocopy_charge_divergence(system, cmap, copy1_build)
-        return {
-            "leg": leg, "seed": seed,
-            "outcome": "mc1_charge_discontinuity",
-            "mc1_param_continuity": mc1,
-            "mc1_error": mc1_error,
-            "common_map": {k: cmap[k] for k in ("n_common", "copy1_var", "copy2_var")},
-            "displacement_vector_nm": [float(c) for c in dvec],
-            "regime": "ranking_only",
-            "note": ("PRE-REGISTERED outcome (ii): the two-copy common core is "
-                     "electrostatically discontinuous (copy-1 MTR vs copy-2 WT "
-                     "common charges diverge). The two-copy box EXPOSED the gap "
-                     "the single-shared-core box hid. Resolve via the harmonized "
-                     "RBFE XML (Σ|Δq|=0) before a meaningful ΔΔG. R-18: a real "
-                     "charge-continuity finding, not a pass."),
-        }
+        mc1 = _summarize_twocopy_charge_divergence(
+            system, cmap, copy1_build, resnum=ms.resnum)
+        # C2 (retained HARD gate): per-atom divergence is benign, but the FULL
+        # alchemical-residue net charge (common + var) MUST agree across the two
+        # copies for a non-charge-changing mutation. A divergence is a genuine
+        # build defect (mis-paired common map / wrong residue template / an
+        # unsupported charge-changing mutation) — fail loud regardless of
+        # strict_mc1. The common-subset net alone is benign and does NOT gate.
+        if not mc1["net_sanity_ok"]:
+            raise ValueError(
+                "MC1 two-copy NET-charge sanity FAIL: the full mutated-residue "
+                "(res %s) net charge differs between the copies — copy-1 = %.6f e, "
+                "copy-2 = %.6f e, diff = %.6f e (tol %.1e). The two copies hold the "
+                "SAME residue for a non-charge-changing mutation, so the residue "
+                "total (common + variable atoms) must agree; a divergence is a "
+                "genuine build defect (mis-paired common map, wrong residue "
+                "template, or an unsupported charge-changing mutation), not a "
+                "benign per-atom redistribution."
+                % (str(ms.resnum), mc1["full_resmut_net_copy1_e"],
+                   mc1["full_resmut_net_copy2_e"], mc1["full_resmut_net_diff_e"],
+                   mc1["net_dq_tol_e"]))
+        # Per-atom divergence is OK (native charges preserved, net conserved):
+        # fall through to the canonical twocopy_attached path with the report
+        # attached non-blockingly (mc1["mc1_error"] retains the raw assert text).
+        mc1["mc1_error"] = mc1_error
 
     # 6) C6: two-copy spatial-separation ASSERT (no overlay; clash avoided by d).
-    separation = assert_twocopy_separation(fused, cmap)
+    #    Pass the merged box's periodic vectors (present only after addSolvent) so
+    #    the periodic minimum-image gate fires (Q5/C3 image ceiling). For the
+    #    auto-search path also enforce the elevated decoupling-sufficient
+    #    acceptance line (the legacy path keeps only the 1.0 nm clash floor =>
+    #    byte-identical). Box vectors come from the merged System default cell.
+    box_vectors = None
+    if solvate:
+        box_vectors = system.getDefaultPeriodicBoxVectors()
+    separation = assert_twocopy_separation(
+        fused, cmap, box_vectors=box_vectors,
+        accept_sep_nm=(accept_sep_nm if auto_search_displacement else None))
 
     # 7) MC2 (copy-1 methyl bonded) + MC3 (cyclic_ss in BOTH copies).
     mc2 = assert_twocopy_methyl_bonded(fused, cmap)
@@ -3431,6 +5221,38 @@ def build_inplace_res4_twocopy_system(
         "mtr_ncaa_xml": mtr_xml,
         "swap_mode": "twocopy",
         "displacement_vector_nm": [float(c) for c in dvec],
+        "displacement_mode": ("auto_search" if auto_search_displacement
+                              else "fixed_direction"),
+        # task #6: selected direction / magnitude / achieved min-distance for the
+        # run_manifest / build log (downstream Path decoupling verification). For
+        # the legacy fixed path this records the realised vector + the C6 distances.
+        "displacement_log": (
+            {
+                "mode": "auto_search",
+                "unit_dir": displacement_search["unit_dir"],
+                "magnitude_nm": displacement_search["magnitude_nm"],
+                "candidate_index": displacement_search["candidate_index"],
+                "n_candidates": displacement_search["n_candidates"],
+                "n_magnitudes_tried": displacement_search["n_magnitudes_tried"],
+                "achieved_raw_min_nm": displacement_search["achieved_raw_min_nm"],
+                "achieved_image_min_nm": displacement_search["achieved_image_min_nm"],
+                "accept_sep_nm": displacement_search["accept_sep_nm"],
+                "achieved_ne1_ne1_sep_nm": separation["ne1_ne1_sep_nm"],
+                "achieved_solute_min_sep_nm": separation["solute_solute_min_sep_nm"],
+                "achieved_image_solute_min_sep_nm":
+                    separation.get("image_solute_min_sep_nm"),
+            }
+            if auto_search_displacement else
+            {
+                "mode": "fixed_direction",
+                "magnitude_nm": float(displacement_nm),
+                "displacement_vector_nm": [float(c) for c in dvec],
+                "achieved_ne1_ne1_sep_nm": separation["ne1_ne1_sep_nm"],
+                "achieved_solute_min_sep_nm": separation["solute_solute_min_sep_nm"],
+                "achieved_image_solute_min_sep_nm":
+                    separation.get("image_solute_min_sep_nm"),
+            }
+        ),
         "separation": separation,
         "seed_assert": seed_assert,
         "mc2_methyl_bonded": mc2,

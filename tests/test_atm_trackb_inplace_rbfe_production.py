@@ -38,6 +38,15 @@ def _load(name, relpath):
     return mod
 
 
+def _have_openmm_units():
+    try:
+        import openmm.unit  # noqa: F401
+        import openmm.vec3  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
 @pytest.fixture(scope="module")
 def prod():
     return _load("trackb_inplace_rbfe_production",
@@ -88,6 +97,148 @@ def test_c8_bound_leg_non_finite_fails(prod):
 def test_c8_bound_leg_wrong_length_fails(prod):
     with pytest.raises(RuntimeError):
         prod.gate_decouple_direction("bound", (0.0, 1.0), raise_on_fail=True)
+
+
+# ---------------- C5 bound two-copy receptor-contact pre-flight gate ----------
+def _load_ats_mod():
+    if _UTILS not in sys.path:
+        sys.path.insert(0, _UTILS)
+    return _load("atm_trackB_setup", "utils/atm_trackB_setup.py")
+
+
+class _CGAtom:
+    def __init__(self, name, index, chain_id, resname, symbol="C"):
+        self.name = name
+        self.index = index
+        self.element = type("_El", (), {"symbol": symbol})()
+        chain = type("_Ch", (), {"id": chain_id})()
+        self.residue = type("_Res", (), {"name": resname, "chain": chain})()
+
+
+class _CGTopology:
+    def __init__(self, atoms):
+        self._atoms = atoms
+
+    def atoms(self):
+        return iter(self._atoms)
+
+
+class _CGModeller:
+    def __init__(self, topology, positions):
+        self.topology = topology
+        self.positions = positions
+
+
+class _CGSystem:
+    def __init__(self, box_nm):
+        self._box = box_nm
+
+    def getDefaultPeriodicBoxVectors(self):
+        return self._box
+
+
+def _synthetic_bound_fused(separation_nm):
+    """Build a synthetic two-copy BOUND ``fused`` dict: copy-1 = a receptor heavy
+    (chain A) + a binder heavy (chain B), copy-2 = a displaced binder heavy placed
+    ``separation_nm`` from the receptor along +x. A big orthorhombic box so no
+    wrap. Positions are OpenMM nm Quantities (the gate value_in_units them)."""
+    import openmm.unit as unit
+    import openmm.vec3 as _v3
+    nm = unit.nanometer
+    # copy-1: receptor heavy at origin (chain A), binder heavy at +0.3 (chain B).
+    a_rec = _CGAtom("CA", 0, "A", "ALA", "C")
+    a_bnd = _CGAtom("CB", 1, "B", "LEU", "C")
+    # copy-2: displaced binder heavy at +separation along x.
+    c2_bnd = _CGAtom("CB", 2, "B", "LEU", "C")
+    top = _CGTopology([a_rec, a_bnd, c2_bnd])
+    pos = [
+        _v3.Vec3(0.0, 0.0, 0.0) * nm,
+        _v3.Vec3(0.3, 0.0, 0.0) * nm,
+        _v3.Vec3(float(separation_nm), 0.0, 0.0) * nm,
+    ]
+    box = [_v3.Vec3(50.0, 0.0, 0.0) * nm,
+           _v3.Vec3(0.0, 50.0, 0.0) * nm,
+           _v3.Vec3(0.0, 0.0, 50.0) * nm]
+    return {
+        "modeller": _CGModeller(top, pos),
+        "system": _CGSystem(box),
+        "n_copy1": 2,          # copy-1 atoms are indices [0, 2)
+    }
+
+
+@pytest.mark.skipif(not _have_openmm_units(),
+                    reason="openmm not importable in this env")
+def test_c5_contact_gate_not_applicable_for_free(prod):
+    """The contact gate is bound two-copy ONLY: free / single-core pass through
+    (no measurement, no HALT)."""
+    ats = _load_ats_mod()
+    r = prod.gate_receptor_contact("free", "twocopy", None, ats,
+                                   raise_on_fail=True)
+    assert r["passed"] is True and "not applicable" in r["reason"]
+    r2 = prod.gate_receptor_contact("bound", "single_core", None, ats,
+                                    raise_on_fail=True)
+    assert r2["passed"] is True and "not applicable" in r2["reason"]
+
+
+@pytest.mark.skipif(not _have_openmm_units(),
+                    reason="openmm not importable in this env")
+def test_c5_contact_gate_accept_when_decoupled(prod):
+    """ACCEPT: the displaced binder is 5 nm from the receptor -> 0 contacts AND
+    min-image >= 1 nm -> the gate passes (genuine decouple)."""
+    ats = _load_ats_mod()
+    fused = _synthetic_bound_fused(separation_nm=5.0)
+    r = prod.gate_receptor_contact("bound", "twocopy", fused, ats,
+                                   endpoint="wt", seed="s7", raise_on_fail=True)
+    assert r["passed"] is True
+    m = r["measurement"]
+    assert m["n_contacts"] == 0
+    assert m["min_image_dist_nm"] >= prod.RECEPTOR_DECOUPLE_MIN_NM
+    assert m["decoupled"] is True
+
+
+@pytest.mark.skipif(not _have_openmm_units(),
+                    reason="openmm not importable in this env")
+def test_c5_contact_gate_halt_when_in_contact(prod):
+    """HALT (fail-loud): the displaced binder is 0.2 nm from the receptor -> a
+    contact < 0.45 nm -> the gate RAISES (no silent skip)."""
+    ats = _load_ats_mod()
+    fused = _synthetic_bound_fused(separation_nm=0.2)
+    with pytest.raises(RuntimeError) as exc:
+        prod.gate_receptor_contact("bound", "twocopy", fused, ats,
+                                   endpoint="wt", seed="s163",
+                                   raise_on_fail=True)
+    assert "C5 VIOLATION" in str(exc.value)
+    # The non-raising form reports the violation honestly.
+    r = prod.gate_receptor_contact("bound", "twocopy", fused, ats,
+                                   endpoint="wt", seed="s163",
+                                   raise_on_fail=False)
+    assert r["passed"] is False
+    assert r["measurement"]["decoupled"] is False
+    assert r["measurement"]["n_contacts"] >= 1
+
+
+@pytest.mark.skipif(not _have_openmm_units(),
+                    reason="openmm not importable in this env")
+def test_c5_contact_gate_halt_when_under_displaced(prod):
+    """HALT: the displaced binder clears the 0.45 nm contact cutoff but sits at
+    0.7 nm < the 1.0 nm decouple floor (still pocket-coupled) -> RAISES."""
+    ats = _load_ats_mod()
+    fused = _synthetic_bound_fused(separation_nm=0.7)
+    with pytest.raises(RuntimeError):
+        prod.gate_receptor_contact("bound", "twocopy", fused, ats,
+                                   endpoint="wt", seed="s199",
+                                   raise_on_fail=True)
+
+
+@pytest.mark.skipif(not _have_openmm_units(),
+                    reason="openmm not importable in this env")
+def test_c5_contact_gate_missing_build_fails_loud(prod):
+    """A bound two-copy gate with no live build dict (e.g. box-reuse path) fails
+    loud rather than silently passing."""
+    ats = _load_ats_mod()
+    with pytest.raises(RuntimeError):
+        prod.gate_receptor_contact("bound", "twocopy", None, ats,
+                                   raise_on_fail=True)
 
 
 # --------------------------- seed-availability gate ------------------------
@@ -408,3 +559,505 @@ def test_default_dry_run_is_single_core(prod, tmp_path, capsys):
     assert plan["construction"] == "single_core"
     # the single-core plan does NOT carry the two-copy ATS extras.
     assert "schedule_kind" not in plan
+
+
+# ---------------- auto-search displacement wiring (task #100/#114) ----------
+def test_auto_search_flags_in_parser(prod):
+    p = prod.build_arg_parser()
+    a = p.parse_args(["--twocopy", "--auto-search-displacement",
+                      "--accept-sep-nm", "2.0"])
+    assert a.auto_search_displacement is True
+    assert a.accept_sep_nm == 2.0
+    # default OFF + the default acceptance line mirrors the engine constant.
+    b = p.parse_args(["--leg", "free"])
+    assert b.auto_search_displacement is False
+    assert b.accept_sep_nm == prod._ATS_ACCEPT_SEP_NM_DEFAULT
+
+
+def test_accept_sep_default_locksteps_with_engine_constant(prod):
+    # The launcher's argparse default MUST equal the engine SSOT constant (the
+    # comment promises lockstep; a drift is a wiring error).
+    if _UTILS not in sys.path:
+        sys.path.insert(0, _UTILS)
+    ats = _load("atm_trackB_setup", "utils/atm_trackB_setup.py")
+    assert prod._ATS_ACCEPT_SEP_NM_DEFAULT == ats.ATS_TWOCOPY_ACCEPT_SEP_NM
+
+
+def test_auto_search_requires_twocopy(prod, tmp_path):
+    # --auto-search-displacement on the single-core path is a wiring error: fail
+    # loud (rc 2), never silently ignore (the single-core box has no copy-2 bulk
+    # displacement to search).
+    rc = prod.main(["--auto-search-displacement", "--leg", "free",
+                    "--endpoints", "cp4", "--seeds", "s7",
+                    "--directions", "dplus", "--out-root", str(tmp_path)])
+    assert rc == 2
+
+
+def test_auto_search_dry_run_registers_policy(prod, tmp_path, capsys):
+    # With the search ON the C11 pre-registration records the SINGLE displacement
+    # policy (anti-HARKing + Keeper-auditable) and the plan shows the mode.
+    rc = prod.main(["--twocopy", "--auto-search-displacement",
+                    "--accept-sep-nm", "1.5", "--leg", "bound",
+                    "--endpoints", "cp4", "--directions", "dplus",
+                    "--seeds", "s7", "--dry-run", "--out-root", str(tmp_path)])
+    assert rc == 0
+    out = capsys.readouterr().out
+    payload = json.loads(out[out.index("{"):])
+    ds = payload["config"]["displacement_search"]
+    assert ds["auto_search_displacement"] is True
+    assert ds["accept_sep_nm"] == 1.5
+    assert "identically" in ds["applies_to"]
+    assert payload["plan"]["displacement_mode"] == "auto_search"
+    assert payload["plan"]["accept_sep_nm"] == 1.5
+    # The on-disk pre_registration.json carries the same policy.
+    prereg = json.load(open(os.path.join(str(tmp_path), "pre_registration.json")))
+    assert (prereg["config"]["displacement_search"]["auto_search_displacement"]
+            is True)
+
+
+def test_default_off_registers_fixed_direction(prod, tmp_path, capsys):
+    # Default OFF => the prereg policy fields are None (byte-identical legacy
+    # fixed-direction semantics) and the plan shows fixed_direction.
+    rc = prod.main(["--twocopy", "--leg", "bound", "--endpoints", "cp4",
+                    "--directions", "dplus", "--seeds", "s7", "--dry-run",
+                    "--out-root", str(tmp_path)])
+    assert rc == 0
+    out = capsys.readouterr().out
+    payload = json.loads(out[out.index("{"):])
+    ds = payload["config"]["displacement_search"]
+    assert ds["auto_search_displacement"] is False
+    assert ds["accept_sep_nm"] is None
+    assert payload["plan"]["displacement_mode"] == "fixed_direction"
+    assert "accept_sep_nm" not in payload["plan"]
+
+
+# ---------------- git provenance stamping (run_manifest) -------------------
+def test_git_provenance_keys_and_types(prod):
+    # The helper must always return both keys with the right types, regardless
+    # of whether git resolves (this repo IS a git repo, so commit resolves).
+    prov = prod._git_provenance()
+    assert set(prov.keys()) == {"git_commit", "git_dirty"}
+    assert isinstance(prov["git_commit"], str)
+    assert isinstance(prov["git_dirty"], bool)
+    # In a real git checkout the commit is a 40-hex sha (or the 'unknown'
+    # sentinel if git is somehow unavailable) — never empty.
+    assert prov["git_commit"]
+    if prov["git_commit"] != "unknown":
+        assert len(prov["git_commit"]) == 40
+        assert all(c in "0123456789abcdef" for c in prov["git_commit"])
+
+
+def test_git_provenance_swallows_failures(prod, monkeypatch):
+    # A subprocess explosion must degrade to ('unknown', False) and NEVER raise
+    # — the manifest is metadata, it can never break a launch.
+    import subprocess as _sp
+
+    def _boom(*a, **k):
+        raise OSError("git not found")
+
+    monkeypatch.setattr(_sp, "check_output", _boom)
+    prov = prod._git_provenance()
+    assert prov == {"git_commit": "unknown", "git_dirty": False}
+
+
+# ---------------------------------------------------------------------------
+# FIX-A re-seeding (W4A bound-leg ladder mixing) — launcher flag plumbing.
+# DEFAULT OFF must be byte/behaviour-identical; the flags must thread all the way
+# to the InplaceRbfeLadder kwargs + be recorded to the run_manifest config.
+# ---------------------------------------------------------------------------
+def test_reseed_cli_flags_exist_with_off_defaults(prod):
+    p = prod.build_arg_parser()
+    ns = p.parse_args(["--leg", "bound"])
+    assert ns.reseed_perm_seed is None
+    assert ns.reseed_endpoint is False
+    assert ns.reseed_endpoint_band_lambda2_max == 0.25
+    assert ns.reseed_endpoint_equil_steps == 2000
+
+
+def test_reseed_cli_flags_parse_on(prod):
+    p = prod.build_arg_parser()
+    ns = p.parse_args([
+        "--leg", "bound", "--twocopy", "--mutation", "w4a_trp_ala_res4",
+        "--reseed-perm-seed", "20260618", "--reseed-endpoint",
+        "--reseed-endpoint-band-lambda2-max", "0.25",
+        "--reseed-endpoint-equil-steps", "2000"])
+    assert ns.reseed_perm_seed == 20260618
+    assert ns.reseed_endpoint is True
+    assert ns.reseed_endpoint_band_lambda2_max == 0.25
+    assert ns.reseed_endpoint_equil_steps == 2000
+
+
+def test_reseed_threads_through_run_signatures(prod):
+    """The re-seed opt-ins must thread through the whole call chain (run_leg ->
+    run_one_replicate -> run_one_direction) with the SAME default-OFF defaults, so
+    a default launch is byte-identical and an opt-in launch reaches the ladder."""
+    import inspect
+    for fn in (prod.run_leg, prod.run_one_replicate, prod.run_one_direction):
+        sig = inspect.signature(fn)
+        assert sig.parameters["reseed_perm_seed"].default is None
+        assert sig.parameters["reseed_endpoint"].default is False
+        assert sig.parameters["reseed_endpoint_band_lambda2_max"].default == 0.25
+        assert sig.parameters["reseed_endpoint_equil_steps"].default == 2000
+
+
+def test_reseed_off_config_records_defaults(prod, tmp_path):
+    """A default (no-reseed) dry-run records reseed OFF in the pre-registration
+    config (reproducibility provenance, default-OFF visible)."""
+    out_root = str(tmp_path / "off")
+    rc = prod.main(["--leg", "bound", "--twocopy", "--mutation",
+                    "w4a_trp_ala_res4", "--dry-run", "--out-root", out_root])
+    assert rc == 0
+    prereg = json.load(open(os.path.join(out_root, "pre_registration.json")))
+    cfg = prereg["config"]
+    assert cfg["reseed_perm_seed"] is None
+    assert cfg["reseed_endpoint"] is False
+
+
+def test_reseed_on_config_records_seed(prod, tmp_path):
+    """A --reseed-perm-seed / --reseed-endpoint dry-run records the LOGGED seed +
+    endpoint flag in the pre-registration config (reproducibility)."""
+    out_root = str(tmp_path / "on")
+    rc = prod.main(["--leg", "bound", "--twocopy", "--mutation",
+                    "w4a_trp_ala_res4", "--reseed-perm-seed", "20260618",
+                    "--reseed-endpoint", "--lambda1-rampdown",
+                    "0.05,0.1,0.2,0.3,0.4,0.5", "--dry-run",
+                    "--out-root", out_root])
+    assert rc == 0
+    prereg = json.load(open(os.path.join(out_root, "pre_registration.json")))
+    cfg = prereg["config"]
+    assert cfg["reseed_perm_seed"] == 20260618
+    assert cfg["reseed_endpoint"] is True
+
+
+def test_reseed_pool_cmd_propagates_flags(prod):
+    """The pool cmd builder must propagate the re-seed flags to worker subprocesses
+    when ON, and OMIT them when OFF (so default workers are byte-identical)."""
+    import inspect
+    src = inspect.getsource(prod.run_pool_local)
+    assert "--reseed-perm-seed" in src
+    assert "--reseed-endpoint" in src
+    assert "reseed_perm_seed" in src and "reseed_endpoint" in src
+
+
+# ---------------------------------------------------------------------------
+# FIX-C deep-λ2 decouple-tail densification: --lambda2-rampdown (engine kwarg
+# lambda2_rampup). Leg-UP λ2 axis, independent + composable with the leg-DOWN
+# --lambda1-rampdown. Two-copy ONLY (single_core has no soft-core leg-up).
+# ---------------------------------------------------------------------------
+def test_lambda2_rampdown_flag_in_parser(prod):
+    p = prod.build_arg_parser()
+    a = p.parse_args(["--twocopy",
+                      "--lambda2-rampdown", "0.0,0.05,0.1,0.15,0.2,0.3,0.4,0.5"])
+    assert a.lambda2_rampdown == "0.0,0.05,0.1,0.15,0.2,0.3,0.4,0.5"
+    # default OFF (canonical uniform leg-up, byte-identical).
+    b = p.parse_args(["--leg", "free"])
+    assert b.lambda2_rampdown is None
+
+
+def test_parse_lambda2_rampdown_floats(prod):
+    assert prod._parse_lambda2_rampdown(None) is None
+    assert prod._parse_lambda2_rampdown("") is None
+    assert prod._parse_lambda2_rampdown(
+        "0.0,0.05,0.1,0.15,0.2,0.3,0.4,0.5") == [
+            0.0, 0.05, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5]
+    with pytest.raises(ValueError):
+        prod._parse_lambda2_rampdown("0.0,abc,0.5")
+
+
+def test_lambda2_rampdown_threads_through_run_signatures(prod):
+    """lambda2_rampup must thread through the whole call chain (run_leg ->
+    run_one_replicate -> run_one_direction) with the SAME default-OFF default."""
+    import inspect
+    for fn in (prod.run_leg, prod.run_one_replicate, prod.run_one_direction):
+        sig = inspect.signature(fn)
+        assert sig.parameters["lambda2_rampup"].default is None
+    # the two schedule builders also accept it.
+    for fn in (prod._build_single_direction_schedule,
+               prod._build_combined_schedule):
+        sig = inspect.signature(fn)
+        assert sig.parameters["lambda2_rampup"].default is None
+
+
+def test_lambda2_rampdown_single_direction_densifies_legup(prod, rbfe):
+    """twocopy single-direction schedule densifies the leg-up deep-λ2 tail."""
+    tc = prod._build_single_direction_schedule(
+        rbfe, construction="twocopy", direction="forward",
+        n_windows_half=6, softcore_band=2, n_apex_bridge=0, apex_band=0.5,
+        lambda2_rampup=[0.0, 0.05, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5])
+    assert tc["schedule_kind"] == "ats_standard"
+    # 8 leg-up + 5 uniform leg-down = 13 states.
+    assert tc["n_states"] == 13
+    assert 0.05 in tc["lambdas_2"]
+    assert 0.15 in tc["lambdas_2"]
+    assert tc["u0"][0] == 110.0
+
+
+def test_lambda2_rampdown_combined_has_both_directions(prod, rbfe):
+    cs = prod._build_combined_schedule(
+        rbfe, construction="twocopy",
+        n_windows_half=6, softcore_band=2, n_apex_bridge=0, apex_band=0.5,
+        lambda2_rampup=[0.0, 0.05, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5])
+    # 13 forward (+1) + 13 backward (-1) = 26 states.
+    assert cs["n_states"] == 26
+    assert cs["directions"].count(1) == 13
+    assert cs["directions"].count(-1) == 13
+
+
+def test_lambda2_rampdown_composable_with_lambda1_rampdown(prod, rbfe):
+    """Both axes together: independent densification, single shared apex (14)."""
+    tc = prod._build_single_direction_schedule(
+        rbfe, construction="twocopy", direction="forward",
+        n_windows_half=6, softcore_band=2, n_apex_bridge=0, apex_band=0.5,
+        lambda2_rampup=[0.0, 0.05, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5],
+        lambda1_rampdown=[0.05, 0.1, 0.2, 0.3, 0.4, 0.5])
+    assert tc["n_states"] == 14
+    apex_hits = [k for k in range(tc["n_states"])
+                 if tc["lambdas_1"][k] == 0.0 and tc["lambdas_2"][k] == 0.5]
+    assert apex_hits == [7]  # exactly one shared apex
+
+
+def test_lambda2_rampdown_two_copy_only_rejected_for_single_core(prod, tmp_path):
+    """--lambda2-rampdown without --twocopy fails loud (single_core has no
+    soft-core leg-up); exit 2 (mirror of --mutation gate)."""
+    rc = prod.main(["--leg", "free", "--endpoints", "cp4", "--seeds", "s7",
+                    "--lambda2-rampdown", "0.0,0.05,0.1,0.15,0.2,0.3,0.4,0.5",
+                    "--dry-run", "--out-root", str(tmp_path)])
+    assert rc == 2
+
+
+def test_lambda2_rampdown_dry_run_surfaces_densified_schedule(prod, tmp_path,
+                                                              capsys):
+    rc = prod.main(["--twocopy", "--leg", "bound", "--mutation",
+                    "w4a_trp_ala_res4", "--endpoints", "cp4",
+                    "--directions", "dplus", "--seeds", "s7",
+                    "--lambda2-rampdown", "0.0,0.05,0.1,0.15,0.2,0.3,0.4,0.5",
+                    "--dry-run", "--out-root", str(tmp_path)])
+    assert rc == 0
+    out = capsys.readouterr().out
+    plan = json.loads(out[out.index("{"):])["plan"]
+    assert plan["construction"] == "twocopy"
+    assert plan["n_lambda_per_leg"] == 13
+    assert plan["lambda2_rampup"] == [0.0, 0.05, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5]
+    # the deep-λ2 bridges are present in the leg-up tail.
+    assert 0.05 in plan["lambdas_2"]
+    assert 0.15 in plan["lambdas_2"]
+
+
+def test_lambda2_rampdown_off_config_records_none(prod, tmp_path):
+    """A default (no-lambda2) dry-run records lambda2_rampup None in the
+    pre-registration config (provenance, default-OFF visible)."""
+    out_root = str(tmp_path / "off")
+    rc = prod.main(["--leg", "bound", "--twocopy", "--mutation",
+                    "w4a_trp_ala_res4", "--dry-run", "--out-root", out_root])
+    assert rc == 0
+    prereg = json.load(open(os.path.join(out_root, "pre_registration.json")))
+    assert prereg["config"]["lambda2_rampup"] is None
+
+
+def test_lambda2_rampdown_on_config_records_knots(prod, tmp_path):
+    out_root = str(tmp_path / "on")
+    rc = prod.main(["--leg", "bound", "--twocopy", "--mutation",
+                    "w4a_trp_ala_res4", "--lambda2-rampdown",
+                    "0.0,0.05,0.1,0.15,0.2,0.3,0.4,0.5", "--dry-run",
+                    "--out-root", out_root])
+    assert rc == 0
+    prereg = json.load(open(os.path.join(out_root, "pre_registration.json")))
+    assert prereg["config"]["lambda2_rampup"] == [
+        0.0, 0.05, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5]
+
+
+def test_lambda2_rampdown_pool_cmd_propagates_flag(prod):
+    """The pool cmd builder propagates --lambda2-rampdown to worker subprocesses
+    (re-emitted from the dispatcher's parsed knot list)."""
+    import inspect
+    src = inspect.getsource(prod.run_pool_local)
+    assert "--lambda2-rampdown" in src
+    assert "lambda2_rampup" in src
+
+
+# ---------------------------------------------------------------------------
+# G1 — two-copy displacement-policy gate (a bare --twocopy LAUNCH is blocked).
+# ---------------------------------------------------------------------------
+def test_g1_bare_twocopy_launch_fails_loud(prod, tmp_path):
+    # A real (non-dry-run) --twocopy launch with neither --auto-search-displacement
+    # nor --displacement-nm slides silently into the unsafe fixed-direction legacy
+    # default -> hard error (rc 2) BEFORE any build/launch.
+    rc = prod.main(["--twocopy", "--leg", "free", "--mutation",
+                    "v3i_val_ile_res3", "--endpoints", "cp4",
+                    "--directions", "dplus", "--seeds", "s7",
+                    "--out-root", str(tmp_path)])
+    assert rc == 2
+
+
+def test_g1_bare_twocopy_dry_run_still_ok(prod, tmp_path):
+    # --dry-run is the inspection mode: it returns BEFORE the launch gate, so a
+    # bare --twocopy dry-run still plans (rc 0) — this is where an operator would
+    # SEE they need a displacement flag. (Guards the existing dry-run tests.)
+    rc = prod.main(["--twocopy", "--leg", "free", "--endpoints", "cp4",
+                    "--directions", "dplus", "--seeds", "s7", "--dry-run",
+                    "--out-root", str(tmp_path)])
+    assert rc == 0
+
+
+def test_g1_twocopy_with_autosearch_passes_gate(prod, tmp_path):
+    # --auto-search-displacement satisfies G1; the gate is cleared and the run
+    # proceeds to the seed-availability gate (which fails here only because the
+    # nonexistent endpoint PDB is missing — NOT a G1 failure). Either way the bare
+    # -twocopy slide is blocked but an armed policy is not.
+    rc = prod.main(["--twocopy", "--auto-search-displacement",
+                    "--leg", "free", "--mutation", "v3i_val_ile_res3",
+                    "--endpoints", "cp4", "--directions", "dplus",
+                    "--seeds", "s_nonexistent_xyz",
+                    "--out-root", str(tmp_path)])
+    # Passes G1, then the seed-availability gate rejects the bogus seed (rc 2) —
+    # the point is it did NOT short-circuit at G1 with the displacement message.
+    assert rc == 2
+
+
+def test_g1_twocopy_with_displacement_nm_passes_gate(prod, tmp_path):
+    # An explicit --displacement-nm is the "I deliberately want fixed-direction"
+    # escape hatch; it satisfies G1 (then the bogus seed gate rejects).
+    rc = prod.main(["--twocopy", "--displacement-nm", "4.0",
+                    "--leg", "free", "--mutation", "v3i_val_ile_res3",
+                    "--endpoints", "cp4", "--directions", "dplus",
+                    "--seeds", "s_nonexistent_xyz",
+                    "--out-root", str(tmp_path)])
+    assert rc == 2
+
+
+def test_g1_single_core_unaffected(prod, tmp_path):
+    # The single-core (default) path has no copy-2 displacement; G1 never fires.
+    # A bogus seed still reaches (and fails at) the seed gate, proving G1 did not
+    # block the single-core path.
+    rc = prod.main(["--leg", "free", "--endpoints", "cp4",
+                    "--directions", "dplus", "--seeds", "s_nonexistent_xyz",
+                    "--out-root", str(tmp_path)])
+    assert rc == 2
+
+
+# ---------------------------------------------------------------------------
+# G2 — per-cell displacement policy record + in-invocation uniformity.
+# ---------------------------------------------------------------------------
+def test_g2_prereg_records_displacement_cells(prod, tmp_path):
+    rc = prod.main(["--twocopy", "--auto-search-displacement",
+                    "--accept-sep-nm", "1.5", "--leg", "bound",
+                    "--endpoints", "cp4,wt", "--directions", "dplus",
+                    "--seeds", "s7,s101", "--dry-run",
+                    "--out-root", str(tmp_path)])
+    assert rc == 0
+    prereg = json.load(open(os.path.join(str(tmp_path), "pre_registration.json")))
+    cells = prereg["config"]["displacement_search"]["per_cell"]
+    # 2 endpoints x 2 seeds = 4 cells, every one carrying the SAME armed policy.
+    assert len(cells) == 4
+    keys = {(c["endpoint"], c["seed"]) for c in cells}
+    assert keys == {("cp4", "s7"), ("cp4", "s101"),
+                    ("wt", "s7"), ("wt", "s101")}
+    for c in cells:
+        assert c["auto_search_displacement"] is True
+        assert c["accept_sep_nm"] == 1.5
+        assert c["leg"] == "bound"
+
+
+def test_g2_build_cells_uniform_by_construction(prod):
+    cells = prod._build_displacement_cells(
+        ["cp4", "wt"], ["s7", "s101", "s127"], "free",
+        auto_search_displacement=True, accept_sep_nm=1.5, displacement_nm=None)
+    assert len(cells) == 6
+    # Uniformity holds by construction -> the assert does not raise.
+    prod._assert_uniform_displacement_policy(cells)
+
+
+def test_g2_uniformity_assert_rejects_mixed_policy(prod):
+    mixed = [
+        {"endpoint": "cp4", "seed": "s7", "leg": "free",
+         "auto_search_displacement": True, "accept_sep_nm": 1.5,
+         "displacement_nm": None},
+        {"endpoint": "wt", "seed": "s7", "leg": "free",
+         "auto_search_displacement": False, "accept_sep_nm": None,
+         "displacement_nm": 4.0},
+    ]
+    with pytest.raises(ValueError, match="mixed displacement policy"):
+        prod._assert_uniform_displacement_policy(mixed)
+
+
+def test_g2_uniformity_assert_empty_is_noop(prod):
+    prod._assert_uniform_displacement_policy([])  # no raise
+
+
+# ---------------------------------------------------------------------------
+# G3 — out-root collision guard (rep-dir seed stamp).
+# ---------------------------------------------------------------------------
+def test_g3_existing_rep_seed_from_stamp(prod, tmp_path):
+    rep = str(tmp_path / "rep0")
+    os.makedirs(rep)
+    with open(prod._seed_stamp_path(rep, "s7"), "w") as fh:
+        fh.write("s7\n")
+    assert prod._existing_rep_seed(rep) == "s7"
+
+
+def test_g3_existing_rep_seed_from_manifest_fallback(prod, tmp_path):
+    rep = str(tmp_path / "rep0")
+    os.makedirs(rep)
+    with open(os.path.join(rep, "run_manifest.json"), "w") as fh:
+        json.dump({"seed": "s101"}, fh)
+    # No stamp present -> falls back to the manifest seed.
+    assert prod._existing_rep_seed(rep) == "s101"
+
+
+def test_g3_existing_rep_seed_none_when_empty(prod, tmp_path):
+    rep = str(tmp_path / "rep0")
+    os.makedirs(rep)
+    assert prod._existing_rep_seed(rep) is None
+    # A nonexistent dir is also None (first run).
+    assert prod._existing_rep_seed(str(tmp_path / "nope")) is None
+
+
+def test_g3_seed_stamp_path_sanitizes(prod, tmp_path):
+    rep = str(tmp_path / "rep0")
+    # A messy seed token must not escape the rep dir or break the filename.
+    p = prod._seed_stamp_path(rep, "s7/../evil")
+    assert os.path.dirname(p) == rep
+    assert os.path.basename(p).startswith(".seed_")
+    assert "/" not in os.path.basename(p)
+
+
+def test_g3_collision_detected_via_helper(prod, tmp_path):
+    # Simulate invocation A (s7) having stamped rep0, then invocation B (s101)
+    # mapping a DIFFERENT seed onto the same rep0 slot -> the helper reports the
+    # mismatch the run-time guard turns into a fail-loud RuntimeError.
+    rep = str(tmp_path / "cp4" / "free" / "rep0")
+    os.makedirs(rep)
+    with open(prod._seed_stamp_path(rep, "s7"), "w") as fh:
+        fh.write("s7\n")
+    existing = prod._existing_rep_seed(rep)
+    assert existing == "s7"
+    assert existing != "s101"   # the collision the guard blocks
+
+
+def test_g3_same_seed_resume_is_not_a_collision(prod, tmp_path):
+    rep = str(tmp_path / "cp4" / "free" / "rep0")
+    os.makedirs(rep)
+    with open(prod._seed_stamp_path(rep, "s7"), "w") as fh:
+        fh.write("s7\n")
+    # A resume with the SAME seed must read back the same stamp (no mismatch).
+    assert prod._existing_rep_seed(rep) == "s7"
+
+
+def test_g3_runtime_guard_raises_on_mismatch(prod, tmp_path):
+    # Drive the actual run_one_replicate collision branch: a pre-existing rep dir
+    # stamped with a DIFFERENT seed must raise BEFORE any build (no OpenMM needed
+    # — the guard is at the very top of the function).
+    out_root = str(tmp_path)
+    rep = prod._rep_dir(out_root, "cp4", "free", 0)
+    os.makedirs(rep)
+    with open(prod._seed_stamp_path(rep, "s7"), "w") as fh:
+        fh.write("s7\n")
+    with pytest.raises(RuntimeError, match="out-root collision"):
+        prod.run_one_replicate(
+            None, None, out_root=out_root, endpoint="cp4", leg="free",
+            replicate_index=0, seed="s101", directions=["dplus"],
+            n_windows_half=6, softcore_band=2, n_apex_bridge=0, apex_band=0.5,
+            n_cycles=1, md_steps_per_cycle=1, platform_name="Reference",
+            timestep_fs=1.0, minimize_iters=1, backward_equil_steps=0,
+            genuine_decouple_nm=1.2, mtr_ncaa_xml=None, binder_chain="B",
+            archive_existing=True)

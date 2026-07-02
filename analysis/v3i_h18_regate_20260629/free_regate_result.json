@@ -1,0 +1,962 @@
+{
+  "schema": "v3i_h18_free_regate_v1",
+  "date": "2026-06-29",
+  "leg": "free",
+  "out_root": "/home/san/UPDD_proj/outputs/_trackb/twocopy_v3i_free_n6",
+  "method": "nonparametric histogram overlap (hist_ovl reused verbatim from regate.py / apex_probe_gate_20260628/reprobe_gate.py); col9=pertE pooled by col0=state across all walker files (dminus state-flip NS-1-s); floor hist-OVL>=0.45; gauss-Bhatt reported context-only (overestimates left-skew); ADR-0014's old 0.10 free gate NOT used",
+  "data_caveat": "existing free run = lambda1_rampdown 12-state/400cyc (ADR-0014); ADR-0014 reported 11/11 >= 0.10 on the OLD weak gate. A PASS here means the free spacing already meets the H18 0.45 floor and the free leg can be REUSED paired with the new bound re-run. A FAIL means the free leg must ALSO be re-run (cheap, ~0.9h/seed) for a valid paired ddG_bind.",
+  "ovl_floor": 0.45,
+  "n_legs_total": 12,
+  "n_legs_pass_045": 0,
+  "verdict": "free_needs_rerun",
+  "per_leg": [
+    {
+      "seed": "s7",
+      "direction": "dplus",
+      "NS": 12,
+      "n_pairs": 11,
+      "min_hist_ovl": 0.355,
+      "worst_pair": "(5,6)",
+      "n_pairs_below_045": 1,
+      "pass_045": false,
+      "round_trips": 8,
+      "all_pairs": [
+        {
+          "pair": "(0,1)",
+          "hist_ovl": 0.4575,
+          "gauss_bhatt": 0.792,
+          "below_045": false
+        },
+        {
+          "pair": "(1,2)",
+          "hist_ovl": 0.585,
+          "gauss_bhatt": 0.9221,
+          "below_045": false
+        },
+        {
+          "pair": "(2,3)",
+          "hist_ovl": 0.76,
+          "gauss_bhatt": 0.9829,
+          "below_045": false
+        },
+        {
+          "pair": "(3,4)",
+          "hist_ovl": 0.81,
+          "gauss_bhatt": 0.9932,
+          "below_045": false
+        },
+        {
+          "pair": "(4,5)",
+          "hist_ovl": 0.8025,
+          "gauss_bhatt": 0.9998,
+          "below_045": false
+        },
+        {
+          "pair": "(5,6)",
+          "hist_ovl": 0.355,
+          "gauss_bhatt": 0.6632,
+          "below_045": true
+        },
+        {
+          "pair": "(6,7)",
+          "hist_ovl": 0.5625,
+          "gauss_bhatt": 0.8421,
+          "below_045": false
+        },
+        {
+          "pair": "(7,8)",
+          "hist_ovl": 0.575,
+          "gauss_bhatt": 0.8056,
+          "below_045": false
+        },
+        {
+          "pair": "(8,9)",
+          "hist_ovl": 0.6225,
+          "gauss_bhatt": 0.8759,
+          "below_045": false
+        },
+        {
+          "pair": "(9,10)",
+          "hist_ovl": 0.695,
+          "gauss_bhatt": 0.9349,
+          "below_045": false
+        },
+        {
+          "pair": "(10,11)",
+          "hist_ovl": 0.815,
+          "gauss_bhatt": 0.9628,
+          "below_045": false
+        }
+      ]
+    },
+    {
+      "seed": "s7",
+      "direction": "dminus",
+      "NS": 12,
+      "n_pairs": 11,
+      "min_hist_ovl": 0.185,
+      "worst_pair": "(0,1)",
+      "n_pairs_below_045": 2,
+      "pass_045": false,
+      "round_trips": 2,
+      "all_pairs": [
+        {
+          "pair": "(0,1)",
+          "hist_ovl": 0.185,
+          "gauss_bhatt": 0.4748,
+          "below_045": true
+        },
+        {
+          "pair": "(1,2)",
+          "hist_ovl": 0.6325,
+          "gauss_bhatt": 0.9383,
+          "below_045": false
+        },
+        {
+          "pair": "(2,3)",
+          "hist_ovl": 0.7325,
+          "gauss_bhatt": 0.9785,
+          "below_045": false
+        },
+        {
+          "pair": "(3,4)",
+          "hist_ovl": 0.8075,
+          "gauss_bhatt": 0.9989,
+          "below_045": false
+        },
+        {
+          "pair": "(4,5)",
+          "hist_ovl": 0.79,
+          "gauss_bhatt": 0.9967,
+          "below_045": false
+        },
+        {
+          "pair": "(5,6)",
+          "hist_ovl": 0.3525,
+          "gauss_bhatt": 0.6397,
+          "below_045": true
+        },
+        {
+          "pair": "(6,7)",
+          "hist_ovl": 0.625,
+          "gauss_bhatt": 0.8734,
+          "below_045": false
+        },
+        {
+          "pair": "(7,8)",
+          "hist_ovl": 0.545,
+          "gauss_bhatt": 0.765,
+          "below_045": false
+        },
+        {
+          "pair": "(8,9)",
+          "hist_ovl": 0.655,
+          "gauss_bhatt": 0.8902,
+          "below_045": false
+        },
+        {
+          "pair": "(9,10)",
+          "hist_ovl": 0.715,
+          "gauss_bhatt": 0.9508,
+          "below_045": false
+        },
+        {
+          "pair": "(10,11)",
+          "hist_ovl": 0.7275,
+          "gauss_bhatt": 0.9437,
+          "below_045": false
+        }
+      ]
+    },
+    {
+      "seed": "s101",
+      "direction": "dplus",
+      "NS": 12,
+      "n_pairs": 11,
+      "min_hist_ovl": 0.3625,
+      "worst_pair": "(5,6)",
+      "n_pairs_below_045": 2,
+      "pass_045": false,
+      "round_trips": 5,
+      "all_pairs": [
+        {
+          "pair": "(0,1)",
+          "hist_ovl": 0.4375,
+          "gauss_bhatt": 0.697,
+          "below_045": true
+        },
+        {
+          "pair": "(1,2)",
+          "hist_ovl": 0.57,
+          "gauss_bhatt": 0.9119,
+          "below_045": false
+        },
+        {
+          "pair": "(2,3)",
+          "hist_ovl": 0.79,
+          "gauss_bhatt": 0.9904,
+          "below_045": false
+        },
+        {
+          "pair": "(3,4)",
+          "hist_ovl": 0.8075,
+          "gauss_bhatt": 0.9932,
+          "below_045": false
+        },
+        {
+          "pair": "(4,5)",
+          "hist_ovl": 0.82,
+          "gauss_bhatt": 0.9973,
+          "below_045": false
+        },
+        {
+          "pair": "(5,6)",
+          "hist_ovl": 0.3625,
+          "gauss_bhatt": 0.6745,
+          "below_045": true
+        },
+        {
+          "pair": "(6,7)",
+          "hist_ovl": 0.6425,
+          "gauss_bhatt": 0.8421,
+          "below_045": false
+        },
+        {
+          "pair": "(7,8)",
+          "hist_ovl": 0.51,
+          "gauss_bhatt": 0.7701,
+          "below_045": false
+        },
+        {
+          "pair": "(8,9)",
+          "hist_ovl": 0.72,
+          "gauss_bhatt": 0.9113,
+          "below_045": false
+        },
+        {
+          "pair": "(9,10)",
+          "hist_ovl": 0.7,
+          "gauss_bhatt": 0.9484,
+          "below_045": false
+        },
+        {
+          "pair": "(10,11)",
+          "hist_ovl": 0.7025,
+          "gauss_bhatt": 0.9547,
+          "below_045": false
+        }
+      ]
+    },
+    {
+      "seed": "s101",
+      "direction": "dminus",
+      "NS": 12,
+      "n_pairs": 11,
+      "min_hist_ovl": 0.355,
+      "worst_pair": "(5,6)",
+      "n_pairs_below_045": 1,
+      "pass_045": false,
+      "round_trips": 9,
+      "all_pairs": [
+        {
+          "pair": "(0,1)",
+          "hist_ovl": 0.51,
+          "gauss_bhatt": 0.7315,
+          "below_045": false
+        },
+        {
+          "pair": "(1,2)",
+          "hist_ovl": 0.545,
+          "gauss_bhatt": 0.8905,
+          "below_045": false
+        },
+        {
+          "pair": "(2,3)",
+          "hist_ovl": 0.73,
+          "gauss_bhatt": 0.9784,
+          "below_045": false
+        },
+        {
+          "pair": "(3,4)",
+          "hist_ovl": 0.7975,
+          "gauss_bhatt": 0.9913,
+          "below_045": false
+        },
+        {
+          "pair": "(4,5)",
+          "hist_ovl": 0.7525,
+          "gauss_bhatt": 0.9972,
+          "below_045": false
+        },
+        {
+          "pair": "(5,6)",
+          "hist_ovl": 0.355,
+          "gauss_bhatt": 0.6659,
+          "below_045": true
+        },
+        {
+          "pair": "(6,7)",
+          "hist_ovl": 0.595,
+          "gauss_bhatt": 0.8275,
+          "below_045": false
+        },
+        {
+          "pair": "(7,8)",
+          "hist_ovl": 0.57,
+          "gauss_bhatt": 0.8214,
+          "below_045": false
+        },
+        {
+          "pair": "(8,9)",
+          "hist_ovl": 0.6575,
+          "gauss_bhatt": 0.8966,
+          "below_045": false
+        },
+        {
+          "pair": "(9,10)",
+          "hist_ovl": 0.6475,
+          "gauss_bhatt": 0.9064,
+          "below_045": false
+        },
+        {
+          "pair": "(10,11)",
+          "hist_ovl": 0.7675,
+          "gauss_bhatt": 0.9655,
+          "below_045": false
+        }
+      ]
+    },
+    {
+      "seed": "s127",
+      "direction": "dplus",
+      "NS": 12,
+      "n_pairs": 11,
+      "min_hist_ovl": 0.38,
+      "worst_pair": "(0,1)",
+      "n_pairs_below_045": 2,
+      "pass_045": false,
+      "round_trips": 6,
+      "all_pairs": [
+        {
+          "pair": "(0,1)",
+          "hist_ovl": 0.38,
+          "gauss_bhatt": 0.701,
+          "below_045": true
+        },
+        {
+          "pair": "(1,2)",
+          "hist_ovl": 0.6325,
+          "gauss_bhatt": 0.9302,
+          "below_045": false
+        },
+        {
+          "pair": "(2,3)",
+          "hist_ovl": 0.79,
+          "gauss_bhatt": 0.9857,
+          "below_045": false
+        },
+        {
+          "pair": "(3,4)",
+          "hist_ovl": 0.8225,
+          "gauss_bhatt": 0.9953,
+          "below_045": false
+        },
+        {
+          "pair": "(4,5)",
+          "hist_ovl": 0.83,
+          "gauss_bhatt": 0.9999,
+          "below_045": false
+        },
+        {
+          "pair": "(5,6)",
+          "hist_ovl": 0.4025,
+          "gauss_bhatt": 0.7569,
+          "below_045": true
+        },
+        {
+          "pair": "(6,7)",
+          "hist_ovl": 0.6325,
+          "gauss_bhatt": 0.9366,
+          "below_045": false
+        },
+        {
+          "pair": "(7,8)",
+          "hist_ovl": 0.5975,
+          "gauss_bhatt": 0.9475,
+          "below_045": false
+        },
+        {
+          "pair": "(8,9)",
+          "hist_ovl": 0.715,
+          "gauss_bhatt": 0.9526,
+          "below_045": false
+        },
+        {
+          "pair": "(9,10)",
+          "hist_ovl": 0.77,
+          "gauss_bhatt": 0.8928,
+          "below_045": false
+        },
+        {
+          "pair": "(10,11)",
+          "hist_ovl": 0.76,
+          "gauss_bhatt": 0.939,
+          "below_045": false
+        }
+      ]
+    },
+    {
+      "seed": "s127",
+      "direction": "dminus",
+      "NS": 12,
+      "n_pairs": 11,
+      "min_hist_ovl": 0.42,
+      "worst_pair": "(5,6)",
+      "n_pairs_below_045": 1,
+      "pass_045": false,
+      "round_trips": 4,
+      "all_pairs": [
+        {
+          "pair": "(0,1)",
+          "hist_ovl": 0.5925,
+          "gauss_bhatt": 0.756,
+          "below_045": false
+        },
+        {
+          "pair": "(1,2)",
+          "hist_ovl": 0.49,
+          "gauss_bhatt": 0.8462,
+          "below_045": false
+        },
+        {
+          "pair": "(2,3)",
+          "hist_ovl": 0.7225,
+          "gauss_bhatt": 0.969,
+          "below_045": false
+        },
+        {
+          "pair": "(3,4)",
+          "hist_ovl": 0.7775,
+          "gauss_bhatt": 0.9942,
+          "below_045": false
+        },
+        {
+          "pair": "(4,5)",
+          "hist_ovl": 0.81,
+          "gauss_bhatt": 0.9971,
+          "below_045": false
+        },
+        {
+          "pair": "(5,6)",
+          "hist_ovl": 0.42,
+          "gauss_bhatt": 0.729,
+          "below_045": true
+        },
+        {
+          "pair": "(6,7)",
+          "hist_ovl": 0.6375,
+          "gauss_bhatt": 0.8342,
+          "below_045": false
+        },
+        {
+          "pair": "(7,8)",
+          "hist_ovl": 0.62,
+          "gauss_bhatt": 0.8193,
+          "below_045": false
+        },
+        {
+          "pair": "(8,9)",
+          "hist_ovl": 0.69,
+          "gauss_bhatt": 0.9339,
+          "below_045": false
+        },
+        {
+          "pair": "(9,10)",
+          "hist_ovl": 0.7025,
+          "gauss_bhatt": 0.9399,
+          "below_045": false
+        },
+        {
+          "pair": "(10,11)",
+          "hist_ovl": 0.795,
+          "gauss_bhatt": 0.9746,
+          "below_045": false
+        }
+      ]
+    },
+    {
+      "seed": "s23",
+      "direction": "dplus",
+      "NS": 12,
+      "n_pairs": 11,
+      "min_hist_ovl": 0.445,
+      "worst_pair": "(5,6)",
+      "n_pairs_below_045": 1,
+      "pass_045": false,
+      "round_trips": 1,
+      "all_pairs": [
+        {
+          "pair": "(0,1)",
+          "hist_ovl": 0.5875,
+          "gauss_bhatt": 0.5,
+          "below_045": false
+        },
+        {
+          "pair": "(1,2)",
+          "hist_ovl": 0.4825,
+          "gauss_bhatt": 0.8458,
+          "below_045": false
+        },
+        {
+          "pair": "(2,3)",
+          "hist_ovl": 0.6725,
+          "gauss_bhatt": 0.9129,
+          "below_045": false
+        },
+        {
+          "pair": "(3,4)",
+          "hist_ovl": 0.82,
+          "gauss_bhatt": 0.9936,
+          "below_045": false
+        },
+        {
+          "pair": "(4,5)",
+          "hist_ovl": 0.7925,
+          "gauss_bhatt": 0.9986,
+          "below_045": false
+        },
+        {
+          "pair": "(5,6)",
+          "hist_ovl": 0.445,
+          "gauss_bhatt": 0.8107,
+          "below_045": true
+        },
+        {
+          "pair": "(6,7)",
+          "hist_ovl": 0.62,
+          "gauss_bhatt": 0.9498,
+          "below_045": false
+        },
+        {
+          "pair": "(7,8)",
+          "hist_ovl": 0.6125,
+          "gauss_bhatt": 0.9472,
+          "below_045": false
+        },
+        {
+          "pair": "(8,9)",
+          "hist_ovl": 0.7275,
+          "gauss_bhatt": 0.9513,
+          "below_045": false
+        },
+        {
+          "pair": "(9,10)",
+          "hist_ovl": 0.785,
+          "gauss_bhatt": 0.9215,
+          "below_045": false
+        },
+        {
+          "pair": "(10,11)",
+          "hist_ovl": 0.8175,
+          "gauss_bhatt": 0.9795,
+          "below_045": false
+        }
+      ]
+    },
+    {
+      "seed": "s23",
+      "direction": "dminus",
+      "NS": 12,
+      "n_pairs": 11,
+      "min_hist_ovl": 0.445,
+      "worst_pair": "(5,6)",
+      "n_pairs_below_045": 1,
+      "pass_045": false,
+      "round_trips": 2,
+      "all_pairs": [
+        {
+          "pair": "(0,1)",
+          "hist_ovl": 0.4525,
+          "gauss_bhatt": 0.5887,
+          "below_045": false
+        },
+        {
+          "pair": "(1,2)",
+          "hist_ovl": 0.4825,
+          "gauss_bhatt": 0.8413,
+          "below_045": false
+        },
+        {
+          "pair": "(2,3)",
+          "hist_ovl": 0.7625,
+          "gauss_bhatt": 0.9926,
+          "below_045": false
+        },
+        {
+          "pair": "(3,4)",
+          "hist_ovl": 0.795,
+          "gauss_bhatt": 0.9974,
+          "below_045": false
+        },
+        {
+          "pair": "(4,5)",
+          "hist_ovl": 0.8275,
+          "gauss_bhatt": 0.9996,
+          "below_045": false
+        },
+        {
+          "pair": "(5,6)",
+          "hist_ovl": 0.445,
+          "gauss_bhatt": 0.7527,
+          "below_045": true
+        },
+        {
+          "pair": "(6,7)",
+          "hist_ovl": 0.5975,
+          "gauss_bhatt": 0.9219,
+          "below_045": false
+        },
+        {
+          "pair": "(7,8)",
+          "hist_ovl": 0.5825,
+          "gauss_bhatt": 0.9541,
+          "below_045": false
+        },
+        {
+          "pair": "(8,9)",
+          "hist_ovl": 0.6975,
+          "gauss_bhatt": 0.978,
+          "below_045": false
+        },
+        {
+          "pair": "(9,10)",
+          "hist_ovl": 0.8375,
+          "gauss_bhatt": 0.984,
+          "below_045": false
+        },
+        {
+          "pair": "(10,11)",
+          "hist_ovl": 0.79,
+          "gauss_bhatt": 0.9854,
+          "below_045": false
+        }
+      ]
+    },
+    {
+      "seed": "s163",
+      "direction": "dplus",
+      "NS": 12,
+      "n_pairs": 11,
+      "min_hist_ovl": 0.3525,
+      "worst_pair": "(0,1)",
+      "n_pairs_below_045": 2,
+      "pass_045": false,
+      "round_trips": 7,
+      "all_pairs": [
+        {
+          "pair": "(0,1)",
+          "hist_ovl": 0.3525,
+          "gauss_bhatt": 0.6505,
+          "below_045": true
+        },
+        {
+          "pair": "(1,2)",
+          "hist_ovl": 0.6225,
+          "gauss_bhatt": 0.9276,
+          "below_045": false
+        },
+        {
+          "pair": "(2,3)",
+          "hist_ovl": 0.785,
+          "gauss_bhatt": 0.9831,
+          "below_045": false
+        },
+        {
+          "pair": "(3,4)",
+          "hist_ovl": 0.8175,
+          "gauss_bhatt": 0.9995,
+          "below_045": false
+        },
+        {
+          "pair": "(4,5)",
+          "hist_ovl": 0.7625,
+          "gauss_bhatt": 0.9943,
+          "below_045": false
+        },
+        {
+          "pair": "(5,6)",
+          "hist_ovl": 0.4225,
+          "gauss_bhatt": 0.743,
+          "below_045": true
+        },
+        {
+          "pair": "(6,7)",
+          "hist_ovl": 0.6375,
+          "gauss_bhatt": 0.8551,
+          "below_045": false
+        },
+        {
+          "pair": "(7,8)",
+          "hist_ovl": 0.56,
+          "gauss_bhatt": 0.7744,
+          "below_045": false
+        },
+        {
+          "pair": "(8,9)",
+          "hist_ovl": 0.635,
+          "gauss_bhatt": 0.8919,
+          "below_045": false
+        },
+        {
+          "pair": "(9,10)",
+          "hist_ovl": 0.745,
+          "gauss_bhatt": 0.9597,
+          "below_045": false
+        },
+        {
+          "pair": "(10,11)",
+          "hist_ovl": 0.7075,
+          "gauss_bhatt": 0.9473,
+          "below_045": false
+        }
+      ]
+    },
+    {
+      "seed": "s163",
+      "direction": "dminus",
+      "NS": 12,
+      "n_pairs": 11,
+      "min_hist_ovl": 0.2475,
+      "worst_pair": "(0,1)",
+      "n_pairs_below_045": 2,
+      "pass_045": false,
+      "round_trips": 6,
+      "all_pairs": [
+        {
+          "pair": "(0,1)",
+          "hist_ovl": 0.2475,
+          "gauss_bhatt": 0.5566,
+          "below_045": true
+        },
+        {
+          "pair": "(1,2)",
+          "hist_ovl": 0.675,
+          "gauss_bhatt": 0.93,
+          "below_045": false
+        },
+        {
+          "pair": "(2,3)",
+          "hist_ovl": 0.7725,
+          "gauss_bhatt": 0.9867,
+          "below_045": false
+        },
+        {
+          "pair": "(3,4)",
+          "hist_ovl": 0.7825,
+          "gauss_bhatt": 0.9977,
+          "below_045": false
+        },
+        {
+          "pair": "(4,5)",
+          "hist_ovl": 0.785,
+          "gauss_bhatt": 0.9989,
+          "below_045": false
+        },
+        {
+          "pair": "(5,6)",
+          "hist_ovl": 0.38,
+          "gauss_bhatt": 0.6904,
+          "below_045": true
+        },
+        {
+          "pair": "(6,7)",
+          "hist_ovl": 0.5675,
+          "gauss_bhatt": 0.8139,
+          "below_045": false
+        },
+        {
+          "pair": "(7,8)",
+          "hist_ovl": 0.54,
+          "gauss_bhatt": 0.8157,
+          "below_045": false
+        },
+        {
+          "pair": "(8,9)",
+          "hist_ovl": 0.6875,
+          "gauss_bhatt": 0.9228,
+          "below_045": false
+        },
+        {
+          "pair": "(9,10)",
+          "hist_ovl": 0.7625,
+          "gauss_bhatt": 0.9604,
+          "below_045": false
+        },
+        {
+          "pair": "(10,11)",
+          "hist_ovl": 0.6675,
+          "gauss_bhatt": 0.9268,
+          "below_045": false
+        }
+      ]
+    },
+    {
+      "seed": "s199",
+      "direction": "dplus",
+      "NS": 12,
+      "n_pairs": 11,
+      "min_hist_ovl": 0.265,
+      "worst_pair": "(1,2)",
+      "n_pairs_below_045": 2,
+      "pass_045": false,
+      "round_trips": 1,
+      "all_pairs": [
+        {
+          "pair": "(0,1)",
+          "hist_ovl": 0.5275,
+          "gauss_bhatt": 0.6651,
+          "below_045": false
+        },
+        {
+          "pair": "(1,2)",
+          "hist_ovl": 0.265,
+          "gauss_bhatt": 0.682,
+          "below_045": true
+        },
+        {
+          "pair": "(2,3)",
+          "hist_ovl": 0.7375,
+          "gauss_bhatt": 0.97,
+          "below_045": false
+        },
+        {
+          "pair": "(3,4)",
+          "hist_ovl": 0.7925,
+          "gauss_bhatt": 0.9942,
+          "below_045": false
+        },
+        {
+          "pair": "(4,5)",
+          "hist_ovl": 0.7975,
+          "gauss_bhatt": 0.9996,
+          "below_045": false
+        },
+        {
+          "pair": "(5,6)",
+          "hist_ovl": 0.38,
+          "gauss_bhatt": 0.6771,
+          "below_045": true
+        },
+        {
+          "pair": "(6,7)",
+          "hist_ovl": 0.6375,
+          "gauss_bhatt": 0.8593,
+          "below_045": false
+        },
+        {
+          "pair": "(7,8)",
+          "hist_ovl": 0.6175,
+          "gauss_bhatt": 0.8236,
+          "below_045": false
+        },
+        {
+          "pair": "(8,9)",
+          "hist_ovl": 0.6775,
+          "gauss_bhatt": 0.8971,
+          "below_045": false
+        },
+        {
+          "pair": "(9,10)",
+          "hist_ovl": 0.7375,
+          "gauss_bhatt": 0.9511,
+          "below_045": false
+        },
+        {
+          "pair": "(10,11)",
+          "hist_ovl": 0.7575,
+          "gauss_bhatt": 0.9649,
+          "below_045": false
+        }
+      ]
+    },
+    {
+      "seed": "s199",
+      "direction": "dminus",
+      "NS": 12,
+      "n_pairs": 11,
+      "min_hist_ovl": 0.385,
+      "worst_pair": "(5,6)",
+      "n_pairs_below_045": 1,
+      "pass_045": false,
+      "round_trips": 1,
+      "all_pairs": [
+        {
+          "pair": "(0,1)",
+          "hist_ovl": 0.5825,
+          "gauss_bhatt": 0.6966,
+          "below_045": false
+        },
+        {
+          "pair": "(1,2)",
+          "hist_ovl": 0.55,
+          "gauss_bhatt": 0.8767,
+          "below_045": false
+        },
+        {
+          "pair": "(2,3)",
+          "hist_ovl": 0.595,
+          "gauss_bhatt": 0.8923,
+          "below_045": false
+        },
+        {
+          "pair": "(3,4)",
+          "hist_ovl": 0.835,
+          "gauss_bhatt": 0.9949,
+          "below_045": false
+        },
+        {
+          "pair": "(4,5)",
+          "hist_ovl": 0.815,
+          "gauss_bhatt": 0.9988,
+          "below_045": false
+        },
+        {
+          "pair": "(5,6)",
+          "hist_ovl": 0.385,
+          "gauss_bhatt": 0.6677,
+          "below_045": true
+        },
+        {
+          "pair": "(6,7)",
+          "hist_ovl": 0.56,
+          "gauss_bhatt": 0.7969,
+          "below_045": false
+        },
+        {
+          "pair": "(7,8)",
+          "hist_ovl": 0.58,
+          "gauss_bhatt": 0.8371,
+          "below_045": false
+        },
+        {
+          "pair": "(8,9)",
+          "hist_ovl": 0.715,
+          "gauss_bhatt": 0.9055,
+          "below_045": false
+        },
+        {
+          "pair": "(9,10)",
+          "hist_ovl": 0.7775,
+          "gauss_bhatt": 0.9674,
+          "below_045": false
+        },
+        {
+          "pair": "(10,11)",
+          "hist_ovl": 0.7175,
+          "gauss_bhatt": 0.9536,
+          "below_045": false
+        }
+      ]
+    }
+  ]
+}

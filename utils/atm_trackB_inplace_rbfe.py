@@ -57,6 +57,7 @@ from __future__ import annotations
 import gc
 import math
 import os
+import random as _random
 import sys
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -98,6 +99,19 @@ RBFE_UMAX_KCAL = ats.ATS_UMAX_KCAL      # 200.0  (global, fixed)
 RBFE_UBCORE_KCAL = ats.ATS_UBCORE_KCAL  # 100.0  (global, fixed)
 RBFE_ACORE = ats.ATS_ACORE              # 0.0625 (global, fixed)
 RBFE_TEMP_K = 300.0
+
+# Staged-minimization (OPT-IN, W4A large-box stability). The W4A 9-heavy fused-
+# indole two-copy box (~292k atoms) under-minimizes at the standard small budget:
+# a fresh PME water shell carries close contacts a few-hundred-iter minimize cannot
+# relieve, so the first integration step detonates (cycle-0 NaN). The validated fix
+# (W4A/w4a_bound_smoke.py) is a STAGED relax: minimize FIRST at the reference state
+# (soft-core OFF) with the project production-floor iteration budget, then a short
+# polish at the assigned state, then a brief MD warmup. These constants are the
+# staged-path FLOOR + warmup length; they are used ONLY when staged_min=True (the
+# default-off path never references them), so the non-staged minimize budget is
+# untouched. P1 (2026-04-22 cycle-0 NaN incident): 5000-iter minimum.
+STAGED_MIN_ITERS_FLOOR = 5000
+STAGED_WARMUP_STEPS = 200
 
 # Canonical ATS two-copy U0 (Uh) knee. The two-copy box's swap is a REAL
 # coordinate transfer (copy-2 displaced into bulk -> swapped to the site), so its
@@ -401,6 +415,7 @@ def build_ats_standard_ladder(
     w0_apex_kcal: float = 0.0,
     *,
     lambda1_rampdown: Optional[List[float]] = None,
+    lambda2_rampup: Optional[List[float]] = None,
 ) -> Dict[str, Any]:
     """Build the CANONICAL single-direction ATS λ-schedule (spec C).
 
@@ -447,6 +462,29 @@ def build_ats_standard_ladder(
     inserts a λ1=0.05 bridge window right after the leg-switch apex (12 states for
     ``n_windows_half=6``).
 
+    ``lambda2_rampup`` (keyword-only, default ``None``) is the analogous lever on
+    the OTHER axis: it densifies the leg-up (λ1=0, λ2 climbing) soft-core phase at
+    the deep-λ2 decouple tail WITHOUT touching the soft-core canon (C7) or the
+    leg-down λ1 ramp. ``None`` keeps the legacy uniform λ2 ramp
+    (``round(0.5*i/(n-1))`` over the n leg-up states) — so
+    ``n_windows_half=6, lambda2_rampup=None`` is byte-identical to the historical
+    11-state schedule. When provided it is the EXPLICIT list of leg-up λ2 knots:
+    unlike λ1 (whose decoupled λ1=0 endpoint is placed by the leg-up phase), the
+    leg-up phase OWNS the genuine decoupled endpoint (λ2=λ1=0), so this list MUST
+    start at exactly 0.0 and MUST end at exactly 0.5 (the apex λ2=0.5 where the
+    leg-down begins). Every value must be in [0, 0.5] and strictly increasing. The
+    leg-up then has ``len(lambda2_rampup)`` states. This is the same interior-λ
+    reshaping (ΔG-unbiased; ranking-only, R-11) applied to the leg-up tail — the
+    overlap lever for the deep-λ2 decouple bonds (λ2 0.2↔0.1↔0.0) that the
+    leg-down ``lambda1_rampdown`` cannot reach. Example:
+    ``[0.0,0.05,0.1,0.15,0.2,0.3,0.4,0.5]`` inserts a λ2=0.05 bridge between
+    0/0.1 and a λ2=0.15 bridge between 0.1/0.2 (8 leg-up states for
+    ``n_windows_half=6``). ``lambda1_rampdown`` (leg-down) and ``lambda2_rampup``
+    (leg-up) are INDEPENDENT, composable axes — when both are given, the leg-up
+    has ``len(lambda2_rampup)`` states and the leg-down ``len(lambda1_rampdown)``
+    states, sharing the single λ1=0/λ2=0.5 apex (placed once, by the leg-up), so
+    total = ``len(lambda2_rampup) + len(lambda1_rampdown)``.
+
     ``u0_kcal`` (Uh) defaults to the ATS canon 110 kcal/mol (the two-copy swap is
     a real ABFE-band transfer, NOT the tens-of-kcal single-shared-core null op).
     ``alpha`` = 0.10, ``w0_apex_kcal`` = 0.0 (the symmetric two-copy ΔG-unbiased
@@ -470,13 +508,54 @@ def build_ats_standard_ladder(
     lam1: List[float] = []
     lam2: List[float] = []
     inter: List[int] = []
-    # Phase 1 ("leg up"): λ1 = 0, λ2 climbs 0 -> 0.5 over n states.
-    for i in range(n):
-        l2 = round(0.5 * i / (n - 1), 6)
-        lam1.append(0.0)
-        lam2.append(l2)
-        # λ2 != λ1 (except the i=0 endpoint) -> the soft-core alchemical region.
-        inter.append(0 if i == 0 else 1)
+    # Phase 1 ("leg up"): λ1 = 0, λ2 climbs 0 -> 0.5.
+    if lambda2_rampup is None:
+        # Legacy uniform ramp: λ2 = 0 -> 0.5 over n states. This branch is
+        # byte-identical to the historical 11-state schedule for n=6.
+        for i in range(n):
+            l2 = round(0.5 * i / (n - 1), 6)
+            lam1.append(0.0)
+            lam2.append(l2)
+            # λ2 != λ1 (except the i=0 endpoint) -> the soft-core alchemical region.
+            inter.append(0 if i == 0 else 1)
+    else:
+        # Explicit leg-up λ2 knots (densify the deep-λ2 decouple tail). The leg-up
+        # phase OWNS the genuine decoupled endpoint (λ2=λ1=0), so the knots MUST
+        # start at 0.0; the last must be 0.5 (the apex λ1=0/λ2=0.5 where the
+        # leg-down begins).
+        knots2 = [float(x) for x in lambda2_rampup]
+        if len(knots2) < 2:
+            raise ValueError(
+                "build_ats_standard_ladder: lambda2_rampup must have at least "
+                "two knots (the λ2=0.0 decoupled endpoint and the λ2=0.5 apex), "
+                "got %r" % (knots2,))
+        for x in knots2:
+            if not (0.0 <= x <= 0.5):
+                raise ValueError(
+                    "build_ats_standard_ladder: lambda2_rampup values must be "
+                    "in [0, 0.5] (the leg-up climbs λ2 from the decoupled "
+                    "endpoint 0.0 to the apex 0.5), got %r" % (x,))
+        if knots2[0] != 0.0:
+            raise ValueError(
+                "build_ats_standard_ladder: lambda2_rampup must start at exactly "
+                "0.0 (the genuine decoupled λ2=λ1=0 endpoint is placed by the "
+                "leg-up phase), got %r" % (knots2[0],))
+        if knots2[-1] != 0.5:
+            raise ValueError(
+                "build_ats_standard_ladder: lambda2_rampup must end at exactly "
+                "0.5 (the apex λ1=0/λ2=0.5 where the leg-down begins), got %r"
+                % (knots2[-1],))
+        for a, b in zip(knots2, knots2[1:]):
+            if not (b > a):
+                raise ValueError(
+                    "build_ats_standard_ladder: lambda2_rampup must be strictly "
+                    "increasing, got %r" % (knots2,))
+        for i, x in enumerate(knots2):
+            l2 = round(x, 6)
+            lam1.append(0.0)
+            lam2.append(l2)
+            # λ2 != λ1 (except the i=0 endpoint) -> the soft-core alchemical region.
+            inter.append(0 if i == 0 else 1)
     # Phase 2 ("leg down"): λ2 = 0.5, λ1 climbs to 0.5.
     if lambda1_rampdown is None:
         # Legacy uniform ramp: λ1 = 0.1 -> 0.5 over the next n-1 states (skip i=0,
@@ -520,8 +599,13 @@ def build_ats_standard_ladder(
             # λ1 != λ2 until the final λ1=λ2=0.5 state (the symmetric apex endpoint).
             inter.append(0 if l1 == 0.5 else 1)
 
-    # total == 2*n - 1 for the legacy uniform leg-down; with an explicit
-    # lambda1_rampdown it is n (leg-up) + len(lambda1_rampdown) (leg-down).
+    # Leg-up window count = n for the legacy uniform λ2 ramp; with an explicit
+    # lambda2_rampup it is len(lambda2_rampup). The leg-down count is independent
+    # (n-1 legacy or len(lambda1_rampdown)).
+    n_legup = n if lambda2_rampup is None else len(lambda2_rampup)
+    # total == 2*n - 1 for the all-legacy schedule; with explicit knot lists it is
+    # n_legup (leg-up) + n_legdown (leg-down), sharing the single apex placed by
+    # the leg-up phase (no double-count).
     total = len(lam1)
     w0 = [w0_apex_kcal] * total
     alpha_arr = [alpha] * total
@@ -555,18 +639,20 @@ def build_ats_standard_ladder(
         "acore": RBFE_ACORE,
         "n_states": total,
         "n_windows_half": total,
-        "n_windows_half_linear": n,
-        "softcore_band": n,           # the whole leg-up phase is soft-core
+        "n_windows_half_linear": n_legup,
+        "softcore_band": n_legup,     # the whole leg-up phase is soft-core
         "n_apex_bridge": 0,
         "apex_band": 1.0,
         "single_direction": single_direction,
         "schedule_kind": "ats_standard",
         "lambda1_rampdown": (list(lambda1_rampdown)
                              if lambda1_rampdown is not None else None),
+        "lambda2_rampup": (list(lambda2_rampup)
+                           if lambda2_rampup is not None else None),
         "temperature_K": RBFE_TEMP_K,
         "schedule_name": (
             "ats_standard_%s_%dw" % (single_direction, total)
-            if lambda1_rampdown is None
+            if (lambda1_rampdown is None and lambda2_rampup is None)
             else "ats_standard_%s_%dw_bridge%d"
                  % (single_direction, total, total)),
         "regime": "ranking_only",
@@ -648,6 +734,9 @@ def _serialize_twocopy_system(
     displacement_nm: float,
     mtr_ncaa_xml: Optional[str],
     constraints: Any,
+    mutation_spec: Optional[Any] = None,
+    auto_search_displacement: bool = False,
+    accept_sep_nm: float = ats.ATS_TWOCOPY_ACCEPT_SEP_NM,
 ) -> Dict[str, Any]:
     """Build + serialize the CANONICAL ATS TWO-COPY box for one leg.
 
@@ -669,7 +758,9 @@ def _serialize_twocopy_system(
         leg=leg, seed=seed, binder_chain=binder_chain, solvate=solvate,
         harmonize_common_charges=harmonize_common_charges,
         displacement_nm=displacement_nm, mtr_ncaa_xml=mtr_ncaa_xml,
-        constraints=constraints,
+        constraints=constraints, spec=mutation_spec,
+        auto_search_displacement=auto_search_displacement,
+        accept_sep_nm=accept_sep_nm,
     )
     if build.get("outcome") != "twocopy_attached":
         raise RuntimeError(
@@ -714,6 +805,11 @@ def _serialize_twocopy_system(
         "solvated": solvate,
         "swap_mode": "twocopy",
         "displacement_vector_nm": [float(c) for c in dvec] if dvec else None,
+        # task #100/#6: how d was chosen (fixed_direction vs auto_search) + the
+        # per-build search trail (selected dir/magnitude/min-image sep) so the
+        # run_manifest records it for the Keeper audit + Path decoupling check.
+        "displacement_mode": build.get("displacement_mode"),
+        "displacement_log": build.get("displacement_log"),
         "common_charges_harmonized": build.get("common_charges_harmonized"),
         "mtr_ncaa_xml": build.get("mtr_ncaa_xml"),
         # C8 SIGN-critical: for the two-copy box the decouple direction is the
@@ -752,6 +848,9 @@ def serialize_inplace_rbfe_system(
     tag: Optional[str] = None,
     construction: str = "single_core",
     displacement_nm: float = ats.ATS_TWOCOPY_DISPLACEMENT_NM,
+    mutation_spec: Optional[Any] = None,
+    auto_search_displacement: bool = False,
+    accept_sep_nm: float = ats.ATS_TWOCOPY_ACCEPT_SEP_NM,
 ) -> Dict[str, Any]:
     """Build + serialize the in-place fused RBFE System for one leg.
 
@@ -777,6 +876,17 @@ def serialize_inplace_rbfe_system(
         exclusions). The swap is a REAL coordinate transfer (one-frame |u1-u0|
         finite + non-saturated, ~few kcal/mol, validated). This is the path that
         can yield a converged ΔΔG (pilot needed to confirm; R-18).
+
+    ``auto_search_displacement`` (two-copy ONLY, default False -> byte-identical
+    fixed-direction legacy path): when True the copy-2 bulk displacement is chosen
+    by the builder's direction-aware cone search (maximises the copy1<->copy2 +
+    periodic-image min heavy-atom distance, escalates the magnitude only if no
+    direction clears ``accept_sep_nm``). This recovers the bound-leg box build
+    where a fixed-direction d drives copy-2's binder through copy-1's receptor
+    body. d-/direction-NEUTRAL (the swap is partner-offset based; u1-u0 is
+    d-invariant given full decoupling), so ranking-safe. ``accept_sep_nm`` is
+    consulted only by the auto-search; the post-solvate C6 separation assert
+    always enforces the 1.0 nm clash floor + the periodic-image gate.
 
     ``constraints=None`` (the DEFAULT here) matches the Tier-2 R3 requirement
     that the appearing/disappearing alch H carry NO SHAKE (a 1 fs unconstrained
@@ -813,9 +923,28 @@ def serialize_inplace_rbfe_system(
             binder_chain=binder_chain, solvate=solvate,
             harmonize_common_charges=harmonize_common_charges,
             displacement_nm=displacement_nm, mtr_ncaa_xml=mtr_ncaa_xml,
-            constraints=constraints)
+            constraints=constraints, mutation_spec=mutation_spec,
+            auto_search_displacement=auto_search_displacement,
+            accept_sep_nm=accept_sep_nm)
 
     # --- SINGLE-CORE (legacy default; byte-identical) ---------------------
+    # mutation_spec is two-copy-only (single-core is the MTR<->Trp single-shared-
+    # core path); a non-None spec on single_core is a wiring error, not silently
+    # ignored.
+    if mutation_spec is not None:
+        raise ValueError(
+            "serialize_inplace_rbfe_system: mutation_spec is only supported with "
+            "construction='twocopy' (the single_core path is the MTR<->Trp "
+            "single-shared-core build).")
+    # auto_search_displacement is a two-copy-only displacement-construction knob
+    # (single_core has no copy-2 bulk displacement to search); a True flag on
+    # single_core is a wiring error, not silently ignored. accept_sep_nm is only
+    # consulted by the auto-search, so its default is harmless on single_core.
+    if auto_search_displacement:
+        raise ValueError(
+            "serialize_inplace_rbfe_system: auto_search_displacement is only "
+            "supported with construction='twocopy' (the single_core path has no "
+            "copy-2 bulk displacement to search).")
     build = ats.build_inplace_res4_fused_system(
         leg=leg, seed=seed, binder_chain=binder_chain, solvate=solvate,
         harmonize_common_charges=harmonize_common_charges, swap_mode=swap_mode,
@@ -1078,6 +1207,125 @@ def _atm_state_energy_kj(
     return base + hybrid
 
 
+# ---------------------------------------------------------------------------
+# FIX-A: re-seeding / non-identity ladder initialisation (OPT-IN). Addresses the
+# bound-leg ladder non-mixing pathology (decisive bond seal / fragmented ladder),
+# validated across 3 wall seeds. FE-UNBIASED — an INITIAL-CONDITION change only:
+# replica-exchange equilibrium is initial-condition-independent (Sugita-Okamoto
+# 1999; Chodera-Shirts 2011 DOI 10.1063/1.3660669). DEFAULT OFF reproduces the
+# current identity init byte-for-byte (V3I/A9G/MTR unaffected). C7 soft-core (U0/Uh=110,
+# alpha=0.10, UMAX=200, UBCORE=100, ACORE=0.0625), the λ-schedule, every energy
+# and the Metropolis criterion are FROZEN — this only changes WHERE each walker
+# starts at t=0.
+# ---------------------------------------------------------------------------
+def make_reseed_permutation(n_states: int,
+                            reseed_perm_seed: Optional[int] = None) -> List[int]:
+    """Return the replica->state assignment used to initialise the ladder.
+
+    ``perm[r]`` = the state replica ``r`` starts in at t=0.
+
+    * ``reseed_perm_seed is None`` (DEFAULT) -> identity ``list(range(n_states))``,
+      EXACTLY the legacy ``self.replica_state = list(range(self.n_states))`` init.
+      This is the byte/behaviour-identical default-OFF path.
+    * ``reseed_perm_seed`` is an int -> a RANDOMIZED bijection produced by a LOCAL
+      ``random.Random(reseed_perm_seed)`` (NOT the global RNG, NOT date-based), so
+      the permutation is fully reproducible from the logged integer and is recorded
+      to the run_manifest. The result is always a valid bijection (a permutation of
+      ``range(n_states)``), which is the only correctness requirement the exchange
+      logic places on the init assignment (``run_cycle`` rebuilds
+      ``state_to_replica`` from ``replica_state`` every cycle, so ANY bijection is
+      a valid starting assignment and the stationary ensemble is unchanged).
+
+    Reproducibility: ``make_reseed_permutation(n, k)`` returns the SAME list for
+    the same ``(n, k)`` regardless of process / wall-clock / global RNG state.
+    """
+    n = int(n_states)
+    if n <= 0:
+        raise ValueError("make_reseed_permutation: n_states must be > 0")
+    if reseed_perm_seed is None:
+        return list(range(n))
+    rng = _random.Random(int(reseed_perm_seed))
+    perm = list(range(n))
+    rng.shuffle(perm)
+    return perm
+
+
+def decoupled_endpoint_state(schedule: Dict[str, Any]) -> int:
+    """Index of the genuine decoupled endpoint = the state with minimal λ2
+    (ties -> minimal λ1) — the fully soft-core-decoupled basin (λ1=λ2=0) where
+    the RCA's basin-locked walker parks.
+
+    DIRECTION-CORRECT for BOTH legs (this is the false-green guard the smoke
+    fixed): the decoupled endpoint is defined by its λ-VALUE (λ2=0), not by a
+    fixed index. For the forward (dplus) leg that is state 0; for the backward
+    (dminus) leg that is the LAST state. A max-λ1 rule (the prototype's forward-
+    only band) would pick the COUPLED apex on a backward schedule and re-seed the
+    wrong end. With ``lambda1_rampdown`` (densified leg-down) the endpoint index
+    shifts but the λ2=0 rule still resolves it correctly.
+    """
+    best = None
+    best_key = None
+    for k in range(int(schedule["n_states"])):
+        key = (schedule["lambdas_2"][k], schedule["lambdas_1"][k])
+        if best is None or key < best_key:
+            best = k
+            best_key = key
+    return best
+
+
+def decoupled_band_states(schedule: Dict[str, Any],
+                          band_lambda2_max: float = 0.25) -> List[int]:
+    """States in the decoupled-endpoint band = the low-λ2 tail
+    (``λ2 <= band_lambda2_max``) — the soft-core-saturated tail that holds the
+    basin-locked walker. A2 re-seeds ONLY these contexts with the pre-relaxed
+    decoupled config; everything with higher λ2 keeps the default coupled seed (no
+    cross-contamination).
+
+    DIRECTION-CORRECT by λ-VALUE: e.g. baseline 11-state dminus -> {8,9,10};
+    densified 12-state dminus -> {9,10,11}; forward -> {0,1,2}. The band is the
+    same physical set of states in either direction (just at different indices).
+    """
+    out = []
+    for k in range(int(schedule["n_states"])):
+        if schedule["lambdas_2"][k] <= float(band_lambda2_max):
+            out.append(k)
+    return out
+
+
+def _subset_topology(topology, atom_indices: List[int]):
+    """Return a new ``openmm.app.Topology`` holding only ``atom_indices``.
+
+    DCDFile records the FULL position array unless given a subset topology with
+    a matching subset of coordinates. The subset preserves chain/residue/atom
+    grouping (so mdtraj/MDAnalysis can resolve res-4 χ / pucker / φ/ψ from the
+    written frames) and copies the source periodic box vectors. Used only by the
+    OPT-IN DCD path; the default (dcd_dir=None) run never calls it. Bonds are
+    intentionally NOT copied (DCD stores coordinates only; the analysis tool
+    re-derives connectivity from the residue templates).
+    """
+    import openmm.app as app
+
+    sub = app.Topology()
+    keep = set(int(a) for a in atom_indices)
+    new_chain = {}
+    new_res = {}
+    for atom in topology.atoms():
+        if atom.index not in keep:
+            continue
+        ch = atom.residue.chain
+        if ch.index not in new_chain:
+            new_chain[ch.index] = sub.addChain(ch.id)
+        res = atom.residue
+        if res.index not in new_res:
+            new_res[res.index] = sub.addResidue(
+                res.name, new_chain[ch.index], res.id)
+        sub.addAtom(atom.name, atom.element, new_res[res.index])
+    box = topology.getPeriodicBoxVectors()
+    if box is not None:
+        sub.setPeriodicBoxVectors(box)
+    return sub
+
+
 class InplaceRbfeLadder(object):
     """In-process Hamiltonian replica-exchange driver for the in-place RBFE box.
 
@@ -1096,13 +1344,55 @@ class InplaceRbfeLadder(object):
                  temperature_K=RBFE_TEMP_K, timestep_fs=1.0,
                  friction_per_ps=1.0, log_path=None, seed=None,
                  minimize_iters=500, backward_equil_steps=500,
-                 out_dir=None, out_basename="trackb"):
+                 out_dir=None, out_basename="trackb",
+                 staged_min=False, staged_min_iters=STAGED_MIN_ITERS_FLOOR,
+                 staged_warmup_steps=STAGED_WARMUP_STEPS,
+                 reseed_perm_seed=None, reseed_endpoint=False,
+                 reseed_endpoint_band_lambda2_max=0.25,
+                 reseed_endpoint_equil_steps=2000,
+                 reseed_endpoint_minimize_iters=500,
+                 dcd_dir=None, dcd_topology=None, dcd_atom_indices=None,
+                 dcd_stride_cycles=1):
         import openmm as mm
+        import openmm.app  # noqa: F401 — registers mm.app.DCDFile for the opt-in DCD path
         import openmm.unit as unit
 
         self.mm = mm
         self.unit = unit
         self.schedule = schedule
+        # OPT-IN staged minimization (W4A 9-heavy fused-indole large-box stability;
+        # validated in W4A/w4a_bound_smoke.py). DEFAULT OFF => the existing single-
+        # stage minimize path runs unchanged (V3I/MTR/A9G/V3A byte-identical). When
+        # ON, each replica is staged-relaxed: (a) >=5000-iter minimize at the
+        # reference state (Lambda1=Lambda2=0, soft-core OFF) to relieve the fresh
+        # PME water shell, (b) a short polish minimize at the assigned state, then
+        # (c) setVelocitiesToTemperature + a short MD warmup. The standard
+        # ``minimize_iters`` default is NOT changed (staged uses its OWN floor so
+        # the non-staged path's iteration count is untouched). See the per-replica
+        # loop below for the staged branch.
+        self.staged_min = bool(staged_min)
+        self.staged_min_iters = max(int(staged_min_iters),
+                                    STAGED_MIN_ITERS_FLOOR) if staged_min else \
+            int(staged_min_iters)
+        self.staged_warmup_steps = int(staged_warmup_steps)
+        # OPT-IN FIX-A re-seeding (W4A bound-leg ladder mixing). DEFAULT OFF =>
+        # the legacy identity init + default coordinate seed run unchanged
+        # (V3I/A9G/MTR byte-identical). reseed_perm_seed=None keeps the identity
+        # replica->state map; reseed_endpoint=False keeps every context seeded
+        # from the same coupled ``positions``. When ON, A1 sets a logged-seed
+        # permutation as the t=0 assignment and A2 seeds the decoupled-band
+        # contexts from a standalone equilibration at the genuine decoupled
+        # endpoint's own λ-tuple. FE-unbiased (init-condition only); see the
+        # per-state context loop below and ``make_reseed_permutation`` /
+        # ``decoupled_endpoint_state`` / ``decoupled_band_states``.
+        self.reseed_perm_seed = (None if reseed_perm_seed is None
+                                 else int(reseed_perm_seed))
+        self.reseed_endpoint = bool(reseed_endpoint)
+        self.reseed_endpoint_band_lambda2_max = \
+            float(reseed_endpoint_band_lambda2_max)
+        self.reseed_endpoint_equil_steps = int(reseed_endpoint_equil_steps)
+        self.reseed_endpoint_minimize_iters = \
+            int(reseed_endpoint_minimize_iters)
         self.n_states = schedule["n_states"]
         self.temperature_K = temperature_K
         self.kT_kj = (unit.MOLAR_GAS_CONSTANT_R * temperature_K * unit.kelvin
@@ -1135,6 +1425,59 @@ class InplaceRbfeLadder(object):
                 self._out_fhs.append(
                     open(os.path.join(rdir, out_basename + ".out"), "w"))
 
+        # OPT-IN per-walker DCD trajectory (probe diagnostic). DEFAULT
+        # ``dcd_dir=None`` => NO trajectory is written and EVERY path below is
+        # byte-identical to the legacy run (the production legs do not pass it).
+        # When set, one ``<dcd_dir>/r{r}/<basename>.dcd`` is written per walker
+        # Context: each cycle (every ``dcd_stride_cycles`` cycles) one frame of
+        # the ``dcd_atom_indices`` subset is appended. The subset is the
+        # alchemical-region + receptor-context atoms (NOT the ~290k PME waters),
+        # so the frames resolve the res-4 sidechain χ1/χ2 swap, ring pucker, and
+        # res-4 backbone φ/ψ for the under-sampling-vs-real-basin judgment. This
+        # is OBSERVATION ONLY: it reads each Context's positions AFTER all
+        # estimator logic (energy / exchange / .out row) is complete, so it
+        # cannot perturb the dgbind1 / UWHAM result. A walker frame is labelled
+        # by the state it occupies via the per-cycle ``.out`` stateid column +
+        # the frame index (a frame and an .out row are written in lockstep).
+        self.dcd_dir = dcd_dir
+        self.dcd_stride_cycles = max(1, int(dcd_stride_cycles))
+        self._dcd_files = None
+        self._dcd_atom_indices = None
+        if dcd_dir is not None:
+            if dcd_topology is None:
+                raise ValueError(
+                    "InplaceRbfeLadder: dcd_dir set but dcd_topology is None "
+                    "(the DCDFile header needs the topology atom set). Pass the "
+                    "loaded box topology.")
+            n_top = dcd_topology.getNumAtoms()
+            if dcd_atom_indices is None:
+                # Full box (every atom) — large; the launcher normally supplies
+                # a binder+receptor subset to keep the probe DCD ~MB not ~GB.
+                self._dcd_atom_indices = list(range(n_top))
+            else:
+                idx = [int(a) for a in dcd_atom_indices]
+                if not idx:
+                    raise ValueError(
+                        "InplaceRbfeLadder: dcd_atom_indices is empty (no atoms "
+                        "to record).")
+                for a in idx:
+                    if a < 0 or a >= n_top:
+                        raise ValueError(
+                            "InplaceRbfeLadder: dcd_atom_indices entry %d out of "
+                            "range [0, %d)." % (a, n_top))
+                self._dcd_atom_indices = idx
+            self._dcd_sub_topology = _subset_topology(
+                dcd_topology, self._dcd_atom_indices)
+            self._dcd_files = []
+            for r in range(self.n_states):
+                rdir = os.path.join(dcd_dir, "r%d" % (r,))
+                os.makedirs(rdir, exist_ok=True)
+                fh = open(os.path.join(rdir, out_basename + ".dcd"), "wb")
+                dcdf = mm.app.DCDFile(
+                    fh, self._dcd_sub_topology,
+                    dt=timestep_fs * unit.femtoseconds)
+                self._dcd_files.append((fh, dcdf))
+
         # Resolve the ATMForce on the system.
         self.atm_index = None
         for i in range(system.getNumForces()):
@@ -1160,13 +1503,48 @@ class InplaceRbfeLadder(object):
             platform_name = "Reference"
         self.platform_name = platform_name
 
-        # replica r currently occupies state self.replica_state[r].
-        self.replica_state = list(range(self.n_states))
+        # replica r currently occupies state self.replica_state[r]. FIX-A (A1,
+        # OPT-IN): with ``reseed_perm_seed`` set this is a logged-seed permutation
+        # of the states rather than the identity map (DEFAULT None => identity =
+        # ``list(range(self.n_states))`` byte-identical). The permutation is set
+        # BEFORE the per-state context loop below, so each context is minimized at
+        # the PERMUTED state it will occupy (``state_k = self.replica_state[k]``),
+        # not at an identity state — the in-__init__ integration is exact (no
+        # post-construction relabel). The exchange logic rebuilds state_to_replica
+        # from replica_state every cycle, so any bijection is a valid t=0
+        # assignment; the stationary ensemble is unchanged (FE-unbiased).
+        self.replica_state = make_reseed_permutation(
+            self.n_states, self.reseed_perm_seed)
 
         # Identify the backward (Direction<0) ladder endpoint state (λ minimal on
         # the backward half) — the u1 = HE1-decoupled basin the backward replicas
         # must relax into BEFORE the soft-core anneal-edge.
         self._backward_endpoint = self._find_backward_endpoint()
+
+        # FIX-A (A2, OPT-IN): pre-relax the genuine decoupled endpoint (min-λ2
+        # corner, direction-correct for BOTH dplus and dminus) and capture its
+        # relaxed configuration so the decoupled-BAND contexts can be seeded from
+        # the decoupled basin instead of the coupled ``positions`` (which leaves
+        # the high-usc walker basin-locked behind the soft-core wall). DEFAULT
+        # reseed_endpoint=False => this is skipped and every context keeps the
+        # default coupled seed (byte-identical). The relaxed config comes from a
+        # STANDALONE equilibration AT the decoupled state's OWN λ-tuple (no
+        # artificial/biased config) — it changes KINETICS (starting
+        # basin), not the EQUILIBRIUM the estimator averages over (FE-unbiased).
+        self._reseed_band = []
+        self._reseed_relaxed_positions = None
+        self._reseed_endpoint_state = None
+        if self.reseed_endpoint:
+            self._reseed_band = decoupled_band_states(
+                self.schedule, self.reseed_endpoint_band_lambda2_max)
+            if self._reseed_band:
+                self._reseed_endpoint_state = decoupled_endpoint_state(
+                    self.schedule)
+                self._reseed_relaxed_positions = self._equilibrate_endpoint(
+                    system, positions, self._reseed_endpoint_state,
+                    seed=seed,
+                    minimize_iters=self.reseed_endpoint_minimize_iters,
+                    equil_steps=self.reseed_endpoint_equil_steps)
 
         # One Context per state. Each replica is initialised at its OWN state's
         # λ-tuple BEFORE minimization (the per-state ATMForce globals change the
@@ -1197,11 +1575,50 @@ class InplaceRbfeLadder(object):
             if seed is not None:
                 integ.setRandomNumberSeed(int(seed) + k)
             ctx = mm.Context(system, integ, self.platform)
-            ctx.setPositions(positions)
             state_k = self.replica_state[k]
+            # FIX-A (A2): a context whose assigned state is in the decoupled band
+            # is seeded from the PRE-RELAXED decoupled-basin config (so it starts
+            # inside the decoupled basin, not behind the soft-core wall); every
+            # other context keeps the default coupled ``positions``. DEFAULT
+            # reseed_endpoint=False => _reseed_relaxed_positions is None and ALL
+            # contexts get the coupled positions (byte-identical).
+            if self._reseed_relaxed_positions is not None \
+                    and state_k in self._reseed_band:
+                ctx.setPositions(self._reseed_relaxed_positions)
+            else:
+                ctx.setPositions(positions)
             is_backward = (self.schedule["directions"][state_k] < 0)
 
-            if is_backward and self._backward_endpoint is not None \
+            vel_seed = (int(seed) + k) if seed is not None else 0
+
+            if self.staged_min:
+                # OPT-IN staged relax (W4A large-box stability). The backward
+                # u1-basin pre-equilibration is preserved (the backward anneal-edge
+                # still relaxes into its endpoint basin first), but the minimization
+                # at EACH state is staged: reference-state (soft-core OFF) >=5000-iter
+                # relax of the fresh PME shell, then a short polish minimize at the
+                # state the context will occupy. This path is reached ONLY when
+                # staged_min=True; default-off leaves the single-stage path below
+                # byte-identical.
+                if is_backward and self._backward_endpoint is not None \
+                        and backward_equil_steps > 0:
+                    self._staged_minimize_replica(ctx, self._backward_endpoint)
+                    ctx.setVelocitiesToTemperature(
+                        temperature_K * unit.kelvin, vel_seed)
+                    integ.step(int(backward_equil_steps))
+                    # Switch to the replica's assigned anneal-edge state and stage-
+                    # relax there too (the assigned state's soft-core is active).
+                    self._staged_minimize_replica(ctx, state_k)
+                else:
+                    self._staged_minimize_replica(ctx, state_k)
+                # Re-seed velocities + a short warmup at the assigned state (a fresh
+                # hot burst on a just-minimized large box is the detonation source,
+                # not the box itself).
+                ctx.setVelocitiesToTemperature(
+                    temperature_K * unit.kelvin, vel_seed)
+                if self.staged_warmup_steps > 0:
+                    integ.step(int(self.staged_warmup_steps))
+            elif is_backward and self._backward_endpoint is not None \
                     and backward_equil_steps > 0:
                 # Relax into the u1 basin at the backward endpoint first.
                 self._set_state(ctx, self._backward_endpoint)
@@ -1209,8 +1626,7 @@ class InplaceRbfeLadder(object):
                     mm.LocalEnergyMinimizer.minimize(
                         ctx, maxIterations=int(minimize_iters))
                 ctx.setVelocitiesToTemperature(
-                    temperature_K * unit.kelvin,
-                    (int(seed) + k) if seed is not None else 0)
+                    temperature_K * unit.kelvin, vel_seed)
                 integ.step(int(backward_equil_steps))
                 # Now switch to the replica's assigned (anneal-edge) state.
                 self._set_state(ctx, state_k)
@@ -1219,9 +1635,9 @@ class InplaceRbfeLadder(object):
                 if minimize_iters and minimize_iters > 0:
                     mm.LocalEnergyMinimizer.minimize(
                         ctx, maxIterations=int(minimize_iters))
-            ctx.setVelocitiesToTemperature(
-                temperature_K * unit.kelvin,
-                (int(seed) + k) if seed is not None else 0)
+            if not self.staged_min:
+                ctx.setVelocitiesToTemperature(
+                    temperature_K * unit.kelvin, vel_seed)
             self.integrators.append(integ)
             self.contexts.append(ctx)
 
@@ -1260,6 +1676,86 @@ class InplaceRbfeLadder(object):
     def _apply_all_states(self):
         for r in range(self.n_states):
             self._set_state(self.contexts[r], self.replica_state[r])
+
+    # -- FIX-A (A2): standalone decoupled-endpoint equilibration (OPT-IN) ---
+    def _equilibrate_endpoint(self, system, positions, endpoint_state, *,
+                              seed=None, minimize_iters=500, equil_steps=2000):
+        """Relax a STANDALONE context at ``endpoint_state``'s own λ-tuple and
+        return the relaxed positions (the pre-relaxed decoupled-basin config A2
+        seeds the band contexts with). Mirrors the validated W4A endpoint re-seed
+        (W4A/w4a_reseed_proto.py / w4a_mixing_smoke.apply_fixA_dminus_endpoint_reseed):
+
+          (a) a fresh context at the decoupled endpoint state's full ATMForce
+              globals (NOT an artificial / biased config — a genuine short MD
+              equilibration AT that state);
+          (b) a light minimize (the same budget as the per-state seed minimize)
+              to relieve the fresh-shell strain;
+          (c) setVelocitiesToTemperature + a short MD equilibration to settle the
+              walker into the decoupled basin.
+
+        It uses its OWN throwaway integrator/context (offset RNG seed so it does
+        not correlate with any ladder replica) and returns ONLY positions — the
+        ladder's own contexts adopt them, the standalone context is discarded.
+        Used ONLY when ``reseed_endpoint`` is True (default path never calls it).
+        """
+        mm = self.mm
+        unit = self.unit
+        integ = mm.LangevinMiddleIntegrator(
+            self.temperature_K * unit.kelvin, 1.0 / unit.picosecond,
+            1.0 * unit.femtoseconds)
+        if seed is not None:
+            integ.setRandomNumberSeed(int(seed) + 9973)
+        relax_ctx = mm.Context(system, integ, self.platform)
+        relax_ctx.setPositions(positions)
+        self._set_state(relax_ctx, endpoint_state)
+        if minimize_iters and minimize_iters > 0:
+            mm.LocalEnergyMinimizer.minimize(
+                relax_ctx, maxIterations=int(minimize_iters))
+        relax_ctx.setVelocitiesToTemperature(
+            self.temperature_K * unit.kelvin,
+            (int(seed) + 9973) if seed is not None else 0)
+        if equil_steps and equil_steps > 0:
+            integ.step(int(equil_steps))
+        relaxed = relax_ctx.getState(getPositions=True).getPositions()
+        del relax_ctx, integ
+        return relaxed
+
+    # -- staged minimization (OPT-IN, W4A large-box stability) -------------
+    def _staged_minimize_replica(self, ctx, state_idx):
+        """Stage-relax one replica context for the assigned ``state_idx`` (OPT-IN).
+
+        Reproduces the validated W4A/w4a_bound_smoke.py staged-minimization:
+
+          (a) set the FULL per-state ATMForce globals for ``state_idx`` (so Uh / W0
+              / Alpha / Direction / Umax / Ubcore / Acore match the assigned state),
+              then OVERRIDE Lambda1=Lambda2=0 to put the context at the REFERENCE
+              state where the ATM potential is the plain physical energy of the two
+              resident copies (soft-core hybrid OFF, well-conditioned), and minimize
+              there with the staged floor (>=5000 iters, tolerance->0) to relieve the
+              fresh PME water-shell contacts;
+          (b) restore the assigned state's Lambda1/Lambda2 (the soft-core hybrid is
+              now active) and do a short polish minimize (max(500, floor//5) iters)
+              to settle the alchemical region WITHOUT re-introducing the large-box
+              fresh-shell strain already relieved in (a).
+
+        The soft-core canon (Umax/Ubcore/Acore) and every other ATM global are the
+        per-state schedule values — this is a MINIMIZATION-QUALITY relax only, it
+        does NOT change the soft-core constants or the decouple physics. Only called
+        when ``self.staged_min`` is True (the default-off ladder never invokes it).
+        """
+        mm = self.mm
+        s = self.schedule
+        # (a) Reference-state relax: assigned per-state globals, but Lambda1=Lambda2=0.
+        self._set_state(ctx, state_idx)
+        ctx.setParameter(self.atmforce.Lambda1(), 0.0)
+        ctx.setParameter(self.atmforce.Lambda2(), 0.0)
+        mm.LocalEnergyMinimizer.minimize(
+            ctx, 0.0, int(self.staged_min_iters))
+        # (b) Polish at the assigned state (restore the state's λ-tuple).
+        ctx.setParameter(self.atmforce.Lambda1(), s["lambdas_1"][state_idx])
+        ctx.setParameter(self.atmforce.Lambda2(), s["lambdas_2"][state_idx])
+        mm.LocalEnergyMinimizer.minimize(
+            ctx, 0.0, max(500, int(self.staged_min_iters) // 5))
 
     # -- per-replica raw perturbation (u0, u1-u0) --------------------------
     def _raw_pert(self, ctx):
@@ -1422,6 +1918,31 @@ class InplaceRbfeLadder(object):
             for fh in self._out_fhs:
                 fh.flush()
 
+        # 7) OPT-IN per-walker DCD frame (probe diagnostic). DEFAULT
+        #    dcd_dir=None => self._dcd_files is None and this is skipped entirely
+        #    (byte-identical). When on, append ONE frame of the recorded atom
+        #    subset per walker every dcd_stride_cycles cycles, AFTER the .out row
+        #    is written so frame index k maps to .out row k for that walker (the
+        #    state label is the stateid column of the matching .out row). A walker
+        #    with no usable energy this cycle (raw is None) wrote no .out row, so
+        #    it writes no frame either — the two streams stay in lockstep. Reading
+        #    getPositions here is observation only; it does not advance dynamics or
+        #    alter the estimator.
+        if self._dcd_files is not None \
+                and (self._cycle % self.dcd_stride_cycles == 0):
+            idx = self._dcd_atom_indices
+            for r in range(self.n_states):
+                if raw[r] is None:
+                    continue
+                fh, dcdf = self._dcd_files[r]
+                st_full = self.contexts[r].getState(
+                    getPositions=True, enforcePeriodicBox=True)
+                all_pos = st_full.getPositions(asNumpy=True)
+                box = st_full.getPeriodicBoxVectors()
+                dcdf.writeModel(all_pos[idx], periodicBoxVectors=box)
+            for fh, _dcdf in self._dcd_files:
+                fh.flush()
+
         return {
             "cycle": self._cycle,
             "n_accepted": n_accepted,
@@ -1462,6 +1983,23 @@ class InplaceRbfeLadder(object):
                 except Exception:
                     pass
             self._out_fhs = None
+        # OPT-IN DCD handles (probe diagnostic): flush + close the trajectory
+        # byte streams so the last frame is durable. Each entry is an
+        # (open file handle, DCDFile) tuple; only the file handle is closed (the
+        # DCDFile is a thin writer over it). Idempotent + exception-swallowing,
+        # matching the .out teardown above (data integrity before resource free).
+        dcd_files = getattr(self, "_dcd_files", None)
+        if dcd_files is not None:
+            for fh, _dcdf in dcd_files:
+                try:
+                    fh.flush()
+                except Exception:
+                    pass
+                try:
+                    fh.close()
+                except Exception:
+                    pass
+            self._dcd_files = None
 
         # Resource teardown: SWIG-backed OpenMM Context/Integrator objects are
         # not reliably reclaimed by gc.collect() alone (reference cycles through

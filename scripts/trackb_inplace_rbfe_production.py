@@ -144,6 +144,14 @@ def gate_seed_availability(endpoints: List[str], seeds: List[str]
 DEFAULT_N_CYCLES = 400
 DEFAULT_MD_STEPS_PER_CYCLE = 250
 
+# Two-copy auto-search displacement default acceptance line (nm). MIRRORS
+# atm_trackB_setup.ATS_TWOCOPY_ACCEPT_SEP_NM — declared here as a module constant
+# so the argparse default + the C11 pre-registration can record it WITHOUT
+# importing the openmm-heavy ats engine at parse time (the engine is loaded lazily
+# via _load_ats()). If the engine constant changes, update this in lockstep (a
+# divergence is a wiring error the auto-search dry-run + tests will surface).
+_ATS_ACCEPT_SEP_NM_DEFAULT = 1.5
+
 
 # ---------------------------------------------------------------------------
 # Module loaders (importlib spec-load to avoid sys.modules pollution + so the
@@ -165,6 +173,15 @@ def _load_rbfe():
         os.path.join(_UTILS, "atm_trackB_inplace_rbfe.py"))
 
 
+def _load_ats():
+    """The two-copy build engine (atm_trackB_setup). Loaded only by the bound
+    two-copy receptor-contact pre-flight gate (it reuses the engine's periodic
+    min-image helpers + the solvent-resname set — no reimplementation)."""
+    return _load_module(
+        "atm_trackB_setup",
+        os.path.join(_UTILS, "atm_trackB_setup.py"))
+
+
 def _load_driver():
     """The per-direction driver — REUSED for merge_per_direction_outputs +
     the mixing gate (parse_state_transitions_from_log / check_atm_mixing). This
@@ -178,6 +195,101 @@ def _load_uwham():
     return _load_module(
         "trackb_uwham_postprocess",
         os.path.join(_SCRIPTS, "trackb_uwham_postprocess.py"))
+
+
+def _load_overlap():
+    """The robust phase-space overlap harness (Bhattacharyya + TRUE soft-core
+    MBAR overlap matrix). REUSED by the hardened mixing gate's per-adjacent-pair
+    overlap conjunct. Imported by package path so its own relative imports
+    resolve; returns None on ImportError (numpy/pymbar/atom_openmm absent) so the
+    gate degrades to INDETERMINATE rather than silent-PASS."""
+    if _UTILS not in sys.path:
+        sys.path.insert(0, _UTILS)
+    if _PROJ not in sys.path:
+        sys.path.insert(0, _PROJ)
+    try:
+        from adaptive_lambda import overlap as overlap_mod  # type: ignore
+        return overlap_mod
+    except Exception:  # noqa: BLE001 — overlap is optional; absence -> None
+        try:
+            from utils.adaptive_lambda import overlap as overlap_mod  # type: ignore  # noqa: E501
+            return overlap_mod
+        except Exception:  # noqa: BLE001
+            return None
+
+
+def _compute_adjacent_overlaps(
+    leg_dir: str, direction_tag: str, schedule: Dict[str, Any],
+    warmup_cycles: int,
+) -> Dict[str, Any]:
+    """Per-adjacent-pair phase-space overlap for ONE direction's ladder.
+
+    Reuses the robust harness: ``extract_samples_by_state`` reads the per-walker
+    ``.out`` soft-core columns by state, ``mbar_overlap_matrix`` builds the TRUE
+    soft-core MBAR overlap matrix (the gate conjunct), and
+    ``bhattacharyya_coefficient`` gives the REPORTING-ONLY BC per adjacent pair.
+
+    Returns ``{"overlaps": {pair: O} | None, "bhattacharyya": {pair: BC} | None,
+    "source": str}``. ``overlaps`` is None when the harness cannot build a matrix
+    (pymbar/atom_openmm absent or MBAR non-convergence) -> the hardened gate then
+    returns INDETERMINATE (refuses to PASS an unverified leg)."""
+    out: Dict[str, Any] = {
+        "overlaps": None, "bhattacharyya": None, "source": None}
+    ov = _load_overlap()
+    if ov is None:
+        out["source"] = "overlap harness unavailable (numpy/pymbar absent)"
+        return out
+    try:
+        samples = ov.extract_samples_by_state(
+            leg_dir, JOBNAME, direction_tag, warmup_cycles=warmup_cycles)
+    except Exception as exc:  # noqa: BLE001
+        out["source"] = "extract_samples_by_state failed: %s" % (exc,)
+        return out
+    if not samples:
+        out["source"] = "no per-walker .out samples found under %s/%s" % (
+            leg_dir, direction_tag)
+        return out
+
+    # REPORTING-ONLY Bhattacharyya per adjacent pair (Gaussian form; never gates).
+    states = sorted(samples.keys())
+    bc: Dict[str, float] = {}
+    pertE_col = ov._SAMPLE_FIELDS.index("pertE")
+    for i, lo in enumerate(states[:-1]):
+        hi = states[i + 1]
+        try:
+            a = samples[lo][:, pertE_col]
+            b = samples[hi][:, pertE_col]
+            bc["%d-%d" % (lo, hi)] = float(ov.bhattacharyya_coefficient(a, b))
+        except Exception:  # noqa: BLE001 — reporting metric, never fatal
+            bc["%d-%d" % (lo, hi)] = None
+    out["bhattacharyya"] = bc
+
+    # The GATE conjunct: TRUE soft-core MBAR overlap matrix (None if unavailable).
+    schedule_arrays = {
+        k: schedule[k] for k in ("lambda1", "lambda2", "alpha", "u0", "w0")
+        if schedule.get(k) is not None
+    }
+    try:
+        matrix = ov.mbar_overlap_matrix(
+            samples, schedule=schedule_arrays, temperature_K=300.0)
+    except Exception as exc:  # noqa: BLE001
+        out["source"] = "mbar_overlap_matrix raised: %s" % (exc,)
+        return out
+    if matrix is None:
+        out["source"] = ("MBAR overlap unavailable (pymbar/atom_openmm absent "
+                         "or non-convergence) -> gate INDETERMINATE")
+        return out
+    import numpy as np
+    m = np.asarray(matrix, dtype=float)
+    k = m.shape[0]
+    overlaps: Dict[str, float] = {}
+    for i in range(k - 1):
+        lo = states[i] if i < len(states) else i
+        hi = states[i + 1] if i + 1 < len(states) else i + 1
+        overlaps["%d-%d" % (lo, hi)] = float(m[i, i + 1])
+    out["overlaps"] = overlaps
+    out["source"] = "MBAR soft-core overlap matrix"
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -201,8 +313,146 @@ def _rep_dir(out_root: str, endpoint: str, leg: str, replicate_index: int) -> st
     return os.path.join(out_root, endpoint, leg, "rep%d" % (replicate_index,))
 
 
+# ---------------------------------------------------------------------------
+# G3 — rep-dir seed-stamp (out-root collision guard).
+#
+# replicate_index is the POSITIONAL index of the seed in --seeds (rep0=seed[0],
+# rep1=seed[1], ...). Two SEPARATE invocations that each pass ONE seed but share
+# the same --out-root both map to rep0 — so the second silently overwrites (or,
+# with the default R-7 archive, archives-away) the first seed's ACTIVE data, and
+# the UWHAM cohort then sees the wrong seed in that rep slot. The stamp records
+# which seed a rep dir belongs to so a DIFFERENT seed landing on the same rep dir
+# fails loud (R-18: a real mixing hazard, not papered over). A SAME-seed re-run
+# (resume) passes (the stamp matches), and a legacy rep dir with no stamp falls
+# back to the run_manifest.json "seed" field.
+# ---------------------------------------------------------------------------
+def _seed_stamp_path(rep_dir: str, seed: str) -> str:
+    safe = "".join(c if (c.isalnum() or c in "._-") else "_" for c in str(seed))
+    return os.path.join(rep_dir, ".seed_%s" % (safe,))
+
+
+def _existing_rep_seed(rep_dir: str) -> Optional[str]:
+    """Return the seed a rep dir already belongs to, or None if undeterminable.
+
+    Looks for the explicit ``.seed_<name>`` stamp first; if absent (a legacy rep
+    dir created before stamping), falls back to the ``run_manifest.json`` ``seed``
+    field. An empty / stampless / manifestless dir returns None (treated as free
+    — the same-seed first run / a pre-stamp resume continues and gets stamped)."""
+    if not os.path.isdir(rep_dir):
+        return None
+    try:
+        for name in os.listdir(rep_dir):
+            if name.startswith(".seed_"):
+                return name[len(".seed_"):]
+    except OSError:
+        return None
+    manifest = os.path.join(rep_dir, "run_manifest.json")
+    if os.path.isfile(manifest):
+        try:
+            with open(manifest) as fh:
+                seed = json.load(fh).get("seed")
+            return str(seed) if seed is not None else None
+        except (OSError, ValueError):
+            return None
+    return None
+
+
+# ---------------------------------------------------------------------------
+# G2 — per-cell displacement policy record + in-invocation uniformity assert.
+#
+# Every (endpoint x seed x leg) cell of one invocation MUST carry the SAME
+# displacement policy (auto_search bool / accept_sep_nm / displacement_nm). The
+# launcher only ever sources one policy from the CLI, so the cells are uniform by
+# construction; the explicit record + assert (a) lets a Keeper post-hoc audit
+# spot a MIXED policy across separate invocations on the same out-root (read from
+# pre_registration.json), and (b) hard-fails if a future code path ever varies
+# the policy per cell within one invocation (anti-HARKing — a single pre-
+# registered policy applied uniformly; SciVal condition 2 for task #100/#114).
+# ---------------------------------------------------------------------------
+def _build_displacement_cells(endpoints: List[str], seeds: List[str], leg: str,
+                              auto_search_displacement: bool,
+                              accept_sep_nm: float,
+                              displacement_nm: Optional[float]
+                              ) -> List[Dict[str, Any]]:
+    cells: List[Dict[str, Any]] = []
+    for ep in endpoints:
+        for seed in seeds:
+            cells.append({
+                "endpoint": ep,
+                "seed": seed,
+                "leg": leg,
+                "auto_search_displacement": auto_search_displacement,
+                "accept_sep_nm": (accept_sep_nm if auto_search_displacement
+                                  else None),
+                "displacement_nm": displacement_nm,
+            })
+    return cells
+
+
+def _assert_uniform_displacement_policy(cells: List[Dict[str, Any]]) -> None:
+    """Fail loud if any cell's displacement policy differs from the first.
+
+    Policy = (auto_search_displacement, accept_sep_nm, displacement_nm). A mix is
+    forbidden (all cells must share the single pre-registered policy)."""
+    if not cells:
+        return
+
+    def _key(c: Dict[str, Any]) -> Tuple[Any, Any, Any]:
+        return (c.get("auto_search_displacement"),
+                c.get("accept_sep_nm"),
+                c.get("displacement_nm"))
+
+    first = _key(cells[0])
+    for c in cells[1:]:
+        if _key(c) != first:
+            raise ValueError(
+                "G2 mixed displacement policy across cells: %s/%s = %s differs "
+                "from %s/%s = %s. Every (endpoint x seed x leg) cell of one "
+                "invocation must share the SAME pre-registered displacement "
+                "policy (auto_search / accept_sep_nm / displacement_nm)."
+                % (c.get("endpoint"), c.get("seed"), _key(c),
+                   cells[0].get("endpoint"), cells[0].get("seed"), first))
+
+
 def _csv(vals) -> str:
     return ", ".join(str(v) for v in vals)
+
+
+def _git_provenance() -> Dict[str, Any]:
+    """Return ``{"git_commit": <sha-or-'unknown'>, "git_dirty": <bool>}`` for
+    the working tree, for stamping into each per-replicate run_manifest.json.
+
+    Provenance lets the downstream gate digest tie a campaign's numbers to the
+    exact code that produced them (the historical manifest_missing reps were
+    mis-scored as C4-unverifiable). git is invoked via subprocess and EVERY
+    failure path is swallowed — a missing git / detached repo / subprocess
+    error must NEVER break a launch (the manifest is metadata, not a gate):
+      - commit unresolvable -> "unknown"
+      - dirty status unresolvable -> dirty stays False (do not over-claim dirty
+        on an error; the 'unknown' commit already signals provenance is partial)
+    """
+    import subprocess
+
+    here = os.path.dirname(os.path.abspath(__file__))
+    repo = os.path.dirname(here)
+    commit = "unknown"
+    dirty = False
+    try:
+        commit = subprocess.check_output(
+            ["git", "-C", repo, "rev-parse", "HEAD"],
+            stderr=subprocess.DEVNULL,
+        ).decode("utf-8", "replace").strip() or "unknown"
+    except Exception:
+        commit = "unknown"
+    try:
+        porcelain = subprocess.check_output(
+            ["git", "-C", repo, "status", "--porcelain"],
+            stderr=subprocess.DEVNULL,
+        ).decode("utf-8", "replace")
+        dirty = bool(porcelain.strip())
+    except Exception:
+        dirty = False
+    return {"git_commit": commit, "git_dirty": dirty}
 
 
 def _build_single_direction_schedule(
@@ -210,6 +460,7 @@ def _build_single_direction_schedule(
     n_windows_half: int, softcore_band: int,
     n_apex_bridge: int, apex_band: float,
     lambda1_rampdown: Optional[List[float]] = None,
+    lambda2_rampup: Optional[List[float]] = None,
 ) -> Dict[str, Any]:
     """Build ONE standalone direction's schedule for the chosen construction.
 
@@ -224,11 +475,17 @@ def _build_single_direction_schedule(
     the leg-switch handoff (e.g. ``[0.05,0.1,0.2,0.3,0.4,0.5]`` = a λ1=0.05 bridge
     window => 12 λ/leg). ``None`` keeps the canonical uniform leg-down (11 λ/leg).
     Ignored for single_core (it has no leg-switch boundary).
+
+    ``lambda2_rampup`` (two-copy ONLY): explicit leg-up λ2 knots that densify the
+    deep-λ2 decouple tail (e.g. ``[0.0,0.05,0.1,0.15,0.2,0.3,0.4,0.5]`` =
+    λ2=0.05/0.15 bridges => 8 leg-up states). ``None`` keeps the canonical uniform
+    leg-up. Ignored for single_core (it has no soft-core leg-up).
     """
     if construction == "twocopy":
         return rbfe.build_ats_standard_ladder(
             n_windows_half=n_windows_half, single_direction=direction,
-            lambda1_rampdown=lambda1_rampdown)
+            lambda1_rampdown=lambda1_rampdown,
+            lambda2_rampup=lambda2_rampup)
     return rbfe.build_rbfe_ladder(
         n_windows_half=n_windows_half, softcore_band=softcore_band,
         n_apex_bridge=n_apex_bridge, apex_band=apex_band,
@@ -240,6 +497,7 @@ def _build_combined_schedule(
     n_windows_half: int, softcore_band: int,
     n_apex_bridge: int, apex_band: float,
     lambda1_rampdown: Optional[List[float]] = None,
+    lambda2_rampup: Optional[List[float]] = None,
 ) -> Dict[str, Any]:
     """Build the COMBINED symmetric schedule (the merge + UWHAM per-state SSOT).
 
@@ -261,10 +519,12 @@ def _build_combined_schedule(
 
     fwd = rbfe.build_ats_standard_ladder(
         n_windows_half=n_windows_half, single_direction="forward",
-        lambda1_rampdown=lambda1_rampdown)
+        lambda1_rampdown=lambda1_rampdown,
+        lambda2_rampup=lambda2_rampup)
     bwd = rbfe.build_ats_standard_ladder(
         n_windows_half=n_windows_half, single_direction="backward",
-        lambda1_rampdown=lambda1_rampdown)
+        lambda1_rampdown=lambda1_rampdown,
+        lambda2_rampup=lambda2_rampup)
     # Concatenate the two standalone halves (forward +1 block, backward -1 block)
     # — the symmetric combined ladder the merge + UWHAM consume. Per-state arrays
     # are joined; scalar canon (umax/ubcore/acore/temperature) is shared.
@@ -458,6 +718,226 @@ def gate_decouple_direction(leg: str, decouple_dir, *, raise_on_fail: bool = Tru
 
 
 # ---------------------------------------------------------------------------
+# Bound two-copy receptor-contact pre-flight gate (C5 false-green safety net).
+#
+# The fixed-displacement (d=6 nm) two-copy build CAN, on an unlucky seed, fail to
+# carry the displaced copy-2 binder fully out of the receptor pocket (the same
+# pocket the disappearing group must vacate). If the displaced binder is still in
+# contact with the receptor the bound leg is a FROZEN PLATEAU — the apex does not
+# physically decouple, yet the run "closes cleanly" with a deterministic-offset
+# ddG (a false-green). The auto-search displacement is out of scope this round; THIS
+# gate is the safety net: after the bound two-copy box is built, fail LOUD (HALT +
+# escalate, NEVER silent-skip) if the displaced binder is not cleanly decoupled.
+#
+# Ported VERBATIM from the validated W4A/w4a_bound_smoke.py
+# `_receptor_vs_displaced_binder_contact` (reusing the engine's periodic min-image
+# helpers + solvent-resname set — no reimplementation): ACCEPT iff n_contacts==0
+# (heavy-atom pair < 0.45 nm) AND the receptor<->displaced-binder min-image
+# distance >= 1.0 nm. Bound two-copy path ONLY (free / single-core unaffected).
+# ---------------------------------------------------------------------------
+RECEPTOR_CONTACT_CUTOFF_NM = 0.45    # heavy-atom contact cutoff (first-shell vdW)
+RECEPTOR_DECOUPLE_MIN_NM = 1.0       # min-image clearance for genuine decouple
+
+
+def measure_receptor_vs_displaced_binder(fused, ats, binder_chain="B"
+                                         ) -> Dict[str, Any]:
+    """Measure the displaced copy-2 binder's heavy-atom min-IMAGE distance + contact
+    count to the copy-1 RECEPTOR (chain != binder). Returns a dict (never raises;
+    the gate decides ACCEPT/HALT). Reuses ``ats._box_lengths_nm_from_vectors`` +
+    ``ats._min_image_min_distance_nm`` + ``ats._SOLVENT_RESNAMES`` (engine helpers,
+    periodic-image safe). Ported from W4A/w4a_bound_smoke.py."""
+    import numpy as np
+    import openmm.unit as unit
+
+    top = fused["modeller"].topology
+    system = fused["system"]
+    n_copy1 = fused["n_copy1"]
+    positions = np.array([
+        v.value_in_unit(unit.nanometer) for v in fused["modeller"].positions])
+
+    def _is_heavy(atom):
+        el = atom.element
+        if el is not None:
+            return el.symbol != "H"
+        return not atom.name.strip().startswith("H")
+
+    receptor_idx: List[int] = []
+    copy2_binder_idx: List[int] = []
+    for atom in top.atoms():
+        if atom.residue.name in ats._SOLVENT_RESNAMES:
+            continue
+        if not _is_heavy(atom):
+            continue
+        if atom.index < n_copy1:
+            if atom.residue.chain.id != binder_chain:
+                receptor_idx.append(atom.index)
+        else:
+            copy2_binder_idx.append(atom.index)
+
+    if not receptor_idx or not copy2_binder_idx:
+        return {
+            "n_receptor_heavy": len(receptor_idx),
+            "n_copy2_binder_heavy": len(copy2_binder_idx),
+            "min_image_dist_nm": None,
+            "n_contacts": None,
+            "contact_cutoff_nm": RECEPTOR_CONTACT_CUTOFF_NM,
+            "decouple_min_nm": RECEPTOR_DECOUPLE_MIN_NM,
+            "decoupled": None,
+            "note": ("could not resolve receptor (%d) or displaced binder (%d) "
+                     "heavy atoms — bound box layout unexpected"
+                     % (len(receptor_idx), len(copy2_binder_idx))),
+        }
+
+    box_lengths = ats._box_lengths_nm_from_vectors(
+        system.getDefaultPeriodicBoxVectors())
+    rec_pos = positions[receptor_idx]
+    bnd_pos = positions[copy2_binder_idx]
+    min_dist = ats._min_image_min_distance_nm(rec_pos, bnd_pos, box_lengths)
+    deltas = rec_pos[:, None, :] - bnd_pos[None, :, :]
+    if box_lengths is not None:
+        safe = np.array(box_lengths, dtype=float)
+        usable = safe > 0.0
+        if np.any(usable):
+            shift = np.zeros_like(deltas)
+            shift[..., usable] = (
+                safe[usable] * np.round(deltas[..., usable] / safe[usable]))
+            deltas = deltas - shift
+    dists = np.sqrt((deltas ** 2).sum(axis=-1))
+    n_contacts = int((dists < RECEPTOR_CONTACT_CUTOFF_NM).sum())
+    decoupled = bool(min_dist >= RECEPTOR_DECOUPLE_MIN_NM and n_contacts == 0)
+    return {
+        "n_receptor_heavy": len(receptor_idx),
+        "n_copy2_binder_heavy": len(copy2_binder_idx),
+        "min_image_dist_nm": float(min_dist),
+        "n_contacts": n_contacts,
+        "contact_cutoff_nm": RECEPTOR_CONTACT_CUTOFF_NM,
+        "decouple_min_nm": RECEPTOR_DECOUPLE_MIN_NM,
+        "decoupled": decoupled,
+        "note": ("displaced copy-2 binder vs copy-1 RECEPTOR (chain != %s) "
+                 "min-image heavy-atom distance + contact count" % binder_chain),
+    }
+
+
+def gate_receptor_contact(leg, construction, fused, ats, *, endpoint=None,
+                          seed=None, binder_chain="B", raise_on_fail=True
+                          ) -> Dict[str, Any]:
+    """C5 safety-net gate: the bound TWO-COPY displaced binder must cleanly decouple
+    from the receptor BEFORE launch. ACCEPT iff n_contacts==0 AND min-image >= 1 nm.
+    HALT (RuntimeError) on violation — NEVER silent-skip (fail-loud, R-18). Applies
+    ONLY to the bound two-copy path; free / single-core pass through (reason set)."""
+    report: Dict[str, Any] = {
+        "leg": leg, "construction": construction,
+        "endpoint": endpoint, "seed": seed,
+        "passed": False, "reason": None, "measurement": None,
+    }
+    if leg != "bound" or construction != "twocopy":
+        report["passed"] = True
+        report["reason"] = ("not applicable: receptor-contact gate is bound "
+                            "two-copy ONLY (leg=%s, construction=%s)"
+                            % (leg, construction))
+        return report
+    if fused is None:
+        report["reason"] = (
+            "C5 receptor-contact gate: the live two-copy build dict is absent "
+            "(cannot measure receptor decouple) — the bound box must be freshly "
+            "built (not box-reuse) to run this pre-flight.")
+        if raise_on_fail:
+            raise RuntimeError(report["reason"])
+        return report
+
+    m = measure_receptor_vs_displaced_binder(fused, ats, binder_chain=binder_chain)
+    report["measurement"] = m
+    if m.get("decoupled") is True:
+        report["passed"] = True
+        report["reason"] = (
+            "C5 OK (bound two-copy): displaced binder is decoupled from the "
+            "receptor (min-image %.3f nm >= %.1f nm, %d contacts < %.2f nm). The "
+            "disappearing group has vacated the pocket — no frozen-plateau risk."
+            % (m["min_image_dist_nm"], m["decouple_min_nm"], m["n_contacts"],
+               m["contact_cutoff_nm"]))
+        return report
+
+    # Violation -> HALT + escalate (fail-loud). The fixed d did NOT carry the
+    # displaced binder out of the pocket for this (endpoint, seed) -> a frozen
+    # plateau / false-green. Escalate (increase --displacement-nm or enable the
+    # auto-search displacement) rather than launching a corrupt bound leg.
+    report["reason"] = (
+        "C5 VIOLATION (bound two-copy %s/%s): the displaced binder is NOT "
+        "decoupled from the receptor (min-image=%s nm, %s contacts < %.2f nm; "
+        "ACCEPT requires 0 contacts AND min-image >= %.1f nm). The fixed "
+        "displacement did NOT carry the disappearing group out of the pocket -> "
+        "this bound leg would be a FROZEN PLATEAU (deterministic-offset "
+        "false-green). HALT + escalate: increase --displacement-nm or enable the "
+        "auto-search displacement before relaunching this (endpoint, seed)."
+        % (endpoint, seed,
+           ("%.3f" % m["min_image_dist_nm"]
+            if m.get("min_image_dist_nm") is not None else "None"),
+           m.get("n_contacts"), m.get("contact_cutoff_nm") or
+           RECEPTOR_CONTACT_CUTOFF_NM, m.get("decouple_min_nm") or
+           RECEPTOR_DECOUPLE_MIN_NM))
+    if raise_on_fail:
+        raise RuntimeError(report["reason"])
+    return report
+
+
+# ---------------------------------------------------------------------------
+# OPT-IN DCD atom-subset selection (probe diagnostic).
+# ---------------------------------------------------------------------------
+# Solvent / ion residue names excluded from the DCD subset (the ~290k PME
+# waters dominate the box; the res-4 structural order parameters live entirely
+# on the binder + receptor, so the subset is every NON-solvent atom). Standard
+# OpenMM/Amber water + monatomic-ion residue names.
+_DCD_SOLVENT_RESNAMES = frozenset({
+    "HOH", "WAT", "TIP3", "TIP4", "TIP5", "SPC", "T3P", "T4P",
+    "NA", "CL", "K", "MG", "CA", "ZN", "SOD", "CLA", "POT",
+})
+
+
+def _select_dcd_atom_indices(topology, alchemical_atoms=None) -> List[int]:
+    """Return the non-solvent atom indices to record in the probe DCD.
+
+    The recorded subset is EVERY non-water, non-ion atom (binder chain + the
+    receptor): it captures the res-4 sidechain χ1/χ2 swap atoms, the indole
+    ring pucker, the res-4 backbone φ/ψ, and the receptor pocket context, while
+    excluding the ~290k PME waters that dominate the 300k-atom box (so the DCD
+    is ≈KB/frame not ≈MB/frame). When ``alchemical_atoms`` metadata is present
+    (the fresh-serialize path exposes it; the reuse path does not), the function
+    ASSERTS the alchemical swap atoms are inside the subset (fail-loud) — the
+    res-4 χ judgment is meaningless if those atoms were dropped. Returns a
+    sorted, de-duplicated index list.
+    """
+    keep = set()
+    for atom in topology.atoms():
+        if atom.residue.name.upper() in _DCD_SOLVENT_RESNAMES:
+            continue
+        keep.add(int(atom.index))
+    if not keep:
+        raise RuntimeError(
+            "_select_dcd_atom_indices: no non-solvent atoms found in the box "
+            "topology (cannot record a structural DCD).")
+    if alchemical_atoms:
+        alch = set()
+        for key in ("mtr_var", "wt_var", "wt_var_fused",
+                    "common_attach_ne1", "copy1_ne1", "copy2_ne1"):
+            v = alchemical_atoms.get(key)
+            if v is None:
+                continue
+            if isinstance(v, (list, tuple)):
+                alch.update(int(a) for a in v)
+            else:
+                alch.add(int(v))
+        missing = sorted(a for a in alch if a not in keep)
+        if missing:
+            raise RuntimeError(
+                "_select_dcd_atom_indices: alchemical swap atom(s) %s were "
+                "excluded from the DCD subset (their residue was treated as "
+                "solvent?). The res-4 χ order parameter requires them — refusing "
+                "to write a DCD that cannot resolve the alchemical region."
+                % (missing,))
+    return sorted(keep)
+
+
+# ---------------------------------------------------------------------------
 # One standalone single-direction ladder run (in-process, the validated adapter).
 # ---------------------------------------------------------------------------
 def run_one_direction(
@@ -480,6 +960,14 @@ def run_one_direction(
     backward_equil_steps: int,
     construction: str = "single_core",
     lambda1_rampdown: Optional[List[float]] = None,
+    lambda2_rampup: Optional[List[float]] = None,
+    staged_min: bool = False,
+    reseed_perm_seed: Optional[int] = None,
+    reseed_endpoint: bool = False,
+    reseed_endpoint_band_lambda2_max: float = 0.25,
+    reseed_endpoint_equil_steps: int = 2000,
+    dcd_enabled: bool = False,
+    dcd_stride_cycles: int = 1,
 ) -> Dict[str, Any]:
     """Run ONE standalone direction ladder and write its per-walker .out tree.
 
@@ -500,7 +988,8 @@ def run_one_direction(
         rbfe, construction=construction, direction=direction,
         n_windows_half=n_windows_half, softcore_band=softcore_band,
         n_apex_bridge=n_apex_bridge, apex_band=apex_band,
-        lambda1_rampdown=lambda1_rampdown)
+        lambda1_rampdown=lambda1_rampdown,
+        lambda2_rampup=lambda2_rampup)
     base = JOBNAME + "_" + direction_tag
 
     cntl_path = os.path.join(subdir, base + "_asyncre.cntl")
@@ -508,13 +997,33 @@ def run_one_direction(
                           md_steps_per_cycle, timestep_fs)
     log_path = os.path.join(subdir, base + "_driver.log")
 
+    # OPT-IN DCD (probe diagnostic, default off). Record the non-solvent atoms
+    # (binder chain + receptor) so the frames resolve the res-4 sidechain χ1/χ2
+    # swap, ring pucker, and res-4 backbone φ/ψ for the under-sampling-vs-real-
+    # basin judgment, WITHOUT the ~290k PME waters (≈3.5 MB/frame -> ≈KB/frame).
+    # The alchemical atoms are asserted present in the subset (fail-loud).
+    dcd_dir = None
+    dcd_topology = None
+    dcd_atom_indices = None
+    if dcd_enabled:
+        dcd_dir = os.path.join(subdir, "dcd")
+        dcd_topology = loaded["topology"]
+        dcd_atom_indices = _select_dcd_atom_indices(
+            dcd_topology, loaded.get("alchemical_atoms"))
+
     ladder = rbfe.InplaceRbfeLadder(
         loaded["system"], loaded["positions"], schedule,
         platform_name=platform_name, temperature_K=schedule["temperature_K"],
         timestep_fs=timestep_fs, log_path=log_path, seed=rng_seed,
         minimize_iters=minimize_iters,
         backward_equil_steps=backward_equil_steps,
-        out_dir=subdir, out_basename=base)
+        out_dir=subdir, out_basename=base, staged_min=staged_min,
+        reseed_perm_seed=reseed_perm_seed, reseed_endpoint=reseed_endpoint,
+        reseed_endpoint_band_lambda2_max=reseed_endpoint_band_lambda2_max,
+        reseed_endpoint_equil_steps=reseed_endpoint_equil_steps,
+        dcd_dir=dcd_dir, dcd_topology=dcd_topology,
+        dcd_atom_indices=dcd_atom_indices,
+        dcd_stride_cycles=dcd_stride_cycles)
 
     nan_any = False
     nan_states_all: set = set()
@@ -630,7 +1139,18 @@ def run_one_replicate(
     reuse_serialized: bool = False,
     construction: str = "single_core",
     displacement_nm: Optional[float] = None,
+    auto_search_displacement: bool = False,
+    accept_sep_nm: float = _ATS_ACCEPT_SEP_NM_DEFAULT,
     lambda1_rampdown: Optional[List[float]] = None,
+    lambda2_rampup: Optional[List[float]] = None,
+    mutation_spec: Optional[Any] = None,
+    staged_min: bool = False,
+    reseed_perm_seed: Optional[int] = None,
+    reseed_endpoint: bool = False,
+    reseed_endpoint_band_lambda2_max: float = 0.25,
+    reseed_endpoint_equil_steps: int = 2000,
+    dcd_enabled: bool = False,
+    dcd_stride_cycles: int = 1,
 ) -> Dict[str, Any]:
     """Run one matched-seed replicate of one (endpoint, leg): the requested
     direction(s) + (when BOTH ran) merge into the combined leg dir UWHAM consumes.
@@ -649,6 +1169,24 @@ def run_one_replicate(
     only the requested direction's subdir is (re)written.
     """
     rep_dir = _rep_dir(out_root, endpoint, leg, replicate_index)
+    # G3 OUT-ROOT COLLISION GUARD: this rep slot (rep%d) is indexed POSITIONALLY
+    # off --seeds, so a separate invocation that re-uses the SAME --out-root but a
+    # DIFFERENT seed in the same slot would overwrite (or, with the default R-7
+    # archive, archive-AWAY) the first seed's ACTIVE data — corrupting the matched
+    # cohort UWHAM later reads. Read the rep dir's existing seed BEFORE any archive
+    # move and fail loud on mismatch (R-18). A same-seed resume passes; an
+    # empty/legacy dir continues and gets stamped below.
+    existing_seed = _existing_rep_seed(rep_dir)
+    if existing_seed is not None and str(existing_seed) != str(seed):
+        raise RuntimeError(
+            "G3 out-root collision: %s already holds seed=%s but this run is "
+            "seed=%s. A separate invocation mapped a DIFFERENT seed onto the same "
+            "rep%d slot (rep dirs are indexed positionally off --seeds). Use a "
+            "seed-tagged out-root (--out-root .../<seed>_<endpoint>) per single-"
+            "seed invocation, OR pass every seed in ONE invocation "
+            "(--seeds %s,%s,...) so they map to rep0/rep1/rep2 separately."
+            % (rep_dir, existing_seed, seed, replicate_index,
+               existing_seed, seed))
     # C12 R-7: archive (never delete) an existing rep dir before a fresh run.
     # Box reuse keeps the rep dir in place (do NOT archive — that would move the
     # producing direction's outputs away); the reuse path requires the box, and
@@ -661,6 +1199,15 @@ def run_one_replicate(
         os.makedirs(os.path.dirname(archive_root), exist_ok=True)
         shutil.move(rep_dir, archive_root)
     os.makedirs(rep_dir, exist_ok=True)
+    # G3 stamp: record which seed now owns this rep dir so a later DIFFERENT-seed
+    # invocation on the same out-root is caught above (a same-seed resume re-stamps
+    # idempotently). Best-effort — a stamp write failure must never break a launch
+    # (the run_manifest "seed" field is the fallback source of truth).
+    try:
+        with open(_seed_stamp_path(rep_dir, seed), "w") as _stampfh:
+            _stampfh.write(str(seed) + "\n")
+    except OSError:
+        pass
 
     # 1) Obtain the in-place fused System for this leg. Two paths:
     #    (a) FRESH (default): serialize a new box (C1: each leg gets its OWN
@@ -713,12 +1260,41 @@ def run_one_replicate(
         # canonical ATS default when None).
         if construction == "twocopy" and displacement_nm is not None:
             serialize_kwargs["displacement_nm"] = displacement_nm
+        # auto_search_displacement is two-copy-only; pass the flag + its acceptance
+        # line through ONLY on the twocopy path + ONLY when ENABLED, so the single-
+        # core serialize signature is unaffected and the default-off path stays
+        # byte-identical (the rbfe serialize defaults to fixed-direction). accept_sep
+        # rides along only when the search is on (it is consulted only by the search).
+        if construction == "twocopy" and auto_search_displacement:
+            serialize_kwargs["auto_search_displacement"] = True
+            serialize_kwargs["accept_sep_nm"] = accept_sep_nm
+        # mutation_spec is two-copy-only (the mutation-definition layer); pass it
+        # through only on the twocopy path + only when set so the single-core
+        # signature is unaffected and the default (None => res-4 MTR<->Trp) is
+        # byte-identical.
+        if construction == "twocopy" and mutation_spec is not None:
+            serialize_kwargs["mutation_spec"] = mutation_spec
         ser = rbfe.serialize_inplace_rbfe_system(**serialize_kwargs)
         # C8 SIGN-critical: validate the bound-leg decouple direction (fail loud).
         c8 = gate_decouple_direction(leg, ser.get("genuine_decouple_dir"),
                                      raise_on_fail=True)
         c8["source"] = "fresh_serialize"
         loaded = rbfe.load_serialized_system(ser["sys_xml_path"], ser["pdb_path"])
+
+    # 1b) C5 RECEPTOR-CONTACT PRE-FLIGHT (bound two-copy ONLY): the displaced binder
+    #     must cleanly decouple from the receptor BEFORE launch (n_contacts==0 AND
+    #     min-image >= 1 nm). The auto-search displacement is out of scope; this is
+    #     the safety net against a fixed-d frozen-plateau false-green. HALT + escalate
+    #     (fail-loud) on violation — NEVER silent-skip (R-18). Runs on the freshly
+    #     built box (the live `_build` carries modeller/system/n_copy1); on box-reuse
+    #     the producing direction already passed this gate, so it is skipped.
+    contact_gate: Optional[Dict[str, Any]] = None
+    if leg == "bound" and construction == "twocopy" and not reused_box:
+        fused = (ser.get("_build") or {}).get("fused_build")
+        contact_gate = gate_receptor_contact(
+            leg, construction, fused, _load_ats(),
+            endpoint=endpoint, seed=seed, binder_chain=binder_chain,
+            raise_on_fail=True)
 
     # 2) Run each requested direction as a STANDALONE ladder. The per-replicate
     #    velocity/exchange RNG seed differs per replicate (genuine independence).
@@ -736,7 +1312,13 @@ def run_one_replicate(
             platform_name=platform_name, timestep_fs=timestep_fs,
             rng_seed=rng_seed, minimize_iters=minimize_iters,
             backward_equil_steps=backward_equil_steps,
-            construction=construction, lambda1_rampdown=lambda1_rampdown)
+            construction=construction, lambda1_rampdown=lambda1_rampdown,
+            lambda2_rampup=lambda2_rampup,
+            staged_min=staged_min,
+            reseed_perm_seed=reseed_perm_seed, reseed_endpoint=reseed_endpoint,
+            reseed_endpoint_band_lambda2_max=reseed_endpoint_band_lambda2_max,
+            reseed_endpoint_equil_steps=reseed_endpoint_equil_steps,
+            dcd_enabled=dcd_enabled, dcd_stride_cycles=dcd_stride_cycles)
 
     # 3) Write the COMBINED symmetric cntl (the SSOT for merge + UWHAM) +, when
     #    BOTH directions ran, merge the per-direction outputs into r*/trackb.out.
@@ -746,7 +1328,8 @@ def run_one_replicate(
             rbfe, construction=construction,
             n_windows_half=n_windows_half, softcore_band=softcore_band,
             n_apex_bridge=n_apex_bridge, apex_band=apex_band,
-            lambda1_rampdown=lambda1_rampdown)
+            lambda1_rampdown=lambda1_rampdown,
+            lambda2_rampup=lambda2_rampup)
         combined_cntl = os.path.join(leg_dir, JOBNAME + "_asyncre.cntl")
         _write_combined_cntl(combined_cntl, combined_schedule, leg,
                              md_steps_per_cycle, timestep_fs)
@@ -772,6 +1355,16 @@ def run_one_replicate(
         "rng_seed": rng_seed,
         "directions": list(directions),
         "c8_decouple_gate": c8,
+        "c5_receptor_contact_gate": contact_gate,
+        "staged_min": staged_min,
+        # FIX-A re-seeding provenance (reproducibility): the LOGGED permutation
+        # seed + the endpoint re-seed config the ladder was built with. Default
+        # OFF => reseed_perm_seed=None, reseed_endpoint=False (the identity-init
+        # production default; byte-identical run).
+        "reseed_perm_seed": reseed_perm_seed,
+        "reseed_endpoint": reseed_endpoint,
+        "reseed_endpoint_band_lambda2_max": reseed_endpoint_band_lambda2_max,
+        "reseed_endpoint_equil_steps": reseed_endpoint_equil_steps,
         "reused_box": reused_box,
         "serialize": {
             "sys_xml_path": ser["sys_xml_path"],
@@ -780,11 +1373,20 @@ def run_one_replicate(
             "genuine_decouple_dir": ser.get("genuine_decouple_dir"),
             "reused": bool(ser.get("reused")),
             "construction": ser.get("construction", construction),
+            # task #100/#6: how d was chosen + the per-build search trail (selected
+            # direction/magnitude/achieved min-image sep) so the Keeper can audit
+            # declared (pre_registration) vs runtime displacement policy and the
+            # Path decoupling check has the realised separations. None on the
+            # single-core path / box-reuse (no fresh two-copy build).
+            "displacement_mode": ser.get("displacement_mode"),
+            "displacement_log": ser.get("displacement_log"),
         },
         "per_direction": per_direction,
         "merged": merged,
         "apex_cosampled_C3": apex_cosampled,
     }
+    # git provenance (additive; swallow-all so it can never break a launch).
+    manifest.update(_git_provenance())
     with open(os.path.join(leg_dir, "run_manifest.json"), "w") as fh:
         json.dump(manifest, fh, indent=2, default=str)
     return manifest
@@ -817,7 +1419,18 @@ def run_leg(
     reuse_serialized: bool = False,
     construction: str = "single_core",
     displacement_nm: Optional[float] = None,
+    auto_search_displacement: bool = False,
+    accept_sep_nm: float = _ATS_ACCEPT_SEP_NM_DEFAULT,
     lambda1_rampdown: Optional[List[float]] = None,
+    lambda2_rampup: Optional[List[float]] = None,
+    mutation_spec: Optional[Any] = None,
+    staged_min: bool = False,
+    reseed_perm_seed: Optional[int] = None,
+    reseed_endpoint: bool = False,
+    reseed_endpoint_band_lambda2_max: float = 0.25,
+    reseed_endpoint_equil_steps: int = 2000,
+    dcd_enabled: bool = False,
+    dcd_stride_cycles: int = 1,
 ) -> Dict[str, Any]:
     """Run all matched-seed replicates of one (endpoint, leg)."""
     rbfe = _load_rbfe()
@@ -839,7 +1452,15 @@ def run_leg(
             archive_existing=archive_existing,
             reuse_serialized=reuse_serialized,
             construction=construction, displacement_nm=displacement_nm,
-            lambda1_rampdown=lambda1_rampdown))
+            auto_search_displacement=auto_search_displacement,
+            accept_sep_nm=accept_sep_nm,
+            lambda1_rampdown=lambda1_rampdown, lambda2_rampup=lambda2_rampup,
+            mutation_spec=mutation_spec,
+            staged_min=staged_min,
+            reseed_perm_seed=reseed_perm_seed, reseed_endpoint=reseed_endpoint,
+            reseed_endpoint_band_lambda2_max=reseed_endpoint_band_lambda2_max,
+            reseed_endpoint_equil_steps=reseed_endpoint_equil_steps,
+            dcd_enabled=dcd_enabled, dcd_stride_cycles=dcd_stride_cycles))
     return {
         "endpoint": endpoint,
         "leg": leg,
@@ -994,6 +1615,13 @@ def analyze_leg_cohort(
     # Gate digest (C3 / C4 / C6) read from the per-replicate run manifests.
     gate_digest = _collect_gate_digest(out_root, leg, n_replicates)
 
+    # HARDENED per-seed RE-mixing acceptance gate (second-half no-reseal +
+    # both-direction round-trips + per-pair overlap), judged from the RAW
+    # per-seed driver logs (NOT occupancy, NOT the manifest rollup). Cohort
+    # verdict = AND over all seeds: a single seed-failing leg fails the cohort.
+    hardened_mixing = check_leg_hardened_mixing(
+        out_root, leg, n_replicates=n_replicates, mintimeid=mintimeid)
+
     result = {
         "schema": "trackb_inplace_rbfe_ddint_v1",
         "regime": "ranking_only_R11",
@@ -1013,6 +1641,10 @@ def analyze_leg_cohort(
         "sign_reason": sign_reason,
         "sign_undetermined": sign_status == "undetermined",
         "gates": gate_digest,
+        # HARDENED RE-mixing acceptance gate (per-seed AND; second-half no-reseal
+        # + both-direction round-trips + per-pair overlap O>=floor). The load-
+        # bearing fix vs the open-once-then-reseal false-green.
+        "hardened_mixing_gate": hardened_mixing,
         # The full UWHAM v3 payload (paired stats, closure quarantine, overlap
         # QC, sign-vs-anchor advisory) for transparency.
         "uwham_v3_payload": payload,
@@ -1068,6 +1700,159 @@ def _collect_gate_digest(out_root: str, leg: str, n_replicates: int
         "C4_roundtrip_ge_1_all": all_c4_ok,
         "C9_nan_seen": any_nan,
         "per_run": rows,
+    }
+
+
+def _resolve_direction_log_and_cntl(rep_dir: str, tag: str
+                                    ) -> Tuple[Optional[str], Optional[str]]:
+    """Resolve ONE direction's raw driver.log + sibling cntl under a rep dir."""
+    subdir = os.path.join(rep_dir, tag)
+    base = JOBNAME + "_" + tag
+    log = os.path.join(subdir, base + "_driver.log")
+    cntl = os.path.join(subdir, base + "_asyncre.cntl")
+    return (log if os.path.isfile(log) else None,
+            cntl if os.path.isfile(cntl) else None)
+
+
+def check_leg_hardened_mixing(
+    out_root: str,
+    leg: str,
+    *,
+    n_replicates: int,
+    mintimeid: Optional[int],
+    second_half_min_crossings: int = 5,
+    overlap_floor: float = 0.10,
+) -> Dict[str, Any]:
+    """HARDENED per-seed RE-mixing acceptance gate for a completed leg cohort.
+
+    For EVERY (endpoint, replicate-seed, direction) leg this:
+      1. reads the RAW driver.log ("Replica r new state s") — NOT occupancy, NOT
+         the dispatcher rollup,
+      2. computes per-adjacent-pair phase-space overlap (+ reporting BC) from the
+         per-walker .out histograms via the robust MBAR harness,
+      3. runs ``check_atm_mixing(require_hardened=True, ...)`` — which requires
+         second-half no-reseal (>= second_half_min_crossings per bond), both-
+         direction round trips, and per-pair overlap O >= overlap_floor.
+
+    The cohort verdict is the AND over every individual leg: a single seed's leg
+    FAILing (or INDETERMINATE) fails the cohort — a dispatcher PARTIAL_SUCCESS /
+    recovery may NOT roll a seed-failing leg up to PASS. INDETERMINATE legs (no
+    log, run too short, or overlaps unverifiable) are NOT counted as PASS.
+
+    Warmup: ``mintimeid`` (1-based cycle) maps to ``warmup_cycles = mintimeid-1``
+    so the gate judges the SAME post-equilibration window the UWHAM estimator
+    uses. ``mintimeid=None`` -> warmup 0.
+
+    Returns ``{"passed": bool, "verdict": str, "per_leg": [...], "n_pass",
+    "n_fail", "n_indeterminate"}``. Pure verification logic — touches no physics.
+    """
+    driver = _load_driver()
+    warmup = 0 if mintimeid is None else max(0, mintimeid - 1)
+
+    overlap_mod = _load_overlap()
+    parse_cntl = None
+    try:
+        uwham = _load_uwham()
+        parse_cntl = getattr(uwham, "_parse_cntl_schedule", None)
+    except Exception:  # noqa: BLE001 — postprocess import optional here
+        parse_cntl = None
+
+    per_leg: List[Dict[str, Any]] = []
+    n_pass = n_fail = n_indet = 0
+
+    for endpoint in ENDPOINTS:
+        for j in range(n_replicates):
+            rep_dir = _rep_dir(out_root, endpoint, leg, j)
+            for tag in DIRECTION_TAGS:
+                log, cntl = _resolve_direction_log_and_cntl(rep_dir, tag)
+                row: Dict[str, Any] = {
+                    "endpoint": endpoint, "rep": j, "direction": tag,
+                    "rep_dir": rep_dir,
+                }
+                if log is None:
+                    row["verdict"] = "INDETERMINATE"
+                    row["passed"] = False
+                    row["reason"] = "driver log not found under %s/%s" % (
+                        rep_dir, tag)
+                    per_leg.append(row)
+                    n_indet += 1
+                    continue
+
+                # Schedule soft-core SSOT from the sibling cntl (for K + overlap).
+                schedule = None
+                if cntl is not None and parse_cntl is not None:
+                    try:
+                        schedule = parse_cntl(cntl)
+                    except Exception:  # noqa: BLE001
+                        schedule = None
+                schedule_K = (schedule.get("n_states")
+                              if isinstance(schedule, dict) else None)
+                if schedule_K is None:
+                    schedule_K = driver._resolve_schedule_k_for_log(log)
+
+                # Per-pair overlap (+ reporting BC) from the .out histograms.
+                ov = {"overlaps": None, "bhattacharyya": None,
+                      "source": "overlap harness unavailable"}
+                if overlap_mod is not None and isinstance(schedule, dict):
+                    ov = _compute_adjacent_overlaps(
+                        rep_dir, tag, schedule, warmup)
+
+                res = driver.check_atm_mixing(
+                    log, schedule_K=schedule_K, warmup_cycles=warmup,
+                    min_crossings=1, require_hardened=True,
+                    second_half_min_crossings=second_half_min_crossings,
+                    overlaps=ov.get("overlaps"), overlap_floor=overlap_floor,
+                    bhattacharyya=ov.get("bhattacharyya"))
+
+                row["verdict"] = res.get("verdict")
+                row["passed"] = bool(res.get("passed"))
+                row["second_half_walls"] = res.get("second_half_walls")
+                row["total_round_trips_lo_first"] = res.get(
+                    "total_round_trips_lo_first")
+                row["total_round_trips_hi_first"] = res.get(
+                    "total_round_trips_hi_first")
+                row["overlap_walls"] = res.get("overlap_walls")
+                row["overlaps_supplied"] = res.get("overlaps_supplied")
+                row["overlap_source"] = ov.get("source")
+                # REPORTING-ONLY diagnostics surfaced (never gate).
+                row["bhattacharyya"] = res.get("bhattacharyya")
+                row["lambda2"] = res.get("lambda2")
+                row["message"] = res.get("message")
+                per_leg.append(row)
+
+                if row["verdict"] == "PASS":
+                    n_pass += 1
+                elif row["verdict"] == "FAIL":
+                    n_fail += 1
+                else:
+                    n_indet += 1
+
+    # AND over all legs: PASS only if every leg PASSED (>=1 leg present).
+    n_total = n_pass + n_fail + n_indet
+    cohort_pass = (n_total > 0 and n_fail == 0 and n_indet == 0)
+    if n_total == 0:
+        verdict = "INDETERMINATE"
+    elif cohort_pass:
+        verdict = "PASS"
+    elif n_fail > 0:
+        verdict = "FAIL"
+    else:
+        verdict = "INDETERMINATE"
+
+    return {
+        "schema": "trackb_inplace_rbfe_hardened_mixing_v1",
+        "leg": leg,
+        "passed": cohort_pass,
+        "verdict": verdict,
+        "n_legs": n_total,
+        "n_pass": n_pass,
+        "n_fail": n_fail,
+        "n_indeterminate": n_indet,
+        "second_half_min_crossings": second_half_min_crossings,
+        "overlap_floor": overlap_floor,
+        "mintimeid": mintimeid,
+        "warmup_cycles": warmup,
+        "per_leg": per_leg,
     }
 
 
@@ -1192,6 +1977,21 @@ def run_pool_local(
         ]
         if ladder_args.get("mtr_ncaa_xml"):
             cmd += ["--mtr-ncaa-xml", ladder_args["mtr_ncaa_xml"]]
+        # Staged minimization (opt-in) — propagate the flag so the worker stages the
+        # SAME large-box relax the dispatcher requested (default off => omitted).
+        if ladder_args.get("staged_min"):
+            cmd.append("--staged-min")
+        # FIX-A re-seeding (opt-in) — propagate the LOGGED permutation seed + the
+        # endpoint re-seed config so the worker builds the SAME initial condition
+        # the dispatcher requested (default off => omitted; byte-identical run).
+        if ladder_args.get("reseed_perm_seed") is not None:
+            cmd += ["--reseed-perm-seed", str(ladder_args["reseed_perm_seed"])]
+        if ladder_args.get("reseed_endpoint"):
+            cmd.append("--reseed-endpoint")
+            cmd += ["--reseed-endpoint-band-lambda2-max",
+                    str(ladder_args["reseed_endpoint_band_lambda2_max"])]
+            cmd += ["--reseed-endpoint-equil-steps",
+                    str(ladder_args["reseed_endpoint_equil_steps"])]
         # Two-copy construction (opt-in) — propagate the flag + displacement so
         # the worker builds the SAME box the dispatcher requested.
         if ladder_args.get("construction") == "twocopy":
@@ -1199,12 +1999,38 @@ def run_pool_local(
             if ladder_args.get("displacement_nm") is not None:
                 cmd += ["--displacement-nm",
                         str(ladder_args["displacement_nm"])]
+            # Auto-search displacement (two-copy-only, opt-in): propagate the flag +
+            # the SINGLE pre-registered acceptance line so every worker builds with
+            # the SAME displacement policy the dispatcher pre-registered (no policy
+            # heterogeneity across seeds x legs). Default off => omitted (the worker
+            # uses the fixed-direction path; byte-identical).
+            if ladder_args.get("auto_search_displacement"):
+                cmd.append("--auto-search-displacement")
+                cmd += ["--accept-sep-nm",
+                        str(ladder_args["accept_sep_nm"])]
+            # Mutation-definition spec (two-copy-only): thread the selected spec so
+            # the worker builds the SAME mutation (default None => res-4 MTR<->Trp).
+            if ladder_args.get("mutation_spec") is not None:
+                cmd += ["--mutation", str(ladder_args["mutation_spec"])]
             # Leg-down densification knots (two-copy-only): thread the same
             # comma-list the dispatcher parsed so the worker builds the SAME
             # ladder (e.g. the λ1=0.05 leg-switch bridge => 12 λ/leg).
             if ladder_args.get("lambda1_rampdown") is not None:
                 cmd += ["--lambda1-rampdown",
                         ",".join(str(x) for x in ladder_args["lambda1_rampdown"])]
+            # Leg-up densification knots (two-copy-only): thread the same comma-list
+            # the dispatcher parsed so the worker builds the SAME ladder (e.g. the
+            # λ2=0.05/0.15 deep-decouple bridges => 8 leg-up states).
+            if ladder_args.get("lambda2_rampup") is not None:
+                cmd += ["--lambda2-rampdown",
+                        ",".join(str(x) for x in ladder_args["lambda2_rampup"])]
+        # OPT-IN DCD (probe diagnostic): thread the same flag + stride the
+        # dispatcher set so each pool worker writes its per-walker trajectory.
+        # Default off => omitted (byte-identical; production legs do not pass it).
+        if ladder_args.get("dcd"):
+            cmd.append("--dcd")
+            cmd += ["--dcd-stride-cycles",
+                    str(ladder_args.get("dcd_stride_cycles", 1))]
         if not archive_existing:
             cmd.append("--no-archive-existing")
         if reuse_serialized:
@@ -1290,6 +2116,29 @@ def _parse_lambda1_rampdown(raw: Optional[str]) -> Optional[List[float]]:
             % (raw, exc))
 
 
+def _parse_lambda2_rampdown(raw: Optional[str]) -> Optional[List[float]]:
+    """Parse the --lambda2-rampdown comma list into floats (fail loud).
+
+    NOTE: the flag name is ``--lambda2-rampdown`` for symmetry with
+    ``--lambda1-rampdown``, but the leg-up phase climbs λ2 UP from the decoupled
+    endpoint to the apex — the engine kwarg ``lambda2_rampup`` is the truthful
+    name. ``None`` / empty -> ``None`` (canonical uniform leg-up). The per-knot
+    range / monotonicity / endpoint validation lives in build_ats_standard_ladder
+    (the SSOT); this only turns the CLI string into floats.
+    """
+    if not raw:
+        return None
+    knots = [s.strip() for s in raw.split(",") if s.strip()]
+    if not knots:
+        raise ValueError("--lambda2-rampdown parsed to an empty list")
+    try:
+        return [float(x) for x in knots]
+    except ValueError as exc:
+        raise ValueError(
+            "--lambda2-rampdown must be a comma list of floats, got %r (%s)"
+            % (raw, exc))
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         description="Track B in-place residue-4 RBFE per-direction production "
@@ -1320,7 +2169,43 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--displacement-nm", type=float, default=None,
                    help="Two-copy ONLY: magnitude of the copy-2 bulk displacement "
                         "d (nm; ATS peptide convention ~4.0 = 40 A). Default None "
-                        "=> the canonical ATS_TWOCOPY_DISPLACEMENT_NM.")
+                        "=> the canonical ATS_TWOCOPY_DISPLACEMENT_NM. Ignored "
+                        "when --auto-search-displacement is set (the search picks "
+                        "the magnitude from its escalation ladder).")
+    p.add_argument("--auto-search-displacement", action="store_true",
+                   help="Two-copy ONLY (opt-in): choose the copy-2 bulk "
+                        "displacement by the builder's direction-aware cone search "
+                        "(maximises the copy1<->copy2 + periodic-image min heavy-"
+                        "atom distance, escalates the magnitude only if no "
+                        "direction clears --accept-sep-nm) instead of the fixed "
+                        "residue-local direction at --displacement-nm. Recovers "
+                        "the bound-leg two-copy box build where a fixed-direction "
+                        "d drives copy-2's binder through copy-1's receptor body. "
+                        "d-/direction-NEUTRAL (the swap is partner-offset based; "
+                        "u1-u0 is d-invariant given full decoupling), so ranking-"
+                        "safe. A SINGLE search policy (--accept-sep-nm + the "
+                        "builder cone/magnitude-ladder constants) is applied to "
+                        "EVERY seed x leg (pre-registered; no policy heterogeneity). "
+                        "DEFAULT OFF = fixed direction (byte-identical legacy).")
+    p.add_argument("--accept-sep-nm", type=float,
+                   default=_ATS_ACCEPT_SEP_NM_DEFAULT,
+                   help="Two-copy auto-search ONLY: the decoupling-sufficient "
+                        "acceptance line (nm) a candidate direction must clear "
+                        "(PME cutoff + LJ-tail buffer). Default %.1f. Consulted "
+                        "only when --auto-search-displacement is set; the post-"
+                        "solvate C6 separation assert always enforces the 1.0 nm "
+                        "clash floor + periodic-image gate regardless."
+                        % _ATS_ACCEPT_SEP_NM_DEFAULT)
+    p.add_argument("--mutation", default=None,
+                   help="Two-copy ONLY: the mutation-definition spec (the residue + "
+                        "alchemical-atom partition). Default None => the legacy "
+                        "res-4 MTR<->Trp spec (byte-identical). Use "
+                        "'v3i_val_ile_res3' for the canonical res-3 Val<->Ile "
+                        "engine-validation build (appearing-heavy, all-amber, no "
+                        "ncAA XML), or 'a9g_ala_gly_res9' for the canonical res-9 "
+                        "Ala<->Gly disappearing-heavy engine-DE-RISK build "
+                        "(all-amber). Known names come from "
+                        "atm_trackB_setup.MUTATION_SPECS.")
     p.add_argument("--lambda1-rampdown", default=None,
                    help="Two-copy ONLY: comma list of explicit leg-down λ1 knots "
                         "to densify the leg-switch handoff (each in (0,0.5], "
@@ -1329,6 +2214,19 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "0.05,0.1,0.2,0.3,0.4,0.5 inserts a λ1=0.05 bridge window "
                         "=> 12 λ/leg. Default None => the canonical uniform "
                         "leg-down (11 λ/leg). Interior-λ reshaping = ΔG-unbiased "
+                        "(ranking-only, R-11); soft-core canon untouched (C7).")
+    p.add_argument("--lambda2-rampdown", default=None,
+                   help="Two-copy ONLY: comma list of explicit leg-UP λ2 knots to "
+                        "densify the deep-λ2 decouple tail (the soft-core leg-up "
+                        "phase the --lambda1-rampdown leg-down cannot reach). Each "
+                        "in [0,0.5], strictly increasing; MUST start at 0.0 (the "
+                        "leg-up OWNS the decoupled λ2=λ1=0 endpoint) and end at "
+                        "0.5 (the apex). NOTE: the flag name mirrors "
+                        "--lambda1-rampdown for symmetry, but the leg-up climbs λ2 "
+                        "UP (the engine kwarg is lambda2_rampup). E.g. "
+                        "0.0,0.05,0.1,0.15,0.2,0.3,0.4,0.5 inserts λ2=0.05/0.15 "
+                        "bridges => 8 leg-up states. Default None => the canonical "
+                        "uniform leg-up. Interior-λ reshaping = ΔG-unbiased "
                         "(ranking-only, R-11); soft-core canon untouched (C7).")
     p.add_argument("--n-windows-half", type=int, default=6,
                    help="Forward-half window count (the fork-validated default "
@@ -1347,6 +2245,44 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--platform", default="CUDA")
     p.add_argument("--timestep-fs", type=float, default=1.0)
     p.add_argument("--minimize-iters", type=int, default=500)
+    p.add_argument("--staged-min", action="store_true",
+                   help="OPT-IN staged minimization (W4A 9-heavy fused-indole "
+                        "large-box stability). When set, each replica is "
+                        "stage-relaxed: a >=5000-iter reference-state (soft-core "
+                        "OFF) minimize of the fresh PME water shell, then a short "
+                        "polish minimize at the assigned state, then a brief MD "
+                        "warmup (the validated W4A/w4a_bound_smoke.py path). "
+                        "DEFAULT OFF => the existing single-stage minimize runs "
+                        "unchanged (V3I/MTR/A9G byte-identical). Does NOT change "
+                        "--minimize-iters (staged uses its own >=5000 floor).")
+    p.add_argument("--reseed-perm-seed", type=int, default=None,
+                   help="OPT-IN FIX-A (A1): LOGGED integer seed for a non-identity "
+                        "replica->state init permutation (instead of the legacy "
+                        "identity map). Recorded to the run_manifest for "
+                        "reproducibility. DEFAULT None => identity init "
+                        "(byte-identical; V3I/MTR/A9G unaffected). Replica-exchange "
+                        "equilibrium is initial-condition-independent => FE-unbiased "
+                        "(Sugita-Okamoto 1999; Chodera-Shirts 2011). C7 / λ-schedule "
+                        "/ energies / Metropolis FROZEN — this only changes WHERE "
+                        "each walker starts at t=0.")
+    p.add_argument("--reseed-endpoint", action="store_true",
+                   help="OPT-IN FIX-A (A2): seed the decoupled-endpoint BAND "
+                        "contexts from a standalone short equilibration at the "
+                        "genuine decoupled endpoint's own λ-tuple (min-λ2 corner; "
+                        "DIRECTION-CORRECT for BOTH dplus and dminus) instead of "
+                        "the coupled starting positions. Targets the basin-lock "
+                        "that re-seals the soft-core wall. DEFAULT OFF => every "
+                        "context keeps the coupled seed (byte-identical). "
+                        "Initial-condition only => FE-unbiased; C7 untouched.")
+    p.add_argument("--reseed-endpoint-band-lambda2-max", type=float, default=0.25,
+                   help="FIX-A (A2): λ2 upper bound of the decoupled band the "
+                        "endpoint re-seed touches (default 0.25 => the low-λ2 tail, "
+                        "e.g. {8,9,10} on the 11-state ladder, {9,10,11} densified). "
+                        "Only used with --reseed-endpoint.")
+    p.add_argument("--reseed-endpoint-equil-steps", type=int, default=2000,
+                   help="FIX-A (A2): standalone MD equilibration steps at the "
+                        "decoupled endpoint before capturing the relaxed seed "
+                        "config (default 2000). Only used with --reseed-endpoint.")
     p.add_argument("--backward-equil-steps", type=int, default=500)
     p.add_argument("--genuine-decouple-nm", type=float, default=1.2)
     p.add_argument("--mtr-ncaa-xml", default=None,
@@ -1368,6 +2304,24 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "against the SAME box the producing direction used "
                         "(UWHAM stitch validity). Fails loud if the box is "
                         "absent (no silent fresh re-serialize).")
+    p.add_argument("--dcd", action="store_true",
+                   help="OPT-IN per-walker DCD trajectory (probe diagnostic). "
+                        "Writes <leg>/rep*/<dir>/dcd/r*/<base>.dcd — one frame "
+                        "per walker per --dcd-stride-cycles cycles, recording the "
+                        "non-solvent atoms (binder + receptor, NOT the ~290k PME "
+                        "waters) so the frames resolve the res-4 sidechain χ1/χ2 "
+                        "swap, indole ring pucker, and res-4 backbone φ/ψ "
+                        "(under-sampling vs real-basin judgment). Observation "
+                        "only — read AFTER the .out/exchange logic, so the "
+                        "dgbind1/UWHAM estimator is byte-identical. DEFAULT OFF "
+                        "(production legs do not write DCD). The frames are "
+                        "post-run moved to ExpDATA + symlinked back by the "
+                        "Runner's localize hook; deleted only after analysis.")
+    p.add_argument("--dcd-stride-cycles", type=int, default=1,
+                   help="DCD frame stride in asyncre CYCLES (default 1 = one "
+                        "frame/walker/cycle = one frame every "
+                        "--md-steps-per-cycle MD steps). Lower captures faster χ "
+                        "flips; only consulted when --dcd is set.")
     p.add_argument("--analyze-only", action="store_true",
                    help="Skip the run; UWHAM-analyze already-completed leg dirs.")
     p.add_argument("--dry-run", action="store_true",
@@ -1407,7 +2361,36 @@ def main(argv: Optional[List[str]] = None) -> int:
     leg = args.leg
     construction = "twocopy" if args.twocopy else "single_core"
     displacement_nm = args.displacement_nm
+    auto_search_displacement = args.auto_search_displacement
+    accept_sep_nm = args.accept_sep_nm
+    mutation_spec = args.mutation
     lambda1_rampdown = _parse_lambda1_rampdown(args.lambda1_rampdown)
+    lambda2_rampup = _parse_lambda2_rampdown(args.lambda2_rampdown)
+
+    # --lambda1-rampdown / --lambda2-rampdown are two-copy ONLY (single_core has no
+    # leg-switch boundary / soft-core leg-up); fail loud rather than silently
+    # ignore on single_core.
+    if (lambda1_rampdown is not None or lambda2_rampup is not None) \
+            and construction != "twocopy":
+        print("ERROR: --lambda1-rampdown / --lambda2-rampdown require --twocopy "
+              "(the leg-down / leg-up λ densification applies only to the "
+              "canonical ATS two-copy build).", file=sys.stderr)
+        return 2
+
+    # --mutation is two-copy ONLY (the single-core path is the MTR<->Trp single-
+    # shared-core build); fail loud rather than silently ignore on single_core.
+    if mutation_spec is not None and construction != "twocopy":
+        print("ERROR: --mutation requires --twocopy (the mutation-definition spec "
+              "applies only to the canonical ATS two-copy build).", file=sys.stderr)
+        return 2
+
+    # --auto-search-displacement is two-copy ONLY (single_core has no copy-2 bulk
+    # displacement to search); fail loud rather than silently ignore on single_core.
+    if auto_search_displacement and construction != "twocopy":
+        print("ERROR: --auto-search-displacement requires --twocopy (the "
+              "direction-aware displacement search applies only to the canonical "
+              "ATS two-copy build's copy-2 bulk displacement).", file=sys.stderr)
+        return 2
 
     mintimeid = None if args.mintimeid == -1 else args.mintimeid
 
@@ -1455,7 +2438,18 @@ def main(argv: Optional[List[str]] = None) -> int:
                 archive_existing=not args.no_archive_existing,
                 reuse_serialized=args.reuse_serialized,
                 construction=construction, displacement_nm=displacement_nm,
-                lambda1_rampdown=lambda1_rampdown)
+                auto_search_displacement=auto_search_displacement,
+                accept_sep_nm=accept_sep_nm,
+                lambda1_rampdown=lambda1_rampdown,
+                lambda2_rampup=lambda2_rampup, mutation_spec=mutation_spec,
+                staged_min=args.staged_min,
+                reseed_perm_seed=args.reseed_perm_seed,
+                reseed_endpoint=args.reseed_endpoint,
+                reseed_endpoint_band_lambda2_max=(
+                    args.reseed_endpoint_band_lambda2_max),
+                reseed_endpoint_equil_steps=args.reseed_endpoint_equil_steps,
+                dcd_enabled=args.dcd,
+                dcd_stride_cycles=args.dcd_stride_cycles)
         except Exception as exc:  # noqa: BLE001 — surface as non-zero worker exit
             print("WORKER FAILED %s/%s rep%d: %s"
                   % (args.worker_endpoint, leg, args.worker_replicate, exc),
@@ -1474,9 +2468,52 @@ def main(argv: Optional[List[str]] = None) -> int:
         "platform": args.platform, "timestep_fs": args.timestep_fs,
         "genuine_decouple_nm": args.genuine_decouple_nm,
         "construction": construction, "displacement_nm": displacement_nm,
+        # task #100/#3 (SciVal condition 2): pre-register the SINGLE displacement
+        # search policy (anti-HARKing — fixed BEFORE the data + Keeper-auditable
+        # vs the runtime displacement_log). The same policy is applied to EVERY
+        # seed x leg; d-result heterogeneity (different chosen vectors) is harmless,
+        # policy heterogeneity is forbidden. The cone half-angle + magnitude ladder
+        # are the pinned engine constants (atm_trackB_setup.ATS_TWOCOPY_AUTOSEARCH_*),
+        # recorded by reference so the prereg stays openmm-import-free at parse time.
+        "displacement_search": {
+            "auto_search_displacement": auto_search_displacement,
+            "accept_sep_nm": (accept_sep_nm if auto_search_displacement else None),
+            "policy_constants_source": (
+                "atm_trackB_setup.ATS_TWOCOPY_AUTOSEARCH_{CONE_DEG,N_CANDIDATES,"
+                "MAGNITUDES_NM} + ATS_TWOCOPY_CLASH_FLOOR_NM (cone half-angle, "
+                "candidate count, magnitude escalation ladder, hard clash floor) "
+                "— pinned; base direction = compute_decouple_direction (res-local "
+                "outward)") if auto_search_displacement else None,
+            "applies_to": ("all (endpoint x seed x leg) identically"
+                           if auto_search_displacement else None),
+            # G2 — per-cell displacement policy record. The launcher applies ONE
+            # policy (from the CLI) to EVERY (endpoint x seed) cell of this leg, so
+            # the cells here are uniform BY CONSTRUCTION; recording them per-cell
+            # makes the on-disk prereg the post-hoc audit artifact a Keeper can
+            # cross-check between SEPARATE invocations sharing an out-root (where
+            # mixed policies WOULD be a real hazard — caught by the uniformity
+            # assert below + the G3 collision guard at run time).
+            "per_cell": _build_displacement_cells(
+                endpoints, seeds, leg, auto_search_displacement,
+                accept_sep_nm, displacement_nm),
+        },
+        "mtr_ncaa_xml": args.mtr_ncaa_xml,
+        "mutation_spec": mutation_spec,
         "lambda1_rampdown": lambda1_rampdown,
+        "lambda2_rampup": lambda2_rampup,
+        "staged_min": args.staged_min,
+        "reseed_perm_seed": args.reseed_perm_seed,
+        "reseed_endpoint": args.reseed_endpoint,
+        "reseed_endpoint_band_lambda2_max": args.reseed_endpoint_band_lambda2_max,
+        "reseed_endpoint_equil_steps": args.reseed_endpoint_equil_steps,
         "out_root": out_root, "mintimeid": mintimeid,
     }
+
+    # G2 — every (endpoint x seed) cell of this invocation must share ONE
+    # displacement policy (fail loud on a mix; runs in every mode incl. dry-run so
+    # a wiring error surfaces before anything is written/launched).
+    _assert_uniform_displacement_policy(
+        config["displacement_search"]["per_cell"])
 
     # C11 pre-registration (BEFORE the run / analysis).
     prereg_path = write_pre_registration(out_root, config)
@@ -1498,25 +2535,57 @@ def main(argv: Optional[List[str]] = None) -> int:
         }
         if construction == "twocopy":
             # Surface the two-copy ATS schedule shape (n_windows_half=6 => 11 λ/leg;
-            # with --lambda1-rampdown the leg-down is densified => 12 λ/leg).
+            # with --lambda1-rampdown the leg-down is densified => 12 λ/leg; with
+            # --lambda2-rampdown the leg-up deep-λ2 tail is densified).
             rbfe_mod = _load_rbfe()
             sch = rbfe_mod.build_ats_standard_ladder(
                 n_windows_half=args.n_windows_half, single_direction="forward",
-                lambda1_rampdown=lambda1_rampdown)
+                lambda1_rampdown=lambda1_rampdown,
+                lambda2_rampup=lambda2_rampup)
             plan["schedule_kind"] = "ats_standard"
             plan["n_lambda_per_leg"] = sch["n_states"]
             plan["lambdas_1"] = sch["lambdas_1"]
             plan["lambdas_2"] = sch["lambdas_2"]
             plan["lambda1_rampdown"] = lambda1_rampdown
+            plan["lambda2_rampup"] = lambda2_rampup
             plan["u0_kcal"] = sch["u0"][0]
             plan["displacement_nm"] = (
                 displacement_nm if displacement_nm is not None
                 else "default (ATS_TWOCOPY_DISPLACEMENT_NM)")
+            # task #100/#3: surface the chosen displacement policy in the plan so a
+            # dry-run shows whether the auto-search is armed + its acceptance line
+            # (the full policy is in config["displacement_search"]).
+            plan["displacement_mode"] = (
+                "auto_search" if auto_search_displacement else "fixed_direction")
+            if auto_search_displacement:
+                plan["accept_sep_nm"] = accept_sep_nm
         print(json.dumps({"plan": plan, "config": config}, indent=2,
                          default=str))
         return 0
 
     if not args.analyze_only:
+        # G1 — two-copy displacement-policy gate (most important). A two-copy box
+        # built with the LEGACY fixed residue-local direction drives copy-2's
+        # binder through copy-1's receptor body for some poses (the C6 separation
+        # hard-fail, e.g. cp4/s199 copy<->copy 0.144 nm interpenetration). A real
+        # launch must therefore EITHER arm the direction-aware search
+        # (--auto-search-displacement --accept-sep-nm 1.5) OR DELIBERATELY pin a
+        # fixed magnitude (--displacement-nm). A bare --twocopy is a silent slide
+        # into the unsafe legacy default — block it (R-18). Default values are NOT
+        # changed (other call paths stay byte-identical); only the OMISSION is the
+        # hard error. (--dry-run returns above; --analyze-only never reaches here,
+        # so the plan/inspection paths are unaffected.)
+        if construction == "twocopy" \
+                and not auto_search_displacement and displacement_nm is None:
+            print(
+                "ERROR: --twocopy launch without a displacement policy. The two-"
+                "copy box's fixed residue-local direction drives copy-2 through "
+                "copy-1's receptor for some poses (C6 separation fail). Specify "
+                "--auto-search-displacement --accept-sep-nm 1.5 (recommended; "
+                "direction-aware search), OR --displacement-nm <nm> if you "
+                "DELIBERATELY want a fixed-direction magnitude.", file=sys.stderr)
+            return 2
+
         # Fail-loud seed-availability gate: every matched (endpoint, seed) must
         # have its endpoint final PDB (a missing one breaks the paired ddG; R-18).
         seed_gate = gate_seed_availability(endpoints, seeds)
@@ -1539,7 +2608,19 @@ def main(argv: Optional[List[str]] = None) -> int:
             "genuine_decouple_nm": args.genuine_decouple_nm,
             "mtr_ncaa_xml": args.mtr_ncaa_xml, "binder_chain": args.binder_chain,
             "construction": construction, "displacement_nm": displacement_nm,
+            "auto_search_displacement": auto_search_displacement,
+            "accept_sep_nm": accept_sep_nm,
+            "mutation_spec": mutation_spec,
             "lambda1_rampdown": lambda1_rampdown,
+            "lambda2_rampup": lambda2_rampup,
+            "staged_min": args.staged_min,
+            "reseed_perm_seed": args.reseed_perm_seed,
+            "reseed_endpoint": args.reseed_endpoint,
+            "reseed_endpoint_band_lambda2_max": (
+                args.reseed_endpoint_band_lambda2_max),
+            "reseed_endpoint_equil_steps": args.reseed_endpoint_equil_steps,
+            "dcd": args.dcd,
+            "dcd_stride_cycles": args.dcd_stride_cycles,
         }
 
         if args.pool:
@@ -1593,7 +2674,18 @@ def main(argv: Optional[List[str]] = None) -> int:
                     archive_existing=not args.no_archive_existing,
                     reuse_serialized=args.reuse_serialized,
                     construction=construction, displacement_nm=displacement_nm,
-                    lambda1_rampdown=lambda1_rampdown)
+                    auto_search_displacement=auto_search_displacement,
+                    accept_sep_nm=accept_sep_nm,
+                    lambda1_rampdown=lambda1_rampdown,
+                    lambda2_rampup=lambda2_rampup, mutation_spec=mutation_spec,
+                    staged_min=args.staged_min,
+                    reseed_perm_seed=args.reseed_perm_seed,
+                    reseed_endpoint=args.reseed_endpoint,
+                    reseed_endpoint_band_lambda2_max=(
+                        args.reseed_endpoint_band_lambda2_max),
+                    reseed_endpoint_equil_steps=args.reseed_endpoint_equil_steps,
+                    dcd_enabled=args.dcd,
+                    dcd_stride_cycles=args.dcd_stride_cycles)
                 print("[%s/%s] done in %.1f s (%d replicates)"
                       % (endpoint, leg, time.time() - t0,
                          leg_result["n_replicates"]))

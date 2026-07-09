@@ -20,7 +20,7 @@ A-C1 (both directions, mandatory):
 A-C2: clash filter MANDATORY (reject new heavy-contact <2.0 Å / H-contact
 <1.5 Å on the swapped endpoint), THEN (follow-up) constrained micro-min. This
 orchestrator records the no-min clash decision per frame; the with-min column is
-the Keeper-gated follow-up (see utils.qmmm_1traj_variant_compare.constrained_micro_min).
+the integrity-gated follow-up (see utils.qmmm_1traj_variant_compare.constrained_micro_min).
 
 A-C3: gas-phase qm_int_kcal_frozen is the primary column; the COSMO/PCM (ε=78.5)
 second column is produced on the SAME geometries when --pcm is set (the engine-
@@ -34,7 +34,7 @@ identically for both endpoints (verified per frame, not bypassed).
 Regime: ranking-only (R-11). ΔΔ_int ≠ ΔΔG_bind; NO Magotti absolute comparison.
 BSSE +3-8 band + 1-traj-approximation + MM-geometry-bias disclosed in the JSON.
 
-Source verdict: .claude/agent-memory/scival/verdict_trackAB_qm1traj_fep_prevalidation_20260529.md
+Source verdict: internal scientific-review note 20260529
 """
 from __future__ import annotations
 
@@ -43,7 +43,7 @@ import json
 import os
 import sys
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 # utils/ on sys.path for dispatch + the swap primitive (reuse, no edits)
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -189,7 +189,7 @@ def compute_frame(direction: str, seed: str, frame: Dict[str, object],
         "pcm": pair.get("pcm"),
         "fail_reason": pair.get("fail_reason"),
         # A-C2: a clashed no-min frame is excluded from the no-min aggregate;
-        # the with-min column is the Keeper-gated follow-up.
+        # the with-min column is the integrity-gated follow-up.
         "ok": (pair.get("ddint_kcal") is not None and not pair.get("clash_flag")),
         "ok_including_clashed": pair.get("ddint_kcal") is not None,
     }
@@ -312,7 +312,7 @@ def aggregate(records: List[Dict[str, object]], logdir: str) -> Dict[str, object
             "clash_filter": (
                 "no-min aggregate excludes frames whose swap created a new "
                 "heavy-contact <2.0 Å or H-contact <1.5 Å (A-C2); the constrained "
-                "micro-min (with-min) column is the Keeper-gated follow-up."
+                "micro-min (with-min) column is the integrity-gated follow-up."
             ),
         },
         "per_frame": records,
@@ -383,7 +383,7 @@ def mode_dry_run(n_frames: int) -> int:
         print(f"[!] {missing} seed/direction(s) unresolved — investigate before launch.")
         return 1
     print(f"[OK] all {len(enumerate_plan())} seed/direction plans resolved "
-          f"({total_frames} frames total); plan ready for Keeper/Runner gate.")
+          f"({total_frames} frames total); plan ready for integrity/execution gate.")
     return 0
 
 
@@ -408,6 +408,244 @@ def mode_smoke(direction: str, seed: str, n_frames: int, run_pcm: bool) -> int:
     agg = aggregate(records, logdir)
     print(f"  → {agg['path']}")
     return 0 if any(r["ok"] for r in records) else 1
+
+
+# ──────────────────────────────────────────────────────────────
+# Batch mode (2026-05-30, Phase IV-a perf opt) — single-SSH multi-frame
+# ──────────────────────────────────────────────────────────────
+# Cold-start dominant cost in serial mode (19:36 실측 PID 520368):
+#   per-endpoint ~24min (cold gpu4pyscf JIT + CUDA init + DIIS warmup)
+#   per-frame ~48min (Cp4 + WT), 48 frame ETA ~37h
+# Batch mode amortizes cold init across endpoint count in batch (single SSH,
+# single python process, glob.glob loop in run_qmmm.py:2785 keeps PySCF state
+# warm across all PDBs). PCM (--pcm) is NOT supported in batch — falls back
+# to serial. Direction agreement gate (A-C1) is unchanged.
+
+def _chunked(seq: List[Any], n: int) -> List[List[Any]]:
+    """Split seq into chunks of up to n items each. Empty seq → []."""
+    if n <= 0:
+        return [list(seq)] if seq else []
+    return [list(seq[i:i + n]) for i in range(0, len(seq), n)]
+
+
+def _batch_record_from_pair(direction: str, seed: str,
+                            frame_meta: Dict[str, object],
+                            pair: Dict[str, object]) -> Dict[str, object]:
+    """Convert one (frame, pair) into the same per-frame record shape
+    compute_frame() produces. Mirrors compute_frame's output fields exactly."""
+    rec: Dict[str, object] = {
+        "direction": direction,
+        "seed": seed,
+        "snapshot_stem": frame_meta["snapshot_stem"],
+        "base_delta_g_kcal": frame_meta["delta_g_kcal"],
+        "ddint_kcal": pair.get("ddint_kcal"),
+        "e_int_cp4": pair.get("e_int_cp4"),
+        "e_int_wt": pair.get("e_int_wt"),
+        "clash_flag": pair.get("clash_flag"),
+        "charge_audit": pair.get("charge_audit"),
+        "pcm": None,        # batch mode does not compute PCM (use serial --pcm)
+        "fail_reason": pair.get("fail_reason"),
+        "ok": (pair.get("ddint_kcal") is not None and not pair.get("clash_flag")),
+        "ok_including_clashed": pair.get("ddint_kcal") is not None,
+    }
+    return rec
+
+
+def mode_full_batch(n_frames: int, batch_size: int) -> int:
+    """Single-SSH batch dispatch mode — Phase IV-a perf opt (2026-05-30).
+
+    Resolves all (direction, seed, frame) per the standard plan, but groups
+    them into batches of ``batch_size`` frames (= 2*batch_size endpoint PDBs)
+    each. Per batch: ONE SSH + ONE python process on V100 ⇒ cold-start
+    (gpu4pyscf JIT + CUDA init + DIIS warmup) happens ONCE per batch, not
+    once per endpoint. PCM second column is NOT supported here (use mode_full).
+    """
+    from qmmm_1traj_variant_compare import compute_qm_int_pair_batch  # noqa: E402
+
+    logdir = _new_logdir()
+    loc = dispatch.route_stage("qmmm")
+    print(f"[BATCH] logdir={logdir}  batch_size={batch_size}")
+    print(f"  qmmm route: {loc} (UPDD_VM_ENABLE={'1' if dispatch.UPDD_VM_ENABLE else '0'})")
+    if loc != dispatch.GPULocation.VM_V100:
+        print("  [!] batch mode requires UPDD_VM_ENABLE=1; falling back to mode_full (serial)")
+        return mode_full(n_frames, run_pcm=False)
+
+    # 1) Enumerate all frames across all (direction, seed) into a flat list.
+    flat: List[Dict[str, object]] = []  # [{direction, seed, frame_dict}, ...]
+    for direction, seed in enumerate_plan():
+        info = resolve_frames(direction, seed, n_frames)
+        if not info["resolve_ok"]:
+            print(f"  ── {direction} {seed} ── RESOLVE-FAIL: {info.get('error')}")
+            continue
+        for frame in info["frames"]:  # type: ignore[union-attr]
+            flat.append({"direction": direction, "seed": seed, "frame": frame})
+
+    if not flat:
+        print("[!] no frames resolved — aborting batch run")
+        return 1
+
+    print(f"[BATCH] {len(flat)} frames resolved across {len(enumerate_plan())} (direction,seed) slots")
+    print(f"[BATCH] dispatching in {(len(flat) + batch_size - 1) // batch_size} batch(es) of up to {batch_size}")
+
+    # 2) Group into batches + dispatch each batch via single SSH.
+    records: List[Dict[str, object]] = []
+    for batch_idx, batch in enumerate(_chunked(flat, batch_size), start=1):
+        # Build the per-frame input shape compute_qm_int_pair_batch expects.
+        batch_frames: List[Dict[str, Any]] = []
+        for item in batch:
+            fr = item["frame"]  # type: ignore[index]
+            batch_frames.append({
+                "pdb_path": fr["pdb_path"],          # type: ignore[index]
+                "target_resnum": TARGET_RESNUM,
+                "direction": item["direction"],
+                "charge_xml": CHARGE_XML,
+                "snapshot_stem": fr["snapshot_stem"],  # type: ignore[index]
+            })
+
+        t0 = datetime.now()
+        print(f"  ── batch {batch_idx} (n={len(batch_frames)}) START at {t0.isoformat(timespec='seconds')}")
+        for item in batch:
+            fr = item["frame"]  # type: ignore[index]
+            print(f"      • {item['direction']:5s} {item['seed']:6s} {fr['snapshot_stem']}")  # type: ignore[index]
+
+        try:
+            pairs = compute_qm_int_pair_batch(
+                batch_frames,
+                target_id=TARGET_ID,
+                binder_chain=BINDER_CHAIN,
+                qm_basis=QM_BASIS,
+                qm_xc=QM_XC,
+                use_df=USE_DF,
+                keep_workdir=False,
+            )
+        except Exception as e:  # noqa: BLE001 — batch-level failure ⇒ per-frame fail records
+            print(f"  [!] batch {batch_idx} failed ({type(e).__name__}: {str(e)[:240]})")
+            print(f"  [!] inserting fail records for {len(batch_frames)} frames in this batch")
+            for item in batch:
+                fr = item["frame"]  # type: ignore[index]
+                records.append({
+                    "direction": item["direction"],
+                    "seed": item["seed"],
+                    "snapshot_stem": fr["snapshot_stem"],  # type: ignore[index]
+                    "base_delta_g_kcal": fr["delta_g_kcal"],  # type: ignore[index]
+                    "ddint_kcal": None, "e_int_cp4": None, "e_int_wt": None,
+                    "clash_flag": None, "charge_audit": None, "pcm": None,
+                    "fail_reason": f"batch_failure: {type(e).__name__}: {str(e)[:200]}",
+                    "ok": False, "ok_including_clashed": False,
+                })
+            continue
+
+        t1 = datetime.now()
+        dt = (t1 - t0).total_seconds()
+        n_ok_batch = sum(1 for p in pairs if p.get("ddint_kcal") is not None)
+        print(f"  ── batch {batch_idx} DONE in {dt:.1f}s ({dt/60:.1f}min) "
+              f"— per-endpoint avg {dt / (2 * len(batch_frames)):.1f}s "
+              f"({n_ok_batch}/{len(pairs)} ok)")
+
+        # 3) Re-assemble per-frame records (mirror compute_frame output).
+        for item, pair in zip(batch, pairs):
+            fr = item["frame"]  # type: ignore[index]
+            rec = _batch_record_from_pair(item["direction"], item["seed"], fr, pair)  # type: ignore[arg-type]
+            tag = "ok" if rec["ok"] else (
+                "CLASH-REJECT" if (rec["ok_including_clashed"] and rec["clash_flag"])
+                else f"FAIL({rec['fail_reason']})")
+            print(f"     {tag}  {item['direction']:5s} {item['seed']:6s} "
+                  f"{fr['snapshot_stem']}  ddint={rec['ddint_kcal']} "  # type: ignore[index]
+                  f"(cp4={rec['e_int_cp4']} wt={rec['e_int_wt']} clash={rec['clash_flag']})")
+            records.append(rec)
+
+    # 4) Aggregate identically to mode_full (same schema, same A-C1 gate).
+    agg = aggregate(records, logdir)
+    p = agg["payload"]
+    print("=" * 78)
+    for direction in ("graft", "strip"):
+        d = p["directions"][direction]["no_min"]  # type: ignore[index]
+        if "mean_ddint_kcal" in d:
+            print(f"  {direction:5s} (no-min) ΔΔ_int = {d['mean_ddint_kcal']} "
+                  f"± {d.get('sd_kcal')} (SE {d.get('se_kcal')}, z_SE {d.get('z_se')}, "
+                  f"CI95 {d.get('ci95_kcal')}, n={d['n_frames']})")
+        else:
+            print(f"  {direction:5s} (no-min): {d.get('note')}")
+    ag = p["direction_agreement_no_min"]
+    print(f"  direction agreement: {ag.get('verdict')} — {ag.get('reason')}")
+    print(f"  → {agg['path']}")
+    print("=" * 78)
+    n_ok = sum(1 for r in records if r["ok"])
+    return 0 if (records and n_ok > 0) else 1
+
+
+def mode_smoke_batch(direction: str, seed: str, n_frames: int) -> int:
+    """Single-batch smoke for the batch dispatch path. Sends one (direction,
+    seed)'s frames in ONE SSH call. Cold vs serial wall-clock comparison:
+    serial = N_endpoint × ~24min (cold each); batch = ~12min cold + (N-1) ×
+    ~5min warm ≈ 12 + 5(N-1) min."""
+    from qmmm_1traj_variant_compare import compute_qm_int_pair_batch  # noqa: E402
+
+    if direction not in DIRECTIONS:
+        print(f"[!] unknown direction '{direction}' (choose: {list(DIRECTIONS)})")
+        return 2
+    if seed not in DIRECTIONS[direction]["seeds"]:  # type: ignore[operator]
+        print(f"[!] seed '{seed}' not in {direction} seed list")
+        return 2
+
+    loc = dispatch.route_stage("qmmm")
+    if loc != dispatch.GPULocation.VM_V100:
+        print("[!] batch smoke requires UPDD_VM_ENABLE=1; aborting (use --smoke without --batch for host)")
+        return 2
+
+    logdir = _new_logdir()
+    print(f"[SMOKE-BATCH] logdir={logdir}  direction={direction} seed={seed} frames={n_frames}")
+    info = resolve_frames(direction, seed, n_frames)
+    if not info["resolve_ok"]:
+        print(f"[!] resolve failed: {info.get('error')}")
+        return 1
+
+    batch_frames: List[Dict[str, Any]] = []
+    frame_meta: List[Dict[str, object]] = []
+    for frame in info["frames"]:  # type: ignore[union-attr]
+        batch_frames.append({
+            "pdb_path": frame["pdb_path"],     # type: ignore[index]
+            "target_resnum": TARGET_RESNUM,
+            "direction": direction,
+            "charge_xml": CHARGE_XML,
+            "snapshot_stem": frame["snapshot_stem"],  # type: ignore[index]
+        })
+        frame_meta.append(frame)
+
+    t0 = datetime.now()
+    print(f"[SMOKE-BATCH] dispatching {len(batch_frames)} frame(s) "
+          f"({2 * len(batch_frames)} endpoint PDBs) in ONE SSH call at {t0.isoformat(timespec='seconds')}")
+    try:
+        pairs = compute_qm_int_pair_batch(
+            batch_frames,
+            target_id=TARGET_ID,
+            binder_chain=BINDER_CHAIN,
+            qm_basis=QM_BASIS,
+            qm_xc=QM_XC,
+            use_df=USE_DF,
+            keep_workdir=False,
+        )
+    except Exception as e:  # noqa: BLE001
+        print(f"[SMOKE-BATCH] FAIL ({type(e).__name__}): {str(e)[:300]}")
+        return 1
+    t1 = datetime.now()
+    dt = (t1 - t0).total_seconds()
+    n_ok = sum(1 for p in pairs if p.get("ddint_kcal") is not None)
+    print(f"[SMOKE-BATCH] DONE in {dt:.1f}s ({dt/60:.1f}min)")
+    print(f"             per-endpoint avg = {dt / (2 * len(batch_frames)):.1f}s "
+          f"({dt / (60 * 2 * len(batch_frames)):.2f}min) "
+          f"vs serial cold ~24min/endpoint observed")
+
+    records: List[Dict[str, object]] = []
+    for fm, pair in zip(frame_meta, pairs):
+        rec = _batch_record_from_pair(direction, seed, fm, pair)
+        records.append(rec)
+        print(json.dumps(rec, indent=2, ensure_ascii=False))
+
+    agg = aggregate(records, logdir)
+    print(f"  → {agg['path']}")
+    print(f"  [SMOKE-BATCH] {n_ok}/{len(pairs)} ok")
+    return 0 if n_ok > 0 else 1
 
 
 def mode_full(n_frames: int, run_pcm: bool) -> int:
@@ -465,12 +703,33 @@ def main() -> int:
     ap.add_argument("--pcm", action="store_true",
                     help="also compute the COSMO/PCM (ε=78.5) second column (A-C3); "
                          "PCM hook is wired but unverified — see module docstring")
+    # Phase IV-a perf opt (2026-05-30): batch V100 dispatch — single SSH per
+    # batch ⇒ cold gpu4pyscf JIT + CUDA init amortized across batch endpoints.
+    # PCM is NOT supported in batch mode (use serial --pcm when needed).
+    ap.add_argument("--batch", action="store_true",
+                    help="use single-SSH multi-frame batch V100 dispatch (cold-start "
+                         "amortization). Requires UPDD_VM_ENABLE=1. Incompatible "
+                         "with --pcm (batch evaluates gas-phase frozen interaction "
+                         "only). See utils/qmmm_1traj_variant_compare.compute_qm_int_pair_batch.")
+    ap.add_argument("--batch-size", dest="batch_size", type=int, default=4,
+                    help="frames per batch (= 2*batch_size endpoint PDBs per SSH). "
+                         "Default 4 (≈ 47min/batch on V100 wb97xd/6-31G* direct-SCF; "
+                         "12 batches for the full 48-frame plan ≈ 9.4h).")
     args = ap.parse_args()
+
+    if args.batch and args.pcm:
+        print("[!] --batch is incompatible with --pcm (batch CLI runs gas-phase "
+              "frozen interaction only). Re-run without --batch for PCM column.")
+        return 2
 
     if args.dry_run:
         return mode_dry_run(args.frames)
     if args.smoke:
+        if args.batch:
+            return mode_smoke_batch(args.smoke[0], args.smoke[1], args.frames)
         return mode_smoke(args.smoke[0], args.smoke[1], args.frames, args.pcm)
+    if args.batch:
+        return mode_full_batch(args.frames, args.batch_size)
     return mode_full(args.frames, args.pcm)
 
 

@@ -70,7 +70,7 @@ ax.axvspan(MAGOTTI_RANGE[0], MAGOTTI_RANGE[1], color="#5cb85c", alpha=0.25,
            label="Magotti 2009 SSOT [−3.0, −1.4]")
 ax.axvline(0, color="black", lw=1, ls=":")
 ax.set_yticks([1])
-ax.set_yticklabels(["UPDD\n(Phase 1.5)"], fontsize=11)
+ax.set_yticklabels(["UPDD\nMM-PBSA"], fontsize=11)
 ax.set_xlim(-6, 22)
 ax.set_xlabel("ΔΔG (Cp4 − WT) [kcal/mol]", fontsize=11)
 ax.set_title("(a) 2QKI Cp4 ↔ WT paired ΔΔG vs Magotti 2009 SSOT\n"
@@ -101,7 +101,7 @@ ax.text(-23, 6.56, "compstatin\nscaffold\ncluster", fontsize=8.5, color="#9b3a36
 ax.set_xlabel("⟨⟨ΔG⟩⟩ family mean [kcal/mol]", fontsize=11)
 ax.set_ylabel("σ_btwn [kcal/mol]", fontsize=11)
 ax.set_title("(b) Cross-system σ_btwn clustering by target / binding mode\n"
-             "(Category 11 = target+binding-mode specific, NOT MTR-class general)",
+             "(binding-mode-specific clustering, not MTR-class-general)",
              fontsize=11, pad=10)
 ax.axvline(0, color="black", lw=0.8, ls=":", alpha=0.6)
 ax.grid(alpha=0.3)
@@ -164,7 +164,7 @@ ax.grid(axis="x", alpha=0.3)
 ax.invert_yaxis()
 
 fig.suptitle(
-    "Figure v3 supplement — T1 Phase 1.5 Cp4 ↔ WT paired ΔΔG sign-flip + Category 11 cross-system",
+    "Supplementary figure — Cp4 ↔ WT paired ΔΔG sign-flip and cross-system σ_btwn clustering",
     fontsize=12, fontweight="bold", y=0.985)
 
 png_path = FIG_DIR / "fig_v3_phase1_5_addition.png"

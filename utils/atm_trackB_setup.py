@@ -36,7 +36,9 @@ the prepared 2QKI structures under ``outputs/2QKI_{Cp4,WT}_calib_s*/`` and the
 hybrid charge XML are reused unchanged.
 """
 
+import hashlib
 import os
+import random
 import sys
 from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Tuple, Any
@@ -176,6 +178,23 @@ class MutationSpec:
                             the star flag (a ring author who sets only the star flag
                             STILL lands at ``unsupported``). Defaults ``False``: an
                             un-certified ring spec is ``unsupported`` (fail-safe).
+      chained_group_certified : explicit opt-in that the var group is a one-sided
+                            (all-disappearing OR all-appearing) ACYCLIC connected
+                            subgraph in which a var heavy may bond ONLY a PARENT var
+                            heavy rather than the common attach atom directly (Ile->Ala
+                            deletes CG1 AND CG2 both bonded to CB, PLUS CD1 chained off
+                            CG1). A DEDICATED flag, INTENTIONALLY distinct from
+                            ``multiheavy_star_certified`` (the star flag requires EVERY
+                            heavy to bond the attach directly, so a chained heavy fails
+                            the star MC2 backstop) and from ``connected_group_certified``
+                            (which is the RING shape and requires a NON-EMPTY
+                            ``ring_closure_bonds``). This flag REQUIRES an EMPTY
+                            ``ring_closure_bonds`` (an acyclic tree) — a heavy cycle is a
+                            ring shape and must use ``connected_group_certified``. Defaults
+                            ``False``: an un-certified chained-heavy spec is ``unsupported``
+                            (fail-safe whitelist). The MC2 backstop additionally
+                            fail-louds on any declared heavy not reachable from the attach
+                            atom by real bonds, or on a detected cycle.
 
     Two single-heavy SHAPES are supported (see :pyattr:`shape`):
       * ``appearing_heavy``    : exactly one appearing heavy + its H's, no
@@ -221,6 +240,7 @@ class MutationSpec:
     multiheavy_star_certified: bool = False
     ring_closure_bonds: Tuple[Tuple[str, str], ...] = ()
     connected_group_certified: bool = False
+    chained_group_certified: bool = False
 
     @staticmethod
     def _heavy_names(atom_names: Tuple[str, ...]) -> List[str]:
@@ -316,6 +336,19 @@ class MutationSpec:
                 return "multi_appearing_heavy"
             if n_dis_heavy >= 2 and n_app_heavy == 0:
                 return "multi_disappearing_heavy"
+        # Acyclic CHAINED connected-group multi-heavy shape — ONLY when explicitly
+        # opted in via ``chained_group_certified`` (a DEDICATED flag, distinct from the
+        # star flag). Reached only for a one-sided (all-appearing OR all-disappearing)
+        # multi-heavy var group with EMPTY ``ring_closure_bonds`` (the ring gate above
+        # already claimed any ring spec). Unlike the star shape, a var heavy here may
+        # bond only a PARENT var heavy (Ile->Ala: CD1 chains off CG1, not CB); the MC2
+        # backstop certifies attach-reachability + ACYCLICITY (a heavy cycle is a ring
+        # shape and belongs to ``single_attach_connected_group``, never here).
+        if self.chained_group_certified:
+            if n_app_heavy >= 2 and n_dis_heavy == 0:
+                return "acyclic_connected_group"
+            if n_dis_heavy >= 2 and n_app_heavy == 0:
+                return "acyclic_connected_group"
         return "unsupported"
 
 
@@ -476,6 +509,65 @@ def resolve_mutation_spec(spec: Optional[Any]) -> MutationSpec:
     raise TypeError(
         "resolve_mutation_spec: expected None / a registry name / a MutationSpec, "
         "got %r" % (type(spec),))
+
+
+def make_ile_ala_mutation_spec(
+    resnum: int, name: Optional[str] = None,
+) -> MutationSpec:
+    """Construct an Ile->Ala hydrophobic-core MutationSpec at ``resnum`` (SSOT).
+
+    The barnase folding-thermocycle anchor (Ile96->Ala) + the Ac-Ile-NMe reference
+    leg BOTH use this shape; the ONLY difference between the two legs is ``resnum``
+    (the barnase core Ile vs the tripeptide Ile), so this factory is the single
+    definition both the folding orchestrator and the STAGE-0 smoke construct from
+    (anti-fragmentation). It is DELIBERATELY not registered in ``MUTATION_SPECS`` —
+    the CLI ``--mutation`` name path is for the fixed 2QKI specs; the folding run
+    passes the constructed instance(s) directly (no registry edit).
+
+    amber14 ff14SB atom naming (verified against the amber14-all ILE / ALA templates):
+      ILE past CA: HA, CB, HB, CG2(HG21-23), CG1(HG12-13), CD1(HD11-13) ;
+      ALA past CA: HA, CB, HB1, HB2, HB3.
+    Common attach = CB (present in BOTH). Ile->Ala DELETES the whole aliphatic side
+    chain past CB (3 heavies CG1/CG2/CD1 + their H's) AND the single CB hydrogen HB;
+    the appearing ALA grows the two extra CB hydrogens (ILE CB carries HB only; ALA
+    CB carries HB1/HB2/HB3). The CB hydrogen is RENAMED in the swap (ILE HB vs ALA
+    HB1/2/3), so — exactly like the A9G alpha-H handling — HB is carried as a
+    disappearing H and HB1/HB2/HB3 as appearing H's, keeping the C4 common core
+    NAME-ALIGNED (common = N,H,CA,HA,CB,C,O on BOTH copies, 7 atoms each: ILE 19 - 12
+    var = 7 ; ALA 10 - 3 var = 7). hybrid_xml=None (canonical amber14; ILE/ALA are
+    BOTH net-0 -> R-15/R-16 trivial, MC1 full-residue net-charge sanity passes).
+
+    The disappearing branch is a one-sided ACYCLIC connected subgraph: CG1 AND CG2
+    both bond the common attach CB, and CD1 chains off CG1 (BFS-reachable), with NO
+    ring-closure bond. bonded_heavy_disappearing is left ``None`` (the group has TWO
+    attach-bonded roots, not one; the MC2 acyclic-connected-group backstop discovers
+    the roots + certifies attach-reachability + acyclicity itself). SHAPE =
+    acyclic_connected_group (via ``chained_group_certified``; the star flag stays
+    False — a chained heavy is not a star). No detbeta placement applies (its gate is
+    the ring shape single_attach_connected_group, and CB carries NO common beta-H here
+    — all CB hydrogens are in the var slots).
+    """
+    return MutationSpec(
+        name=(name or ("ile_ala_res%d" % (int(resnum),))),
+        resnum=int(resnum),
+        common_attach_atom="CB",
+        stateA_resname="ILE",                              # disappearing (copy-2)
+        stateB_resname="ALA",                              # appearing (copy-1 / site)
+        # ILE side chain past CB + the single CB hydrogen HB all disappear.
+        stateA_only_atoms=("HB", "CG1", "HG12", "HG13", "CG2", "HG21", "HG22",
+                           "HG23", "CD1", "HD11", "HD12", "HD13"),
+        # ALA's three CB hydrogens appear (no appearing heavy).
+        stateB_only_atoms=("HB1", "HB2", "HB3"),
+        hybrid_xml=None,                                   # canonical amber14
+        bonded_heavy_appearing=None,                       # appearing side grows no heavy
+        appearing_h_prefix=None,
+        # TWO attach-bonded roots (CG1, CG2) + CD1 chained off CG1 -> the acyclic
+        # connected-group backstop discovers roots itself; no single declared root.
+        bonded_heavy_disappearing=None,
+        disappearing_h_prefix=None,                        # H's grouped by connectivity
+        ring_closure_bonds=(),                             # ACYCLIC (no ring)
+        chained_group_certified=True,                      # chained-group opt-in
+    )
 
 
 DISULFIDE_MAX_NM = 0.24  # CYS2-CYS12 SG-SG (matches run_restrained_md default)
@@ -783,6 +875,44 @@ def resolve_leg_inputs(seed: str = "s7") -> Dict[str, Dict[str, str]]:
         "hydrogens_xml": os.path.join(cp4_dir, "params", "MTR_hydrogens.xml"),
     }
     return result
+
+
+def resolve_fold_leg_inputs(
+    scaffold_final: str, hydrogens_xml: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Leg-input override for a SINGLE-SCAFFOLD folding-thermocycle two-copy build.
+
+    The 2QKI-hardcoded :func:`resolve_leg_inputs` wires the Cp4/WT endpoint pair; a
+    folding-stability control (barnase Ile96->Ala, or the Ac-Ile-NMe reference leg)
+    is a CANONICAL single-scaffold mutation with NO cp4/wt endpoint pair. For the
+    canonical (non-MTR) two-copy path the builder reads ONLY ``li['final']['wt']``
+    (``scaffold_final``) — copy-1 is the point-mutation of that scaffold and copy-2
+    is its native residue. The both-finals guard also requires ``li['final']['cp4']``
+    to be non-None, so BOTH slots are pointed at the SAME real scaffold (the cp4 slot
+    is never consumed on the canonical path; it only satisfies the guard).
+
+    Returns the same schema as :func:`resolve_leg_inputs` (bound/free/final +
+    hydrogens_xml) so the override is drop-in for the ``leg_inputs`` kwarg;
+    ``hydrogens_xml`` defaults to ``None`` (canonical amber14 has no ncAA H
+    definitions to load, and the two-copy build passes ``add_hydrogens=False`` for
+    both endpoint copies — PDBFixer/the H-complete scaffold place the hydrogens).
+
+    ``scaffold_final`` MUST be an H-complete single-chain PDB (a bad / non-H-complete
+    scaffold silently biases dgbind1; that fidelity is the caller's system-prep
+    responsibility). This resolver does NO file I/O beyond an existence check.
+    """
+    if not scaffold_final or not os.path.isfile(scaffold_final):
+        raise FileNotFoundError(
+            "resolve_fold_leg_inputs: scaffold_final does not exist: %r"
+            % (scaffold_final,))
+    return {
+        # bound/free are unused by the canonical two-copy path (it reads only the
+        # 'final' slot); populated for schema parity with resolve_leg_inputs.
+        "bound": {"cp4": scaffold_final, "wt": scaffold_final},
+        "free": {"cp4": scaffold_final, "wt": scaffold_final},
+        "final": {"cp4": scaffold_final, "wt": scaffold_final},
+        "hydrogens_xml": hydrogens_xml,
+    }
 
 
 def _extract_binder_only(in_pdb: str, out_pdb: str, binder_chain: str = "B") -> str:
@@ -2978,6 +3108,20 @@ ATS_TWOCOPY_CLASH_FLOOR_NM = 1.0
 ATS_TWOCOPY_ACCEPT_SEP_NM = 1.5
 ATS_TWOCOPY_ACCEPT_SEP_NM_CONSERVATIVE = 2.0
 
+# Void-water carve cutoff (opt-in build-time carve, default OFF). The two-copy
+# swap displaces a bulk copy's DISAPPEARING heavy atoms (e.g. the Trp indole)
+# back onto the PARTNER copy's residue site. When the partner residue lacks those
+# atoms (e.g. an Ala site with no indole), addSolvent fills that empty volume with
+# bulk water; at the swap (u1) frame the displaced heavy atoms then overlap those
+# waters, and because the ATMForce soft-core caps only the perturbation (u1-u0),
+# NOT the base energy u1, the raw uncapped clash (u1 ~ 1e13 kJ/mol) makes the
+# backward-endpoint minimize NaN-crash. Deleting the WHOLE (neutral) waters that
+# penetrate the swap-displaced disappearing-heavy volume removes the clash while
+# conserving net charge (whole HOH only). Default cutoff 2.5 Å (reviewed band
+# 2.4-2.6 Å); a whole HOH with any atom within this distance of any displaced
+# disappearing-heavy atom is carved.
+ATS_CARVE_VOID_CUTOFF_NM = 0.25   # 2.5 Å
+
 # Direction auto-search: re-pick the displacement DIRECTION into
 # open solvent rather than inflating d when the res-4-local outward vector grazes
 # the receptor for a given pose). The base direction is the res-4-local outward
@@ -3210,7 +3354,7 @@ def auto_search_twocopy_displacement(
                 "accepted": True,
             }
 
-    # Exhausted: deterministic final failure (caller -> Path escalate).
+    # Exhausted: deterministic final failure (caller escalates).
     raise ValueError(
         "auto_search_twocopy_displacement: no candidate direction/magnitude cleared "
         "the acceptance line %.3f nm. Best achieved (image-aware) min distance was "
@@ -4235,6 +4379,172 @@ def _assert_twocopy_connected_group_bonded(
     }
 
 
+def _assert_twocopy_acyclic_connected_group_bonded(
+    fused_build: Dict[str, Any], cmap: Dict[str, Any], spec,
+) -> Dict[str, Any]:
+    """MC2 acyclic-connected-group branch: an ``acyclic_connected_group`` var group
+    (Ile->Ala deletes CG1,CG2 both bonded to CB + CD1 chained off CG1) is built as a
+    connected, ACYCLIC subgraph rooted at the common attach atom.
+
+    DISTINCT from the acyclic-STAR branch (``_assert_twocopy_multiheavy_bonded``, which
+    requires EVERY declared var heavy to bond the attach atom directly): here a var
+    heavy may bond only a PARENT var heavy (CD1->CG1), so long as the whole group is
+    reachable from the attach atom over intra-group + attach real bonds. DISTINCT from
+    the RING branch (``_assert_twocopy_connected_group_bonded``): here
+    ``ring_closure_bonds`` is EMPTY and the induced attach+heavy subgraph MUST be a
+    TREE (no cycle) — a heavy cycle is a ring shape and belongs to the ring branch.
+
+    The disappearing var lives in copy-2 (``wt_only`` slot, attach = ``copy2_attach``);
+    the appearing-side mirror lives in copy-1 (``mtr_only`` slot, ``copy1_attach``).
+    Ile->Ala is a disappearing-side acyclic connected group.
+
+    Certify steps (each fail-loud, never silent-skip):
+      (0) NO ``ring_closure_bonds`` declared (an acyclic spec must not name a ring
+          bond — that is the ring branch's contract). RAISE if present.
+      (1) ROOT(s): AT LEAST ONE declared var heavy bonds the common attach atom by a
+          REAL HarmonicBond (multiple roots ALLOWED: CG1 AND CG2 both bond CB). Zero
+          => disconnected from the common boundary. RAISE.
+      (2) CONNECTIVITY: BFS from the ATTACH atom over the induced subgraph on
+          {attach} u {declared heavies} (real bonds only) reaches EVERY declared
+          heavy. Any unreached => disconnected subgraph. RAISE.
+      (3) ACYCLICITY: that induced subgraph has EXACTLY ``n_heavies`` edges (a
+          spanning tree on n_heavies+1 nodes = n_heavies edges). MORE => a cycle
+          (ring shape, wrong branch). RAISE.
+      (4) H: each declared heavy's H's connect (bond OR SHAKE constraint, the
+          SHAKE-aware ``_heavy_h_neighbours`` test); AT LEAST ONE declared heavy is
+          H-bearing (an all-H-stripped build is a defect). RAISE.
+
+    Runs at the PRE-ATTACH call site (top-level HarmonicBondForce still present).
+    """
+    system = fused_build["system"]
+    name_by_idx = {a.index: a.name
+                   for a in fused_build["modeller"].topology.atoms()}
+    alch = fused_build["alchemical_atoms"]
+
+    # One-sided var group: appearing (copy-1) or disappearing (copy-2).
+    n_app_heavy = len(spec._heavy_names(spec.stateB_only_atoms))
+    if n_app_heavy >= 1:
+        attach_idx = cmap["copy1_attach"]
+        var_slot = list(alch["mtr_only"])
+        declared_heavies = tuple(spec._heavy_names(spec.stateB_only_atoms))
+        side = "appearing"
+    else:
+        attach_idx = cmap["copy2_attach"]
+        var_slot = list(alch["wt_only"])
+        declared_heavies = tuple(spec._heavy_names(spec.stateA_only_atoms))
+        side = "disappearing"
+
+    # (0) An acyclic-connected-group spec must declare NO ring-closure bond (that is
+    #     the ring branch's contract; a ring here would be mis-routed).
+    if spec.ring_closure_bonds:
+        raise ValueError(
+            "MC2 two-copy FAIL (acyclic-connected-group): spec %r declares "
+            "ring_closure_bonds %s but was classified acyclic — a ring shape must use "
+            "the single_attach_connected_group branch (connected_group_certified), not "
+            "the chained-group branch." % (spec.name, list(spec.ring_closure_bonds)))
+
+    bond_pairs, constraint_pairs = _collect_bond_constraint_pairs(system)
+    attach_name = name_by_idx.get(attach_idx, "attach")
+
+    # Resolve declared heavy NAMES -> built indices (a declared heavy never built
+    # fails loud — cannot certify a heavy that is not in the box).
+    idx_of: Dict[str, int] = {}
+    for hn in declared_heavies:
+        hi = _idx_by_name(var_slot, hn, name_by_idx)
+        if hi is None:
+            raise ValueError(
+                "MC2 two-copy FAIL (acyclic-connected-group): declared %s heavy %r "
+                "absent from the merged box's %s var slot (cannot certify a heavy that "
+                "was not built)." % (side, hn, side))
+        idx_of[hn] = hi
+    heavy_idxs = set(idx_of.values())
+
+    # (1) ROOT(s): >= 1 declared heavy bonds the common attach by a REAL bond.
+    attach_bonded_roots = [
+        hn for hn, hi in idx_of.items()
+        if frozenset((hi, attach_idx)) in bond_pairs]
+    if not attach_bonded_roots:
+        raise ValueError(
+            "MC2 two-copy FAIL (acyclic-connected-group): NO declared %s heavy bonds "
+            "the common attach atom %r by a real HarmonicBond — the var group is "
+            "disconnected from the common boundary (no attach-bonded root)."
+            % (side, attach_name))
+    # If the spec names a root it must be among the discovered attach-bonded roots.
+    declared_root = (spec.bonded_heavy_appearing if side == "appearing"
+                     else spec.bonded_heavy_disappearing)
+    if declared_root is not None and declared_root not in attach_bonded_roots:
+        raise ValueError(
+            "MC2 two-copy FAIL (acyclic-connected-group): spec-declared root %r is "
+            "NOT among the discovered attach-bonded roots %s."
+            % (declared_root, sorted(attach_bonded_roots)))
+
+    # (2)+(3) CONNECTIVITY + ACYCLICITY on the induced subgraph {attach} u {heavies}.
+    nodes = heavy_idxs | {attach_idx}
+    adj: Dict[int, set] = {n: set() for n in nodes}
+    n_edges = 0
+    for pr in bond_pairs:
+        a, b = tuple(pr)
+        if a in nodes and b in nodes and b not in adj[a]:
+            adj[a].add(b)
+            adj[b].add(a)
+            n_edges += 1
+    seen = {attach_idx}
+    queue = [attach_idx]
+    while queue:
+        cur = queue.pop()
+        for nb in adj.get(cur, ()):
+            if nb not in seen:
+                seen.add(nb)
+                queue.append(nb)
+    unreached = sorted(name_by_idx[hi] for hi in heavy_idxs if hi not in seen)
+    if unreached:
+        raise ValueError(
+            "MC2 two-copy FAIL (acyclic-connected-group): declared %s heavies NOT "
+            "reachable from the common attach atom %r over intra-group + attach real "
+            "bonds (disconnected subgraph): %s" % (side, attach_name, unreached))
+    # A connected subgraph on (n_heavies + 1) nodes is a TREE iff it has n_heavies
+    # edges; MORE edges => a cycle (a ring shape, which must use the ring branch).
+    if n_edges != len(heavy_idxs):
+        raise ValueError(
+            "MC2 two-copy FAIL (acyclic-connected-group): the induced attach+heavy "
+            "subgraph has %d real bonds for %d heavies (an acyclic tree needs exactly "
+            "%d) — a CYCLE was detected, i.e. this is a RING shape that must use the "
+            "single_attach_connected_group branch, not the acyclic chained branch."
+            % (n_edges, len(heavy_idxs), len(heavy_idxs)))
+
+    # (4) H connectivity per declared heavy.
+    per_heavy: List[Dict[str, Any]] = []
+    for hn in declared_heavies:
+        hi = idx_of[hn]
+        h_idxs = _heavy_h_neighbours(
+            hi, var_slot, bond_pairs, constraint_pairs, name_by_idx)
+        h_names = sorted(name_by_idx[h] for h in h_idxs)
+        per_heavy.append({
+            "heavy": hn,
+            "n_h": len(h_idxs),
+            "h_names": h_names,
+            "is_attach_root": (hn in attach_bonded_roots),
+        })
+    n_h_bearing = sum(1 for r in per_heavy if r["n_h"] >= 1)
+    if n_h_bearing == 0:
+        raise ValueError(
+            "MC2 two-copy FAIL (acyclic-connected-group): ZERO declared %s heavies "
+            "carry a hydrogen — an all-H-stripped / incomplete side-chain build."
+            % side)
+
+    return {
+        "shape": "acyclic_connected_group",
+        "side": side,
+        "attach": attach_name,
+        "attach_bonded_roots": sorted(attach_bonded_roots),
+        "n_heavies_certified": len(declared_heavies),
+        "n_h_bearing_heavies": n_h_bearing,
+        "n_subgraph_edges": n_edges,
+        "per_heavy": per_heavy,
+        "passed": True,
+    }
+
+
 def assert_twocopy_methyl_bonded(
     fused_build: Dict[str, Any], cmap: Dict[str, Any],
 ) -> Dict[str, Any]:
@@ -4287,6 +4597,9 @@ def assert_twocopy_methyl_bonded(
         return _assert_twocopy_multiheavy_bonded(fused_build, cmap, spec, shape)
     if shape == "single_attach_connected_group":
         return _assert_twocopy_connected_group_bonded(fused_build, cmap, spec)
+    if shape == "acyclic_connected_group":
+        return _assert_twocopy_acyclic_connected_group_bonded(
+            fused_build, cmap, spec)
     if shape not in ("appearing_heavy", "disappearing_heavy"):
         raise ValueError(
             "MC2 two-copy FAIL: unsupported mutation shape %r for spec %r "
@@ -4294,10 +4607,13 @@ def assert_twocopy_methyl_bonded(
             "its H's (MTR / V3I), a single DISAPPEARING heavy + its H's (Ala->Gly "
             "mirror), or an ACYCLIC-STAR multi-methyl group (>=2 heavies each bonded "
             "directly to the common attach atom) when the spec is explicitly "
-            "multiheavy_star_certified (e.g. V3A). Ring-closure / fused-ring / "
-            "chained-heavy / multi-branch mutations (e.g. W4A fused indole, W4F ring "
-            "contraction) require a partition redesign and are NOT buildable here — "
-            "fail loud rather than silent-build a wrong endpoint."
+            "multiheavy_star_certified (e.g. V3A), a connected-subgraph RING group "
+            "when connected_group_certified with ring_closure_bonds (e.g. W4A fused "
+            "indole), or an ACYCLIC chained connected group (>=1 attach-bonded root + "
+            "the rest reachable, NO ring) when chained_group_certified (e.g. Ile->Ala). "
+            "W4F ring CONTRACTION / heavy-on-BOTH-sides mutations require a partition "
+            "redesign and are NOT buildable here — fail loud rather than silent-build a "
+            "wrong endpoint."
             % (shape, spec.name, list(spec.stateA_only_atoms),
                list(spec.stateB_only_atoms)))
 
@@ -4358,12 +4674,48 @@ def assert_twocopy_disulfides(fused_build: Dict[str, Any]) -> Dict[str, Any]:
     Confirms each detected SG-SG pair survives into the merged System's
     HarmonicBondForce (or a constraint). Raises if fewer than 2 disulfides were
     detected or any one is absent from the System.
+
+    DISULFIDE-FREE scaffolds (a barnase folding control, an Ac-Ile-NMe reference
+    peptide) carry ZERO cysteines, so there is NO SG-SG bond to preserve and the
+    compstatin-specific ">=2 (one per copy)" assumption does not apply. The gate is
+    therefore made CONDITIONAL ON CYSTEINE PRESENCE (detected STRUCTURALLY: a CYS/CYX
+    SG atom on the merged topology): with zero cysteines it SKIPS/PASSES (additive
+    guard); when cysteines ARE present (the 2QKI cyclic_ss peptide: CYS2-CYS12 in BOTH
+    copies) the existing ">=2 detected + each survives" gate is UNCHANGED
+    (byte-identical for every disulfide-bearing caller — MTR/V3I/A9G/W4A).
     """
     disulfides = fused_build.get("disulfides") or []
+    # STRUCTURAL cysteine detection (both amber names + the deprotonated CYM), by SG
+    # atom presence. A disulfide-free scaffold has no SG -> no disulfide to preserve.
+    #
+    # BINDER-SCOPED (matches _detect_twocopy_disulfides, which scopes the SG-SG
+    # search to ``binder_chain``): only the BINDER is duplicated (copy-1 at the
+    # site + copy-2 in bulk), so MC3's ">=2 disulfides, one per copy" is inherently
+    # a BINDER concept. A free / disulfide cysteine on the SHARED inert RECEPTOR
+    # (e.g. MDM2 Cys53 in a bound-leg complex, or any receptor S-S) is NOT part of
+    # the mutation unit and must NOT trip this gate — the receptor is a single
+    # shared copy, so it can never satisfy "one per copy" and is out of MC3's
+    # scope. Scoping the TRIGGER to the binder removes the pre-existing scope
+    # inconsistency (count was whole-box while detection was binder-scoped) and is
+    # byte-identical for every disulfide-bearing caller (2QKI cyclic_ss CYS2-CYS12
+    # lives on the binder chain -> count unchanged) and for CYS-free binders
+    # (barnase / Ac-Ile-NMe -> 0 either way). Falls back to the whole-topology
+    # count ONLY when ``binder_chain`` is unavailable (defensive; every builder in
+    # this module records it on ``fused``).
+    topology = fused_build["modeller"].topology
+    _binder_chain = fused_build.get("binder_chain")
+    n_cys_sg = sum(
+        1 for a in topology.atoms()
+        if a.name == "SG" and a.residue.name in ("CYS", "CYX", "CYM")
+        and (_binder_chain is None or a.residue.chain.id == _binder_chain))
+    if n_cys_sg == 0:
+        return {"n_disulfides": 0, "disulfides": [], "passed": True,
+                "skipped_reason": "disulfide_free_scaffold_no_cysteines"}
     if len(disulfides) < 2:
         raise ValueError(
             "MC3 two-copy FAIL: expected 2 cyclic_ss disulfides (one per copy), "
-            "detected %d." % (len(disulfides),))
+            "detected %d (with %d cysteine SG atoms present)."
+            % (len(disulfides), n_cys_sg))
     system = fused_build["system"]
     bond_pairs = set()
     for f in system.getForces():
@@ -4499,6 +4851,75 @@ def assert_twocopy_seed(
         "n_solvent_o_checked": len(solvent_o),
         "passed": True,
     }
+
+
+# ---------------------------------------------------------------------------
+# P3-#116 FIX2: deterministic + bounded-retry appearing-H placement.
+#
+# The APPEARING residue's methyl / side-chain hydrogens are placed by PDBFixer ->
+# OpenMM ``Modeller.addHydrogens``, which jitters every new H by an UNSEEDED
+# ``0.05 * Vec3(random.random(), ...)`` (modeller.py:1028, Python's GLOBAL ``random``
+# module). Because that RNG is never deterministically seeded in the build path, a
+# serial multi-seed run advances the global RNG per build -> the drawn methyl rotamer
+# depends on BUILD ORDER, not on the velocity seed, and a rare (~5%) draw lands a
+# pathological rotamer that trips the R2 seed min-dist guard (assert_twocopy_seed),
+# crashing the campaign at the 3rd serial build (post-run review
+# pathology_trackb_r2_seed_stochastic_appearingH_20260703).
+#
+# The fix is PLACEMENT-ONLY (scientific-review the R2 appearing-H placement review
+# 20260703, Q1 FE-neutral): ONLY the appearing-H INITIAL coordinates change. The
+# soft-core C7 canon (UMAX/UBCORE/ACORE/U0/ALPHA), the λ-schedule, the cycle count,
+# the templates/charges, the box/PME and the frozen FE core are BYTE-IDENTICAL — the
+# UWHAM estimator reads post-mintimeid PRODUCTION samples only, and a free terminal
+# methyl re-samples all three staggered minima within equilibration, so the initial
+# rotamer washes out (Chodera-Shirts 2011 DOI 10.1063/1.3660669). A deterministic
+# per-unit seed makes the placement reproducible AND build-ORDER-independent (this
+# ALONE removes the root cause); the bounded retry recovers the rare bad draw.
+# The 0.10 nm R2 threshold is NEVER relaxed (a sub-0.10 nm H-H detonates the uncapped
+# bonded base term -> NaN); K exhaustion is fail-LOUD (a real-geometry escalation
+# signal, not a stochastic outlier).
+_APPEARING_H_RETRY_K_DEFAULT = 5
+
+# The stable message prefix raised by assert_twocopy_seed on an R2 clash. Matched so
+# the retry re-places ONLY on this (retriable) build-artifact failure and NEVER
+# swallows an unrelated ValueError (a genuine build defect).
+_R2_SEED_FAIL_PREFIX = "R2 two-copy seed min-dist FAIL"
+
+
+def _derive_appearing_h_seed(unit_key: str, attempt: int) -> int:
+    """Deterministic per-unit RNG seed for the appearing-H placement (P3-#116 FIX2).
+
+    Derived from a STABLE hash of the unit identity string ``unit_key`` (e.g. the
+    velocity-seed label + leg + mutation name) folded with the retry ``attempt``
+    index — NOT from the build order and NOT from a wall-clock / entropy source — so
+    the SAME unit re-places its appearing-H IDENTICALLY across processes and
+    independently of how many builds preceded it in the same process (the post-run review
+    build-ORDER root cause). ``hashlib.sha256`` is used deliberately: Python's builtin
+    ``hash`` on ``str`` is per-process salted (``PYTHONHASHSEED``) and would defeat the
+    reproducibility this fix exists to provide. Returns a 31-bit NON-NEGATIVE int
+    (fits both ``random.seed`` and ``numpy.random.seed``'s [0, 2**32) requirement).
+    """
+    digest = hashlib.sha256(("%s#%d" % (unit_key, int(attempt))).encode("utf-8"))
+    return int(digest.hexdigest()[:8], 16) & 0x7FFFFFFF
+
+
+def _seed_appearing_h_placement(seed_val: int) -> None:
+    """Seed the process RNGs consumed by ``Modeller.addHydrogens`` right BEFORE the
+    appearing-H placement (P3-#116 FIX2). OpenMM jitters each new H with Python's
+    GLOBAL ``random`` (modeller.py:1028); ``numpy.random`` is seeded too (defensive —
+    harmless if unused by this OpenMM build). Placement-only side effect: no
+    Hamiltonian term is touched."""
+    random.seed(int(seed_val))
+    np.random.seed(int(seed_val) & 0x7FFFFFFF)
+
+
+def _is_r2_seed_failure(exc: BaseException) -> bool:
+    """True iff ``exc`` is the R2 two-copy seed min-dist clash raised by
+    :func:`assert_twocopy_seed` (the retriable appearing-H placement artifact). The
+    stable message prefix is matched so an UNRELATED ``ValueError`` (a genuine build
+    defect — mis-paired common map, wrong template, unsupported mutation) is NOT
+    silently retried away."""
+    return _R2_SEED_FAIL_PREFIX in str(exc)
 
 
 def _attach_heavy_neighbor_indices(
@@ -4850,6 +5271,184 @@ def _register_copy2_common_to_copy1(
     return record
 
 
+class VoidWaterCarveError(RuntimeError):
+    """Fail-loud violation of a void-water carve safety gate.
+
+    Raised when the opt-in ``carve_void_waters`` build path would delete anything
+    other than a whole, neutral water molecule (a partial water, a non-water /
+    protein / ligand / ion residue, or a selection whose net charge is non-zero).
+    A carve that trips any of these gates is a build defect, not a benign carve —
+    the build MUST NOT proceed with a charge-changing or solute-touching deletion.
+    """
+
+
+# Whole-water residue names the carve is permitted to delete (a strict subset of
+# ``_SOLVENT_RESNAMES`` — ions/counterions are explicitly EXCLUDED so the carve can
+# never touch a charged species).
+_CARVE_WATER_RESNAMES = {"HOH", "WAT", "SOL"}
+
+
+def _carve_void_penetrating_waters(
+    merged: Any,
+    n_copy1: int,
+    dvec: Tuple[float, float, float],
+    spec: Any,
+    binder_chain: str = "B",
+    cutoff_nm: float = ATS_CARVE_VOID_CUTOFF_NM,
+) -> Dict[str, Any]:
+    """Delete the whole bulk waters that penetrate the swap-displaced disappearing-
+    heavy-atom volume of each copy, at build time (topology-level, BEFORE
+    ``createSystem``).
+
+    Geometric criterion (deterministic, no RNG): the disappearing heavy atoms are
+    the ``stateA_only`` HEAVY atoms of ``spec`` (e.g. the Trp indole
+    CG/CD1/CD2/NE1/CE2/CE3/CZ2/CZ3/CH2). For EACH copy these atoms are moved to the
+    PARTNER copy's residue site using the SAME construction displacement vector
+    ``d`` (``dvec``): copy-1's disappearing atoms by ``+d`` (they swap toward
+    copy-2's site), copy-2's by ``-d`` (toward copy-1's site). This reuses the
+    construction ``d`` verbatim — it is NOT hard-coded. A residue lies in copy-1
+    when its atoms are indexed ``< n_copy1``, else copy-2; only the copy that
+    physically CARRIES the disappearing atoms contributes (an Ala site has none),
+    so both swap directions (copy1-site void and copy2-site void) are covered
+    generically. Any WHOLE ``HOH`` with an atom within ``cutoff_nm`` of any
+    displaced disappearing-heavy atom is deleted.
+
+    Fail-loud (``VoidWaterCarveError``) BEFORE the delete if a selected residue is
+    not a whole 3-atom water (O + 2 H), if any selected residue is not a permitted
+    water name (protein/ligand/ion), or if the net charge of the deletion is
+    non-zero (|Δq| > 1e-6 e; whole waters are neutral, so this must hold — it is a
+    charge-conservation safety net against a mis-selected charged species).
+
+    The carve operates ONLY on the merged topology upstream of the ATMForce attach,
+    so the soft-core canon (umax/ubcore/acore) and the alchemical partition are
+    untouched. Returns a per-call carve report (removed count, resids, cutoff, the
+    source copy/direction of each removed water, atom-count delta, net-charge
+    delta). Ranking-only (R-11).
+    """
+    top = merged.topology
+    # Strip units to a clean (N, 3) float array. Modeller positions can be either a
+    # Quantity(list-of-Vec3) or a list of Quantity(Vec3), so unwrap at BOTH levels
+    # (an eager dtype=float on the raw nesting trips on the residual Quantity).
+    raw_pos = merged.positions
+    if unit.is_quantity(raw_pos):
+        raw_pos = raw_pos.value_in_unit(unit.nanometer)
+    pos_rows: List[List[float]] = []
+    for v in raw_pos:
+        if unit.is_quantity(v):
+            v = v.value_in_unit(unit.nanometer)
+        pos_rows.append([float(v[0]), float(v[1]), float(v[2])])
+    positions = np.array(pos_rows, dtype=float)
+    d = np.array([float(c) for c in dvec], dtype=float)
+
+    disappearing_heavy = set(spec._heavy_names(spec.stateA_only_atoms))
+    resnum_str = str(spec.resnum)
+
+    # 1) Displaced disappearing-heavy points, tagged by source copy / swap sign.
+    disp_pts: List[np.ndarray] = []
+    disp_src: List[Tuple[int, str]] = []   # (copy_number, direction_label)
+    for res in top.residues():
+        if res.chain.id != binder_chain or str(res.id) != resnum_str:
+            continue
+        atom_indices = [a.index for a in res.atoms()]
+        if not atom_indices:
+            continue
+        in_copy1 = min(atom_indices) < int(n_copy1)
+        # copy-1 swaps toward copy-2 (+d); copy-2 swaps toward copy-1 (-d).
+        sign = 1.0 if in_copy1 else -1.0
+        copy_no = 1 if in_copy1 else 2
+        dir_label = "copy1_to_copy2_site" if in_copy1 else "copy2_to_copy1_site"
+        for a in res.atoms():
+            if a.name in disappearing_heavy:
+                disp_pts.append(positions[a.index] + sign * d)
+                disp_src.append((copy_no, dir_label))
+
+    report: Dict[str, Any] = {
+        "carve_void_waters": True,
+        "cutoff_nm": float(cutoff_nm),
+        "displacement_vector_nm": [float(c) for c in d],
+        "n_disappearing_heavy_points": len(disp_pts),
+        "n_atoms_before": top.getNumAtoms(),
+        "removed_waters": [],
+        "n_waters_removed": 0,
+        "atom_count_delta": 0,
+        "net_charge_delta_e": 0.0,
+        "net_charge_invariant": True,
+    }
+    if not disp_pts:
+        # No disappearing heavy atoms present (e.g. a spec with no heavy on the
+        # disappearing side) => no void to carve. Not an error; report zero.
+        report["note"] = ("no disappearing heavy atoms found for res %s on chain "
+                          "%s — nothing to carve" % (resnum_str, binder_chain))
+        return report
+    disp_arr = np.asarray(disp_pts, dtype=float)          # (K, 3)
+
+    # 2) Select WHOLE waters with any atom within cutoff of any displaced point.
+    cutoff = float(cutoff_nm)
+    selected: List[Any] = []
+    for res in top.residues():
+        if res.name not in _CARVE_WATER_RESNAMES:
+            continue
+        w_idx = [a.index for a in res.atoms()]
+        wpos = positions[w_idx]                            # (n_wat, 3)
+        # min distance from any water atom to any displaced disappearing point.
+        dmat = np.linalg.norm(
+            wpos[:, None, :] - disp_arr[None, :, :], axis=2)   # (n_wat, K)
+        if float(dmat.min()) < cutoff:
+            wa, ka = np.unravel_index(int(dmat.argmin()), dmat.shape)
+            src_copy, src_dir = disp_src[int(ka)]
+            selected.append(res)
+            report["removed_waters"].append({
+                "resid": res.id,
+                "res_index": res.index,
+                "n_atoms": len(w_idx),
+                "min_dist_nm": float(dmat.min()),
+                "source_copy": src_copy,
+                "source_direction": src_dir,
+            })
+
+    # 3) Fail-loud safety gates BEFORE any deletion.
+    net_charge = 0.0
+    n_removed_atoms = 0
+    for res in selected:
+        atoms = list(res.atoms())
+        # (a) whole 3-atom HOH (O + 2 H).
+        elems = sorted(
+            (a.element.symbol if a.element is not None else a.name.strip()[:1])
+            for a in atoms)
+        if len(atoms) != 3 or elems != ["H", "H", "O"]:
+            raise VoidWaterCarveError(
+                "void-water carve selected a non-whole-water residue %s%s "
+                "(%d atoms, elements %s) — the carve deletes ONLY whole 3-atom "
+                "TIP3P waters (O + 2 H); a partial or non-water selection is a "
+                "build defect." % (res.name, res.id, len(atoms), elems))
+        # (b) selected residue must be a permitted water name (never protein/ion).
+        if res.name not in _CARVE_WATER_RESNAMES:
+            raise VoidWaterCarveError(
+                "void-water carve selected a non-water residue %s%s — the carve "
+                "must touch ONLY bulk water, never protein/ligand/ion."
+                % (res.name, res.id))
+        n_removed_atoms += len(atoms)
+        # (c) net-charge contribution: a whole neutral water is 0 e.
+        net_charge += 0.0
+
+    if abs(net_charge) > 1e-6:
+        raise VoidWaterCarveError(
+            "void-water carve net-charge delta = %.6e e (> 1e-6) — the carve must "
+            "conserve net charge (whole neutral waters only). A non-zero delta "
+            "signals a mis-selected charged species." % (net_charge,))
+
+    # 4) Delete the whole waters (topology-level, before createSystem).
+    if selected:
+        merged.delete(selected)
+
+    report["n_waters_removed"] = len(selected)
+    report["atom_count_delta"] = -n_removed_atoms
+    report["net_charge_delta_e"] = float(net_charge)
+    report["net_charge_invariant"] = bool(abs(net_charge) <= 1e-6)
+    report["n_atoms_after"] = merged.topology.getNumAtoms()
+    return report
+
+
 def build_inplace_res4_twocopy_system(
     leg: str = "free",
     seed: str = "s7",
@@ -4864,6 +5463,10 @@ def build_inplace_res4_twocopy_system(
     mtr_ncaa_xml: Optional[str] = None,
     constraints: Any = HBonds,
     spec: Optional[Any] = None,
+    leg_inputs: Optional[Dict[str, Any]] = None,
+    appearing_h_seed: Optional[int] = None,
+    carve_void_waters: bool = False,
+    carve_cutoff_nm: float = ATS_CARVE_VOID_CUTOFF_NM,
 ) -> Dict[str, Any]:
     """Top-level orchestrator: build the CANONICAL ATS TWO-COPY box (C2-C8).
 
@@ -4924,6 +5527,18 @@ def build_inplace_res4_twocopy_system(
     ``displacement_nm`` is used unchanged (the manual ``--displacement-nm`` override
     path). ``accept_sep_nm`` is only consulted by the auto-search; the post-solvate
     C6 assert always enforces the 1.0 nm clash floor + the periodic-image gate.
+
+    ``carve_void_waters`` (default ``False`` -> byte-identical legacy path): when
+    ``True``, AFTER ``addSolvent`` and BEFORE ``createSystem`` the whole bulk waters
+    that penetrate the swap-displaced disappearing-heavy-atom volume of each copy
+    (``_carve_void_penetrating_waters``, cutoff ``carve_cutoff_nm``, default 2.5 Å)
+    are deleted at topology level. This removes the raw uncapped u1 clash the
+    ATMForce base energy cannot soft-core (the backward-endpoint NaN crash) while
+    conserving net charge (whole neutral waters only, fail-loud on any violation).
+    The carve is upstream of the ATMForce attach, so the soft-core canon
+    (umax/ubcore/acore) and the alchemical partition are untouched. When ``False``
+    the water shell is left exactly as ``addSolvent`` produced it (the serialized
+    System is byte-identical to every pre-carve build).
     """
     if leg not in ("free", "bound"):
         raise NotImplementedError(
@@ -4936,7 +5551,13 @@ def build_inplace_res4_twocopy_system(
     # no hydrogen-definition load, copy-1 produced by the point-mutation prep).
     is_ncaa_mtr = (ms.stateB_resname == "MTR")
 
-    li = resolve_leg_inputs(seed)
+    # ``leg_inputs`` (default None -> byte-identical 2QKI-hardcoded resolution): an
+    # optional pre-resolved leg-input dict (same schema as resolve_leg_inputs). It is
+    # the single-scaffold folding-thermocycle override (resolve_fold_leg_inputs points
+    # both endpoint slots at one barnase / tripeptide scaffold), read-only here and
+    # threaded through serialize + run_one_replicate. When None the legacy per-seed
+    # 2QKI resolver runs unchanged (all existing MTR/V3I/A9G/W4A callers unaffected).
+    li = leg_inputs or resolve_leg_inputs(seed)
     if not li["final"]["wt"] or not li["final"]["cp4"]:
         raise FileNotFoundError(
             "build_inplace_res4_twocopy_system requires both endpoint final.pdb "
@@ -4987,6 +5608,14 @@ def build_inplace_res4_twocopy_system(
         # point mutation of that scaffold (e.g. VAL->ILE via PDBFixer). Engine-
         # validation framing — NOT a Cp4 anchor reproduction.
         scaffold_final = li["final"]["wt"]
+        # P3-#116 FIX2 (placement-only): seed the process RNG consumed by
+        # PDBFixer/Modeller.addHydrogens RIGHT BEFORE the mutated-copy prep so the
+        # appearing residue's methyl / side-chain H land in a REPRODUCIBLE,
+        # build-ORDER-independent rotamer. Default None => legacy UNSEEDED placement
+        # (byte-identical to every pre-fix build; V3I/A9G/W4A callers pass nothing).
+        # Only the appearing-H INITIAL coordinates change — the FE core is untouched.
+        if appearing_h_seed is not None:
+            _seed_appearing_h_placement(appearing_h_seed)
         if leg == "free":
             prepare_mutated_binder_from_final(
                 scaffold_final, mtr_struct, ms.resnum,
@@ -5084,12 +5713,22 @@ def build_inplace_res4_twocopy_system(
                       copy1_build["modeller"].positions)
     merged.add(copy2_build["modeller"].topology, copy2_disp_positions)
 
+    # Opt-in void-water carve (default OFF -> byte-identical). Threaded here so it
+    # sits BETWEEN addSolvent and createSystem: the delete is topology-level, before
+    # the System (and the ATMForce attach at step 9) exists, so the soft-core canon
+    # is provably untouched. When OFF the entire block is skipped (no call, no
+    # topology mutation, no reordering) => the serialized System is unchanged.
+    carve_report: Optional[Dict[str, Any]] = None
     if solvate:
         merged.addSolvent(
             ff, model="tip3p", padding=padding_nm * unit.nanometers,
             ionicStrength=0.15 * unit.molar,
             positiveIon="Na+", negativeIon="Cl-", neutralize=True,
         )
+        if carve_void_waters:
+            carve_report = _carve_void_penetrating_waters(
+                merged, n_copy1, dvec, ms, binder_chain=binder_chain,
+                cutoff_nm=carve_cutoff_nm)
         system = ff.createSystem(
             merged.topology, nonbondedMethod=PME,
             nonbondedCutoff=1.0 * unit.nanometers, constraints=constraints,
@@ -5112,6 +5751,12 @@ def build_inplace_res4_twocopy_system(
         "system": system,
         "n_atoms": merged.topology.getNumAtoms(),
         "n_copy1": n_copy1,
+        # The alchemical BINDER chain id (the ONLY duplicated chain). Recorded so
+        # the disulfide MC3 gate can scope its cysteine trigger to the mutation
+        # unit (matching _detect_twocopy_disulfides), rather than the whole box —
+        # a free / disulfide cysteine on the SHARED inert receptor (e.g. MDM2
+        # Cys53 in a bound-leg complex) is not part of the mutation unit.
+        "binder_chain": binder_chain,
         "displacement_vector_nm": [float(c) for c in dvec],
         "ff_inputs": ff_inputs,
         # The residue partition on the MERGED box, per copy (copy-2 shifted).
@@ -5121,6 +5766,10 @@ def build_inplace_res4_twocopy_system(
         # The resolved mutation spec — read by the asserts (MC2 heavy/H names,
         # R2 seed) so they generalize to any single-residue mutation.
         "mutation_spec": ms,
+        # Opt-in void-water carve report (None when carve_void_waters=False). The
+        # build produces ONE serialized System shared by dplus/dminus, so this carve
+        # is identical for both directions by construction.
+        "carve_report": carve_report,
     }
 
     # 4) C4: pair common atoms across the two RESIDENT copies (count + order).
@@ -5224,7 +5873,7 @@ def build_inplace_res4_twocopy_system(
         "displacement_mode": ("auto_search" if auto_search_displacement
                               else "fixed_direction"),
         # task #6: selected direction / magnitude / achieved min-distance for the
-        # run_manifest / build log (downstream Path decoupling verification). For
+        # run_manifest / build log (downstream post-run decoupling verification). For
         # the legacy fixed path this records the realised vector + the C6 distances.
         "displacement_log": (
             {
@@ -5259,6 +5908,10 @@ def build_inplace_res4_twocopy_system(
         "mc3_disulfide": mc3,
         "swap": swap,
         "solvated": solvate,
+        # Opt-in void-water carve report (None when carve_void_waters=False) — the
+        # per-call carve summary (removed count/resids, cutoff, source copy, atom +
+        # net-charge deltas). Surfaced so the launcher can log free-vs-bound counts.
+        "carve_report": carve_report,
         "regime": "ranking_only",
         "note": ("CANONICAL ATS two-copy PREDICTION test (R-18); ranking-only "
                  "(R-11); two-copy correctness NOT yet proven (needs the pilot: "
@@ -5268,6 +5921,89 @@ def build_inplace_res4_twocopy_system(
                     "valid for a quantitative DDG]"
                     if common_charges_harmonized else "")),
     }
+
+
+def build_inplace_res4_twocopy_system_r2_retry(
+    *,
+    unit_key: str,
+    retry_k: int = _APPEARING_H_RETRY_K_DEFAULT,
+    **build_kwargs: Any,
+) -> Dict[str, Any]:
+    """Bounded R2-retry wrapper around :func:`build_inplace_res4_twocopy_system`
+    (P3-#116 FIX2).
+
+    Wraps [deterministic appearing-H placement -> full two-copy build -> R2 seed
+    ASSERT] in a bounded retry loop: on the rare R2 seed-clash FAIL (a pathological
+    ``addHydrogens``-jitter rotamer, ~5% per draw) it re-derives an INCREMENTED
+    per-unit seed (``_derive_appearing_h_seed(unit_key, attempt)``) and rebuilds, up
+    to ``retry_k`` attempts. Because ~95% of draws pass, K=5 -> ~3e-7 exhaustion
+    probability.
+
+    The seed is derived from a STABLE hash of ``unit_key`` (a per-unit identity
+    string) folded with the attempt index, so the placement is reproducible AND
+    build-ORDER-independent (the root cause). Every other kwarg is forwarded
+    VERBATIM to :func:`build_inplace_res4_twocopy_system` (placement-only fix — no
+    Hamiltonian term is touched).
+
+    Fail-loud contract (review condition C2/C-Q4, R-18):
+      * ONLY the R2 seed-clash ``ValueError`` (matched via :func:`_is_r2_seed_failure`)
+        is retried; any other exception is re-raised immediately (a genuine build
+        defect must NOT be masked).
+      * K exhaustion raises ``RuntimeError`` with the full seed trail — the 0.10 nm
+        R2 threshold is NEVER relaxed and a clashing build is NEVER accepted (a
+        sub-threshold H-H detonates the uncapped bonded base term -> NaN). K
+        exhaustion is a REAL-geometry escalation signal, not a stochastic outlier.
+
+    Returns the successful build dict, annotated with the ``appearing_h_retry`` trail
+    (attempts used + the deterministic seeds tried) for the run manifest / integrity review
+    audit.
+    """
+    if retry_k < 1:
+        raise ValueError(
+            "build_inplace_res4_twocopy_system_r2_retry: retry_k must be >= 1, "
+            "got %r." % (retry_k,))
+    if "appearing_h_seed" in build_kwargs:
+        raise ValueError(
+            "build_inplace_res4_twocopy_system_r2_retry: appearing_h_seed is "
+            "derived per-attempt from unit_key and must NOT be passed explicitly.")
+
+    seeds_tried: List[int] = []
+    last_r2_error: Optional[str] = None
+    for attempt in range(retry_k):
+        seed_val = _derive_appearing_h_seed(unit_key, attempt)
+        seeds_tried.append(seed_val)
+        try:
+            build = build_inplace_res4_twocopy_system(
+                appearing_h_seed=seed_val, **build_kwargs)
+        except ValueError as exc:
+            if not _is_r2_seed_failure(exc):
+                raise          # a non-R2 build error is a real defect — fail loud
+            last_r2_error = str(exc)
+            sys.stderr.write(
+                "[P3-#116 FIX2] R2 seed clash on appearing-H build (unit=%s, "
+                "attempt %d/%d, seed=%d): %s\n  -> re-placing with an incremented "
+                "deterministic seed.\n"
+                % (unit_key, attempt + 1, retry_k, seed_val, last_r2_error))
+            continue
+        build["appearing_h_retry"] = {
+            "unit_key": unit_key,
+            "retry_k": retry_k,
+            "attempts_used": attempt + 1,
+            "seeds_tried": list(seeds_tried),
+            "seed_used": seed_val,
+        }
+        return build
+
+    raise RuntimeError(
+        "build_inplace_res4_twocopy_system_r2_retry: the appearing-H R2 seed guard "
+        "FAILED on ALL %d deterministic re-placements (unit=%s, seeds=%s). At K=%d "
+        "the ~3e-7 exhaustion probability is effectively never reached by the "
+        "stochastic-placement artifact, so this signals a REAL scaffold/mutation "
+        "geometry problem (NOT a rare draw). The 0.10 nm R2 threshold is NOT relaxed "
+        "and NO clashing build is accepted (a sub-threshold H-H detonates the "
+        "uncapped bonded base term -> NaN). Escalate (scaffold re-equilibration / "
+        "mutation partition review). Last R2 error: %s"
+        % (retry_k, unit_key, seeds_tried, retry_k, last_r2_error))
 
 
 def check_twocopy_endpoint_equivalence(

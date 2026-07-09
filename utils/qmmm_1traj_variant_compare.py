@@ -32,19 +32,23 @@ Scope / regime
   both carry formal charge 0, so the swap is charge-neutral and the R-15/16
   guards pass identically for both endpoints (verified, not bypassed).
 
-SciVal conditions implemented here: A-C1 (both directions), A-C2 (clash filter +
+scientific-review conditions implemented here: A-C1 (both directions), A-C2 (clash filter +
 constrained micro-min hook), A-C3 (gas-phase + PCM columns), A-C4 (identical QM
 region / basis / df / link-atoms — guaranteed by reusing the SAME engine call on
 byte-identical non-residue-4 atoms), A-C5 (reuse primitive + engine), A-C7
 (R-11 every field; BSSE + 1-traj-approx + MM-geometry-bias caveats in metadata).
 
-Source verdict: .claude/agent-memory/scival/verdict_trackAB_qm1traj_fep_prevalidation_20260529.md
+Source verdict: internal scientific-review note 20260529
 """
 from __future__ import annotations
 
+import glob
+import json
 import math
 import os
+import shlex
 import shutil
+import subprocess
 import sys
 import tempfile
 from typing import Any, Dict, List, Optional, Tuple
@@ -63,6 +67,37 @@ from ncaa_mutate import (  # noqa: E402
     _make_extension_atom_line,
     _place_extension_atom_sp2,
 )
+
+# dispatch lives in utils/ — V100 executor + fallback chain (REUSED, never edited).
+# Imported here at module level so the route decision is computed ONCE per
+# process (no per-frame overhead). The actual import cost is light: dispatch
+# does NOT pull PySCF/gpu4pyscf/OpenMM (only stdlib + lazy OpenMM in
+# select_openmm_platform which we never call from this module).
+import dispatch  # noqa: E402
+
+# Module-level cache: route once at import. dispatch.route_stage("qmmm") honors
+# UPDD_VM_ENABLE (default 0 → HOST_5070TI). Per-frame re-decision would just
+# re-read the same env var, so caching costs nothing and surfaces the routing
+# decision in import logs.
+_QMMM_LOC = dispatch.route_stage("qmmm")
+# Surface the routing decision on stderr at import time so dry-run / smoke /
+# full all show the same line in their captured logs (no operator surprise).
+print(
+    f"[qm1traj-dispatch] qmmm route = {_QMMM_LOC.value} "
+    f"(UPDD_VM_ENABLE={'1' if dispatch.UPDD_VM_ENABLE else '0'})",
+    file=sys.stderr, flush=True,
+)
+
+# Path to utils/run_qmmm.py — used by the VM CLI launcher to construct the
+# remote command verbatim (the VM has the same project layout via rsync sync).
+_PROJECT_ROOT = os.path.dirname(_UTILS_DIR)
+# non-interactive SSH shells don't source conda init → call conda by absolute path
+# (mirrors scripts/phase4_qmmm_iva.py:52, the validated Phase IV-a pattern).
+_CONDA_BIN = "/home/san/miniconda3/bin/conda"
+# Per-endpoint SCF wall-clock budget. Phase IV-a measured ~3-5 min/frame on V100
+# FP64 and ~15 min/frame on the host 5070 Ti; 4 h is a generous ceiling that
+# covers cold JIT + DIIS plateau retries without false-positive timeouts.
+_ENGINE_TIMEOUT_S = 14400
 
 # ──────────────────────────────────────────────────────────────────────────
 # Constants — geometry + atom-set definitions for the Trp ↔ 1-Me-Trp swap
@@ -514,6 +549,164 @@ def binder_charge_audit(pdb_path: str, binder_chain: str) -> Dict[str, Any]:
 
 
 # ──────────────────────────────────────────────────────────────────────────
+# Engine dispatch helpers (V100 VM + 5070 Ti host) — REUSE run_qmmm verbatim.
+#
+# These mirror scripts/phase4_qmmm_iva.py:_run_on_vm/_run_on_host (the
+# validated Phase IV-a 7h V100 pattern). The contract:
+#   - input  : a per-endpoint snapdir holding EXACTLY one PDB and an outdir.
+#   - output : the parsed `<endpoint_stem>_qmmm_topology.json` dict, which is
+#              byte-for-byte the same dict run_qmmm_calc() returns in-process
+#              (run_qmmm.py:2628 writes json.dump(result, ...) of the same
+#              dict it `return`s; the VM path just round-trips it through disk).
+# ──────────────────────────────────────────────────────────────────────────
+def _engine_output_json(outdir: str, endpoint_stem: str) -> str:
+    """run_qmmm topology-mode output JSON path. ``basename`` in run_qmmm comes
+    from os.path.splitext(os.path.basename(pdb_path))[0] (run_qmmm.py:1492),
+    which equals ``endpoint_stem`` because we name the per-endpoint PDB
+    ``<endpoint_stem>.pdb`` and topology mode pins use_mode='topology'."""
+    return os.path.join(outdir, f"{endpoint_stem}_qmmm_topology.json")
+
+
+def _load_engine_result(outdir: str, endpoint_stem: str) -> Dict[str, Any]:
+    """Parse the on-disk engine JSON; tolerate a single-file glob fallback in
+    case the engine wrote a slightly different stem (mirrors the resilience in
+    scripts/phase4_qmmm_iva.py:275-282)."""
+    out_json = _engine_output_json(outdir, endpoint_stem)
+    if not os.path.isfile(out_json):
+        cand = glob.glob(os.path.join(outdir, "*_qmmm_topology.json"))
+        if len(cand) == 1:
+            out_json = cand[0]
+        else:
+            raise RuntimeError(
+                f"engine output JSON not found in {outdir} "
+                f"(expected '{os.path.basename(out_json)}', glob={[os.path.basename(c) for c in cand]})"
+            )
+    with open(out_json, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _run_endpoint_on_host(
+    *,
+    endpoint_pdb: str,
+    snapdir: str,                 # noqa: ARG001 — host path doesn't need snapdir (pdb path is enough)
+    outdir: str,
+    endpoint_stem: str,           # noqa: ARG001 — host returns engine dict directly
+    ncaa_elem: str,
+    qm_basis: str,
+    qm_xc: str,
+    use_df: bool,
+    target_id: str,
+    binder_chain: str,
+) -> Dict[str, Any]:
+    """Local 5070 Ti in-process engine call. Mirrors the original (pre-dispatch)
+    behavior verbatim so the host path is unchanged when UPDD_VM_ENABLE=0.
+
+    Heavy import is local: importing run_qmmm pulls in PySCF/gpu4pyscf and the
+    scratch/BLAS env bootstrap, which is heavy and GPU-touching. Keep it out of
+    module import so swap_residue/clash_check stay import-light for tests.
+    """
+    from run_qmmm import run_qmmm_calc  # noqa: E402
+    return run_qmmm_calc(
+        pdb_path=endpoint_pdb,
+        output_dir=outdir,
+        qm_basis=qm_basis,
+        qm_xc=qm_xc,
+        ncaa_elem=ncaa_elem,
+        mode="full",            # ignored in topology mode (target_id set)
+        binder_chain=binder_chain,
+        target_id=target_id,
+        use_df=use_df,
+    )
+
+
+def _run_endpoint_on_vm(
+    *,
+    vm: "dispatch.VMExecutor",
+    endpoint_pdb: str,            # noqa: ARG001 — picked up by snapdir rsync; VM glob handles it
+    snapdir: str,
+    outdir: str,
+    endpoint_stem: str,
+    ncaa_elem: str,
+    qm_basis: str,
+    qm_xc: str,
+    use_df: bool,
+    target_id: str,
+    binder_chain: str,
+) -> Dict[str, Any]:
+    """V100 VM dispatch: rsync snapdir → SSH-run utils/run_qmmm.py → rsync the
+    result JSON back → parse + return.
+
+    Path layout on the VM:
+      - remote snapdir : <vm.project_root>/scratch/qm1traj/<endpoint_stem>_snap/
+      - remote outdir  : <vm.project_root>/scratch/qm1traj/<endpoint_stem>_out/
+    A scratch root (not outputs/) is used so per-frame churn doesn't pollute the
+    target-card / production output trees on the VM disk. Per-endpoint paths are
+    unique (endpoint_stem includes base_stem + direction + endpoint), so parallel
+    invocations don't collide.
+
+    The VM is assumed to already have a synchronized project tree
+    (utils/run_qmmm.py + utils/charge_topology.py + target_cards/<target_id>.json
+    + params/*.xml + ncAA registry) — the launch wrapper script does that one-
+    shot bulk rsync at campaign start; this per-frame helper only ships the PDB.
+    """
+    remote_root = os.path.join(vm.project_root, "scratch", "qm1traj", endpoint_stem)
+    remote_snapdir = remote_root + "_snap"
+    remote_outdir = remote_root + "_out"
+
+    # 1) push the per-endpoint PDB (and only that — the engine globs *.pdb in
+    #    snapdir, so we want exactly the one file there).
+    if not vm.sync_to_vm(snapdir, remote_path=remote_snapdir):
+        raise RuntimeError(f"sync_to_vm failed for {snapdir}")
+    # rsync --delete-after on an empty exclude set leaves stray files; we are
+    # the sole writer of this remote dir so this is fine, but ensure the outdir
+    # exists for the engine.
+    mk = vm.execute(f"mkdir -p {shlex.quote(remote_outdir)}", retry=2, timeout=30)
+    if mk.get("returncode", -1) != 0:
+        raise RuntimeError(f"VM remote outdir mkdir failed: {str(mk.get('stderr', ''))[:200]}")
+
+    # 2) construct the engine CLI. run_qmmm.py --target-id activates topology
+    #    mode (snapshot-invariant QM region); --no-df is the exact direct-SCF
+    #    path #84 used. shlex.quote each arg: SSH executes the string in a
+    #    remote shell, so "6-31G*" / "wb97xd" must stay literal.
+    cli_args: List[str] = [
+        "--snapdir", remote_snapdir,
+        "--outputdir", remote_outdir,
+        "--qm_xc", qm_xc,
+        "--qm_basis", qm_basis,
+        "--ncaa_elem", ncaa_elem,
+        "--binder_chain", binder_chain,
+        "--target-id", target_id,
+    ]
+    # df_mode: use_df=False ⇒ --no-df (matches #84 / A-C4); True ⇒ --df-mode on
+    # for explicitness (don't rely on auto-mode, which depends on VM VRAM probe).
+    if not use_df:
+        cli_args.append("--no-df")
+    else:
+        cli_args.extend(["--df-mode", "on"])
+    quoted = " ".join(shlex.quote(a) for a in cli_args)
+    remote_cmd = (
+        f"{_CONDA_BIN} run -n qmmm --no-capture-output "
+        f"python utils/run_qmmm.py {quoted}"
+    )
+    res = vm.execute(remote_cmd, cwd=vm.project_root, timeout=_ENGINE_TIMEOUT_S)
+    if res.get("returncode", -1) != 0:
+        raise RuntimeError(
+            f"VM engine rc={res.get('returncode')}: "
+            f"{str(res.get('stderr', ''))[:400]}"
+        )
+
+    # 3) pull just the engine result JSONs back. patterns=None copies the whole
+    #    remote outdir, but it only contains the per-snapshot JSON(s) (no DCD /
+    #    chkfile — those live in PYSCF scratch on the VM and stay there).
+    if not vm.sync_from_vm(remote_outdir, outdir, patterns=None):
+        raise RuntimeError(f"sync_from_vm failed for {remote_outdir}")
+
+    # 4) parse and return the dict, byte-equivalent to what run_qmmm_calc()
+    #    would have returned in-process (run_qmmm.py:2628 writes the same dict).
+    return _load_engine_result(outdir, endpoint_stem)
+
+
+# ──────────────────────────────────────────────────────────────────────────
 # compute_qm_int_pair — both endpoint identities on identical coords
 # ──────────────────────────────────────────────────────────────────────────
 def compute_qm_int_pair(
@@ -569,11 +762,6 @@ def compute_qm_int_pair(
         {e_int_cp4, e_int_wt, ddint_kcal, direction, clash_flag, charge_audit,
          ... plus per-endpoint engine records, PCM columns, and R-11 metadata}.
     """
-    # Engine import is local: importing run_qmmm pulls in PySCF/gpu4pyscf and the
-    # scratch/BLAS env bootstrap, which is heavy and GPU-touching. Keep it out of
-    # module import so swap_residue/clash_check stay import-light for tests.
-    from run_qmmm import run_qmmm_calc  # noqa: E402
-
     if direction not in DIRECTIONS:
         raise ValueError(f"direction must be one of {DIRECTIONS}, got {direction!r}")
 
@@ -598,24 +786,44 @@ def compute_qm_int_pair(
     def _engine(lines: List[str], endpoint: str, ncaa_elem: str) -> Dict[str, Any]:
         # Each endpoint gets its own snapdir so run_qmmm's glob picks exactly one
         # PDB; the engine writes <stem>_qmmm_topology.json into outdir.
+        # V100 dispatch: UPDD_VM_ENABLE=1 ⇒ _QMMM_LOC is VM_V100 and the per-
+        # endpoint snapdir+CLI run on the VM via SSH (5070 Ti host fallback on
+        # SSH failure). Otherwise the in-process run_qmmm_calc() path runs on
+        # the host 5070 Ti. BOTH paths return a dict with the SAME schema fields
+        # the aggregator depends on (qm_int_kcal_frozen, interaction_kcal,
+        # converged, qm_method, charge_consistency_audit, binder_charge_computed)
+        # — the VM path parses the engine's on-disk topology JSON, which is the
+        # exact same dict run_qmmm_calc() would have returned in-process.
         snapdir = os.path.join(workdir, f"{endpoint}_snap")
         outdir = os.path.join(workdir, f"{endpoint}_out")
         os.makedirs(snapdir, exist_ok=True)
         os.makedirs(outdir, exist_ok=True)
         endpoint_pdb = os.path.join(snapdir, f"{base_stem}_{direction}_{endpoint}.pdb")
         write_pdb_lines(lines, endpoint_pdb)
-        rec = run_qmmm_calc(
-            pdb_path=endpoint_pdb,
-            output_dir=outdir,
+        endpoint_stem = f"{base_stem}_{direction}_{endpoint}"
+        engine_kwargs: Dict[str, Any] = dict(
+            endpoint_pdb=endpoint_pdb,
+            snapdir=snapdir,
+            outdir=outdir,
+            endpoint_stem=endpoint_stem,
+            ncaa_elem=ncaa_elem,
             qm_basis=qm_basis,
             qm_xc=qm_xc,
-            ncaa_elem=ncaa_elem,
-            mode="full",            # ignored in topology mode (target_id set)
-            binder_chain=binder_chain,
-            target_id=target_id,
             use_df=use_df,
+            target_id=target_id,
+            binder_chain=binder_chain,
         )
-        return rec
+        if _QMMM_LOC == dispatch.GPULocation.VM_V100:
+            vm = dispatch.VMExecutor()
+            if not vm.is_connected():
+                print("  [VM] SSH 연결 불가 — host 5070 Ti fallback")
+                return _run_endpoint_on_host(**engine_kwargs)
+            return dispatch.with_fallback(
+                dispatch.GPULocation.VM_V100,
+                lambda: _run_endpoint_on_vm(vm=vm, **engine_kwargs),
+                lambda: _run_endpoint_on_host(**engine_kwargs),
+            )
+        return _run_endpoint_on_host(**engine_kwargs)
 
     result: Dict[str, Any] = {
         "schema": "qm1traj_variant_pair/0.1",
@@ -704,6 +912,396 @@ def compute_qm_int_pair(
     return result
 
 
+# ──────────────────────────────────────────────────────────────────────────
+# Batch dispatch — single-SSH multi-frame multi-endpoint (2026-05-30, Phase IV-a perf opt)
+# ──────────────────────────────────────────────────────────────────────────
+# Motivation
+# ----------
+# 19:36 실측 (orchestrator PID 520368, 1h49min elapsed): per-endpoint ~24min
+# 평균, per-frame ~48min (Cp4 + WT), 48-frame ETA ~37h. Cold-start (gpu4pyscf
+# JIT + CUDA init + DIIS warmup) 가 매 SSH/python 마다 ~5-10min × 96 endpoint =
+# 8-16h 의 dead time 으로 식별됨. run_qmmm.py 의 `--snapdir` glob 가 이미
+# 한 python process 안에서 multiple PDB 를 순차 처리하므로 (run_qmmm.py:2749,
+# `glob.glob(os.path.join(args.snapdir, '*.pdb'))`), 동일 snapdir 에 여러
+# endpoint PDB 를 staging 하고 SINGLE SSH 로 dispatch 하면 cold-start 가
+# batch 당 1번만 발생한다.
+#
+# Output JSON 의 ``basename`` collision 방지: run_qmmm.py:1491 의
+# ``basename = os.path.basename(pdb_path).replace('.pdb', '')`` → endpoint PDB
+# 파일명 (`<base_stem>_<direction>_<endpoint>.pdb`) 이 frame 간 unique 면
+# JSON 파일 (`<basename>_qmmm_topology.json`) 도 unique. 본 모듈의 stem
+# 명명 규칙은 base PDB stem (MD frame snapshot stem) 을 포함하므로 자연히
+# unique 한다.
+#
+# ncaa_elem 처리: run_qmmm.py grep 결과 (lines 1779/1830/2561), ``ncaa_elem``
+# 인자는 result dict 의 ``ncaa_element`` 메타데이터 필드에만 기록될 뿐 SCF
+# 계산이나 QM region partitioning 에는 영향을 주지 않는다 (topology mode
+# 의 QM region 은 target_card 가 결정). 따라서 batch CLI 는 단일
+# ``--ncaa_elem MTR`` 로 호출하고, sync_from_vm 후 WT endpoint JSON 의
+# ``ncaa_element`` 필드만 "none" 으로 metadata-patch 한다 (audit fidelity 보존).
+
+# Batch CLI per-SCF wall-clock budget. Per-endpoint warm SCF ~3-5min on V100,
+# batch=8 endpoint (4 frame × 2 endpoint) ⇒ ~40min cold + 28min warm ≈ 68min,
+# 안전 margin 포함 8h ceiling. Cold-start 1회 + 후속 warm 들로 amortize.
+_BATCH_ENGINE_TIMEOUT_S = 28800  # 8h
+
+
+def _build_endpoint_pdb(
+    lines: List[str], endpoint_pdb: str,
+) -> None:
+    """Write a single endpoint PDB to disk (helper for batch staging)."""
+    os.makedirs(os.path.dirname(endpoint_pdb), exist_ok=True)
+    write_pdb_lines(lines, endpoint_pdb)
+
+
+def _patch_ncaa_element_metadata(out_json_path: str, ncaa_elem: str) -> None:
+    """Overwrite ``ncaa_element`` field in an engine JSON to the per-endpoint
+    truth (batch CLI passed a single ``--ncaa_elem MTR`` for all PDBs; WT
+    endpoint JSONs need the field patched to "none" to preserve audit fidelity).
+
+    Idempotent: if the field is already correct or the JSON has no
+    ``ncaa_element`` key (e.g., failure result), this is a no-op.
+    """
+    try:
+        with open(out_json_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:  # noqa: BLE001 — silent skip on read failure (file may be incomplete)
+        return
+    if data.get("ncaa_element") == ncaa_elem:
+        return
+    data["ncaa_element"] = ncaa_elem
+    try:
+        with open(out_json_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+    except Exception:  # noqa: BLE001 — metadata-only patch; never fail the run
+        pass
+
+
+def _run_batch_on_vm(
+    *,
+    vm: "dispatch.VMExecutor",
+    shared_snapdir: str,            # local path containing ALL endpoint PDBs
+    shared_outdir: str,             # local path where engine JSONs will land
+    batch_tag: str,                 # unique stem for remote dir naming (no collisions)
+    qm_basis: str,
+    qm_xc: str,
+    use_df: bool,
+    target_id: str,
+    binder_chain: str,
+) -> Dict[str, Any]:
+    """V100 VM batch dispatch: rsync shared_snapdir → SSH-run utils/run_qmmm.py
+    ONCE on the entire snapdir → rsync result JSONs back → return SSH metadata.
+
+    Cold-start amortization: gpu4pyscf JIT + CUDA init + DIIS warmup happens
+    once for the entire batch (the snapdir glob loop in run_qmmm.py:2785 keeps
+    a single python process alive across all PDBs).
+
+    Path layout on the VM:
+      - remote snapdir : <vm.project_root>/scratch/qm1traj_batch/<batch_tag>_snap/
+      - remote outdir  : <vm.project_root>/scratch/qm1traj_batch/<batch_tag>_out/
+
+    Returns ssh execute() result dict (with rc=0 on success). Caller parses the
+    per-PDB JSONs from shared_outdir afterward.
+    """
+    remote_root = os.path.join(vm.project_root, "scratch", "qm1traj_batch", batch_tag)
+    remote_snapdir = remote_root + "_snap"
+    remote_outdir = remote_root + "_out"
+
+    # 1) push the entire shared_snapdir (multiple endpoint PDBs).
+    if not vm.sync_to_vm(shared_snapdir, remote_path=remote_snapdir):
+        raise RuntimeError(f"batch sync_to_vm failed for {shared_snapdir}")
+    mk = vm.execute(f"mkdir -p {shlex.quote(remote_outdir)}", retry=2, timeout=30)
+    if mk.get("returncode", -1) != 0:
+        raise RuntimeError(f"VM remote outdir mkdir failed: {str(mk.get('stderr', ''))[:200]}")
+
+    # 2) single-process batch CLI. run_qmmm.py --snapdir <dir> globs *.pdb and
+    #    loops in one python process ⇒ PySCF/CUDA cold init exactly once.
+    cli_args: List[str] = [
+        "--snapdir", remote_snapdir,
+        "--outputdir", remote_outdir,
+        "--qm_xc", qm_xc,
+        "--qm_basis", qm_basis,
+        # ncaa_elem is metadata-only (see module note above); WT endpoint
+        # JSONs get patched locally after sync_from_vm.
+        "--ncaa_elem", "MTR",
+        "--binder_chain", binder_chain,
+        "--target-id", target_id,
+    ]
+    if not use_df:
+        cli_args.append("--no-df")
+    else:
+        cli_args.extend(["--df-mode", "on"])
+    quoted = " ".join(shlex.quote(a) for a in cli_args)
+    remote_cmd = (
+        f"{_CONDA_BIN} run -n qmmm --no-capture-output "
+        f"python utils/run_qmmm.py {quoted}"
+    )
+    res = vm.execute(remote_cmd, cwd=vm.project_root, timeout=_BATCH_ENGINE_TIMEOUT_S)
+    if res.get("returncode", -1) != 0:
+        raise RuntimeError(
+            f"VM batch engine rc={res.get('returncode')}: "
+            f"{str(res.get('stderr', ''))[:400]}"
+        )
+
+    # 3) pull back per-PDB JSONs (and the per-batch summary if not --filter).
+    if not vm.sync_from_vm(remote_outdir, shared_outdir, patterns=None):
+        raise RuntimeError(f"batch sync_from_vm failed for {remote_outdir}")
+
+    return res
+
+
+def compute_qm_int_pair_batch(
+    frames: List[Dict[str, Any]],
+    *,
+    target_id: str,
+    binder_chain: str = "B",
+    qm_basis: str = "6-31G*",
+    qm_xc: str = "wb97xd",
+    use_df: bool = False,
+    work_root: Optional[str] = None,
+    keep_workdir: bool = False,
+) -> List[Dict[str, Any]]:
+    """Batch ΔΔ_int evaluator: process MULTIPLE (frame, direction) pairs in
+    ONE V100 SSH call ⇒ gpu4pyscf JIT + CUDA cold init amortized across the
+    entire batch instead of per-frame.
+
+    Each input frame dict must carry:
+        {pdb_path: str, target_resnum: int, direction: "graft"|"strip",
+         charge_xml: str, snapshot_stem: Optional[str], extra: Optional[dict]}
+
+    The function:
+      1) Builds both endpoint PDBs (Cp4 + WT) per frame via swap_residue.
+      2) Stages ALL endpoint PDBs (2N for N frames) into a SINGLE shared snapdir.
+      3) Single SSH call invokes `python utils/run_qmmm.py --snapdir <shared>`
+         which loops over the glob in one python process (run_qmmm.py:2785).
+      4) Per-endpoint JSON is parsed from the engine output dir and assembled
+         into the SAME ``pair`` dict shape compute_qm_int_pair() returns
+         (schema "qm1traj_variant_pair/0.1", ranking-only R-11).
+      5) PCM is NOT supported in batch mode (the engine batch CLI evaluates
+         the gas-phase frozen interaction only; PCM is a separate per-pair
+         workflow in _pcm_pair_single_point).
+
+    Fallback semantics: if VM dispatch is unavailable OR the batch SSH fails,
+    raises RuntimeError — the caller (orchestrator) is responsible for the
+    per-frame host fallback (call compute_qm_int_pair sequentially). This is
+    intentional: batch mode is a perf opt, not a correctness change; the
+    no-batch per-frame path remains the canonical fallback.
+
+    Returns: list of ``pair`` dicts in the SAME order as ``frames``.
+
+    Cold-start measurement reference (2026-05-30 launch, PID 520368):
+      - serial: per-frame 48min (24min × 2 endpoint), 48 frame ⇒ 37h
+      - batch=4 frame: cold ~12min + 7 warm × ~5min = ~47min per batch of 8
+        endpoint ⇒ 12 batches × 47min ≈ 9.4h (~75% reduction)
+    """
+    if not frames:
+        return []
+    if work_root is None:
+        work_root = os.environ.get("UPDD_1TRAJ_WORKROOT") or tempfile.gettempdir()
+    os.makedirs(work_root, exist_ok=True)
+
+    # Build a batch-scoped scratch tree.
+    # Layout:
+    #   batch_root/
+    #     shared_snap/        ← all endpoint PDBs (sync_to_vm target)
+    #     shared_out/         ← all engine JSONs (sync_from_vm target)
+    #     per_frame/<frame_idx>_<direction>_<base_stem>/  ← per-frame audit dir
+    ts = datetime_strftime_now()
+    batch_dir = tempfile.mkdtemp(prefix=f"qm1traj_batch_{ts}_", dir=work_root)
+    shared_snapdir = os.path.join(batch_dir, "shared_snap")
+    shared_outdir = os.path.join(batch_dir, "shared_out")
+    os.makedirs(shared_snapdir, exist_ok=True)
+    os.makedirs(shared_outdir, exist_ok=True)
+
+    # Per-frame staging + endpoint_stem registry.
+    # We need to remember which endpoint_stem belongs to which (frame, endpoint)
+    # so we can re-assemble the per-frame pair dict after batch completion.
+    staged: List[Dict[str, Any]] = []  # one entry per frame in input order
+    for frame_idx, fr in enumerate(frames):
+        pdb_path = str(fr["pdb_path"])
+        direction = str(fr["direction"])
+        target_resnum = int(fr["target_resnum"])
+        charge_xml = str(fr["charge_xml"])
+        if direction not in DIRECTIONS:
+            raise ValueError(
+                f"frame[{frame_idx}] direction must be one of {DIRECTIONS}, got {direction!r}"
+            )
+
+        base_lines = read_pdb_lines(pdb_path)
+        swapped_lines, swap_diag = swap_residue(
+            base_lines, binder_chain, target_resnum, direction
+        )
+        clash = clash_check(swapped_lines, target_resnum, chain=binder_chain)
+
+        if direction == "graft":
+            wt_lines, cp4_lines = base_lines, swapped_lines
+        else:  # strip
+            cp4_lines, wt_lines = base_lines, swapped_lines
+
+        base_stem = os.path.splitext(os.path.basename(pdb_path))[0]
+        # Frame-unique stems prevent JSON collision in shared_outdir
+        # (basename of *_cp4.pdb / *_wt.pdb maps 1:1 to *_cp4_qmmm_topology.json /
+        # *_wt_qmmm_topology.json — and base_stem includes the snapshot id).
+        cp4_stem = f"{base_stem}_{direction}_cp4_f{frame_idx:03d}"
+        wt_stem = f"{base_stem}_{direction}_wt_f{frame_idx:03d}"
+        cp4_pdb = os.path.join(shared_snapdir, f"{cp4_stem}.pdb")
+        wt_pdb = os.path.join(shared_snapdir, f"{wt_stem}.pdb")
+        _build_endpoint_pdb(cp4_lines, cp4_pdb)
+        _build_endpoint_pdb(wt_lines, wt_pdb)
+
+        staged.append({
+            "frame_idx": frame_idx,
+            "pdb_path": pdb_path,
+            "direction": direction,
+            "target_resnum": target_resnum,
+            "binder_chain": binder_chain,
+            "charge_xml": charge_xml,
+            "base_stem": base_stem,
+            "cp4_stem": cp4_stem,
+            "wt_stem": wt_stem,
+            "swap_diag": swap_diag,
+            "clash": clash,
+            "snapshot_stem": fr.get("snapshot_stem"),
+            "extra": fr.get("extra"),
+        })
+
+    # Single-SSH batch dispatch (VM only — host fallback is caller's
+    # responsibility; this function is VM-mode opt only).
+    if _QMMM_LOC != dispatch.GPULocation.VM_V100:
+        raise RuntimeError(
+            "compute_qm_int_pair_batch requires UPDD_VM_ENABLE=1 "
+            f"(current route: {_QMMM_LOC.value}). Use compute_qm_int_pair "
+            "for host fallback."
+        )
+    vm = dispatch.VMExecutor()
+    if not vm.is_connected():
+        raise RuntimeError("VM SSH unavailable; batch mode requires V100 dispatch.")
+
+    # batch_tag must be unique enough that parallel batch invocations don't
+    # collide on the VM scratch. ts (microsecond precision) + first 2 frames'
+    # base_stem hash suffix keeps the path tractable.
+    batch_tag = f"{ts}_n{len(staged)}"
+    _run_batch_on_vm(
+        vm=vm,
+        shared_snapdir=shared_snapdir,
+        shared_outdir=shared_outdir,
+        batch_tag=batch_tag,
+        qm_basis=qm_basis,
+        qm_xc=qm_xc,
+        use_df=use_df,
+        target_id=target_id,
+        binder_chain=binder_chain,
+    )
+
+    # ── Per-frame metadata patch (WT endpoint JSONs ncaa_element=none) ──
+    # See module note: batch CLI passes a single --ncaa_elem MTR; restore
+    # the per-endpoint truth in the JSON metadata field for audit fidelity.
+    for entry in staged:
+        cp4_json = _engine_output_json(shared_outdir, entry["cp4_stem"])
+        wt_json = _engine_output_json(shared_outdir, entry["wt_stem"])
+        if os.path.isfile(cp4_json):
+            _patch_ncaa_element_metadata(cp4_json, "MTR")
+        if os.path.isfile(wt_json):
+            _patch_ncaa_element_metadata(wt_json, "none")
+
+    # ── Per-frame result assembly ──
+    pairs: List[Dict[str, Any]] = []
+    for entry in staged:
+        clash = entry["clash"]
+        result: Dict[str, Any] = {
+            "schema": "qm1traj_variant_pair/0.1",
+            "regime": "ranking_only",
+            "regime_note": (
+                "ΔΔ_int (1-trajectory swap-in-place) is a ranking-only QM cross-check "
+                "(R-11). NOT ΔΔG_bind, NOT comparable to Magotti absolute SSOT."
+            ),
+            "base_pdb": entry["pdb_path"],
+            "direction": entry["direction"],
+            "target_resnum": entry["target_resnum"],
+            "binder_chain": entry["binder_chain"],
+            "qm_method": f"{qm_xc}/{qm_basis}",
+            "df_mode": use_df,
+            "charge_xml": entry["charge_xml"],
+            "charge_regime": "option_beta_regime2_hybrid_sigmaq0",
+            "swap_diag": entry["swap_diag"],
+            "clash_flag": clash["clash_flag"],
+            "clash": clash,
+            "caveats": {
+                "bsse": "uncorrected (+3~8 kcal/mol band), ranking-only",
+                "one_traj_approximation": (
+                    "single-trajectory same-coordinate evaluation: the swapped "
+                    "endpoint is not independently relaxed (frozen-geometry). "
+                    "graft direction biased toward spurious repulsion, strip toward "
+                    "under-binding; report the bracket from BOTH directions (A-C1/A-C5)."
+                ),
+                "mm_geometry_bias": (
+                    "frame geometry comes from an MM (amber14SB + Option-β hybrid) "
+                    "MD ensemble, not a QM-optimized structure (Senn & Thiel 2009 "
+                    "DOI:10.1002/anie.200802019)."
+                ),
+                "batch_dispatch": (
+                    "batch=N V100 dispatch (single SSH, single python process, "
+                    "warm gpu4pyscf JIT + CUDA across endpoints) — observable "
+                    "value byte-equivalent to serial per-endpoint dispatch."
+                ),
+            },
+            "e_int_cp4": None,
+            "e_int_wt": None,
+            "ddint_kcal": None,
+            "cp4_record": None,
+            "wt_record": None,
+            "charge_audit": None,
+            "pcm": None,
+            "fail_reason": None,
+        }
+
+        try:
+            cp4_rec = _load_engine_result(shared_outdir, entry["cp4_stem"])
+            wt_rec = _load_engine_result(shared_outdir, entry["wt_stem"])
+            result["cp4_record"] = _slim_record(cp4_rec)
+            result["wt_record"] = _slim_record(wt_rec)
+            e_cp4 = cp4_rec.get("qm_int_kcal_frozen")
+            e_wt = wt_rec.get("qm_int_kcal_frozen")
+            result["e_int_cp4"] = e_cp4
+            result["e_int_wt"] = e_wt
+            result["charge_audit"] = {
+                "cp4": cp4_rec.get("charge_consistency_audit"),
+                "wt": wt_rec.get("charge_consistency_audit"),
+                "cp4_binder_charge_computed": cp4_rec.get("binder_charge_computed"),
+                "wt_binder_charge_computed": wt_rec.get("binder_charge_computed"),
+                "charge_neutral_perturbation": (
+                    cp4_rec.get("binder_charge_computed") == wt_rec.get("binder_charge_computed")
+                ),
+            }
+            if e_cp4 is not None and e_wt is not None:
+                result["ddint_kcal"] = round(float(e_cp4) - float(e_wt), 4)
+            else:
+                result["fail_reason"] = (
+                    f"engine returned None frozen interaction "
+                    f"(cp4={e_cp4}, wt={e_wt})"
+                )
+        except Exception as e:  # noqa: BLE001 — record per-frame failure, others survive
+            result["fail_reason"] = f"{type(e).__name__}: {str(e)[:240]}"
+
+        pairs.append(result)
+
+    if not keep_workdir:
+        shutil.rmtree(batch_dir, ignore_errors=True)
+    else:
+        # Annotate the batch_dir on each pair for inspection.
+        for p in pairs:
+            p["batch_workdir"] = batch_dir
+
+    return pairs
+
+
+def datetime_strftime_now() -> str:
+    """Compact UTC-ish ts for batch tag (microsecond precision avoids
+    parallel-invocation collisions on the VM scratch path)."""
+    from datetime import datetime as _dt  # noqa: PLR0402 — local import keeps module top-level imports unchanged
+    return _dt.now().strftime("%Y%m%d_%H%M%S_%f")
+
+
 def _slim_record(rec: Dict[str, Any]) -> Dict[str, Any]:
     """Keep only the engine fields the aggregator + audit need (avoid bloating
     the per-frame JSON with the full topology diagnostic block)."""
@@ -744,7 +1342,7 @@ def _pcm_pair_single_point(
 
     This path is implemented but gated behind run_pcm=True and is NOT exercised
     by the self-tests (it would launch SCF). A focused PCM smoke (1 frame, tiny
-    region) is the Keeper-gated follow-up; until then it carries a clear status.
+    region) is the integrity-gated follow-up; until then it carries a clear status.
     """
     return {
         "status": "implemented_hook_unverified",
@@ -754,7 +1352,7 @@ def _pcm_pair_single_point(
             "PCM single-point plumbing is in place (libraries verified present) "
             "but has NOT been validated against a converged reference on these "
             "systems. Per A-C3 no sign claim may rest on gas-phase alone; the PCM "
-            "column must be validated (1-frame smoke) under the Keeper gate before "
+            "column must be validated (1-frame smoke) under the integrity gate before "
             "use. This function intentionally does not run SCF inside the import-"
             "light test path; wire the reused engine helpers here for the gated run."
         ),
@@ -785,7 +1383,7 @@ def constrained_micro_min(
     a correct constrained min requires the full MD param manifest (ncAA hydrogen
     defs + cofactor mol2 + per-run universal XML) that lives in the run directory,
     not the bare snapshot — the same constraint that scopes mmgbsa_1traj_compare
-    to WT-only. Wiring that manifest in is the Keeper-gated follow-up.
+    to WT-only. Wiring that manifest in is the integrity-gated follow-up.
 
     The intended algorithm (do NOT silently fake):
       1. Build an OpenMM System from pdb_lines using amber14SB + the Option-β
@@ -805,7 +1403,7 @@ def constrained_micro_min(
             "defs + cofactor mol2 + universal XML), not present for a bare "
             "snapshot. Same scoping limit as mmgbsa_1traj_compare WT-only. "
             "TODO: wire run_mmgbsa system-build + positional restraints under the "
-            "Keeper gate, then report no-min vs with-min ΔΔ_int (A-C2)."
+            "integrity gate, then report no-min vs with-min ΔΔ_int (A-C2)."
         ),
         "swapped_chain": swapped_chain,
         "swapped_resnum": swapped_resnum,

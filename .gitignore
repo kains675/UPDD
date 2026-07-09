@@ -14,7 +14,7 @@ mdout
 Reference/
 
 # ==========================================================================
-# Local-only markdown (planning, agent instructions, verdicts, roadmaps)
+# Local-only markdown (planning, local instructions, verdicts, roadmaps)
 # ==========================================================================
 CLAUDE.md
 MEMORY.md
@@ -75,3 +75,4 @@ venv/
 *.swo
 .DS_Store
 .ipynb_checkpoints/
+migration/

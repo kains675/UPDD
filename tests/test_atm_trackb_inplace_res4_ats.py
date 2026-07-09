@@ -2438,6 +2438,170 @@ def test_legacy_single_core_path_unchanged(real_fused_harmonized):
     assert real_fused_harmonized["swap"]["swap_mode"] == "genuine"
 
 
+# ---------------------------------------------------------------------------
+# Void-water carve (opt-in; W23A backward-endpoint NaN-crash fix).
+# ---------------------------------------------------------------------------
+def _carve_test_spec(ats):
+    """A W23A-style Trp->Ala spec (resnum 7) — indole disappearing heavies."""
+    import dataclasses
+    return dataclasses.replace(
+        ats.MUTATION_TRP_ALA_RES4, resnum=7, name="w23a_trp_ala_test")
+
+
+def _build_synthetic_carve_modeller(ats, dvec, water_specs):
+    """A synthetic MERGED two-copy Modeller for the carve helper.
+
+    copy-1 = ALA7 at the SITE (no indole; contributes no disappearing atom);
+    copy-2 = TRP7 in BULK, its indole heavy atoms placed at (site_frame + dvec) so
+    the swap displacement (-dvec) carries them back near the site (x ~ 0). Waters
+    are added per ``water_specs`` = list of (resid, resname, [(x,y,z), ...]).
+    Returns (modeller, n_copy1).
+    """
+    import openmm as mm
+    import openmm.unit as unit
+    from openmm import app
+
+    top = app.Topology()
+    positions = []
+    d = mm.Vec3(*dvec)
+
+    # copy-1 ALA7 (site) — N/CA/C/O/CB, no indole heavy.
+    chain1 = top.addChain(id="B")
+    ala = top.addResidue("ALA", chain1, id="7")
+    for nm, el, p in [("N", app.element.nitrogen, (0.0, 0.0, 0.0)),
+                      ("CA", app.element.carbon, (0.10, 0.0, 0.0)),
+                      ("C", app.element.carbon, (0.20, 0.0, 0.0)),
+                      ("O", app.element.oxygen, (0.30, 0.0, 0.0)),
+                      ("CB", app.element.carbon, (0.0, 0.15, 0.0))]:
+        top.addAtom(nm, el, ala)
+        positions.append(mm.Vec3(*p))
+    n_copy1 = top.getNumAtoms()
+
+    # copy-2 TRP7 (bulk) — the 9 indole heavies (+CB common) at site_frame + dvec.
+    chain2 = top.addChain(id="B")
+    trp = top.addResidue("TRP", chain2, id="7")
+    indole = {
+        "CB": (0.0, 0.15, 0.0),   # common attach (NOT a disappearing atom)
+        "CG": (0.0, 0.30, 0.0), "CD1": (0.10, 0.40, 0.0),
+        "CD2": (-0.10, 0.40, 0.0), "NE1": (0.05, 0.55, 0.0),
+        "CE2": (-0.05, 0.55, 0.0), "CE3": (-0.20, 0.50, 0.0),
+        "CZ2": (-0.10, 0.70, 0.0), "CZ3": (-0.25, 0.65, 0.0),
+        "CH2": (-0.20, 0.75, 0.0),
+    }
+    for nm, (x, y, z) in indole.items():
+        el = app.element.nitrogen if nm == "NE1" else app.element.carbon
+        top.addAtom(nm, el, trp)
+        positions.append(mm.Vec3(x, y, z) + d)
+
+    # waters
+    for resid, resname, atoms in water_specs:
+        wchain = top.addChain(id="W")
+        w = top.addResidue(resname, wchain, id=str(resid))
+        for i, (x, y, z) in enumerate(atoms):
+            el = app.element.oxygen if i == 0 else app.element.hydrogen
+            top.addAtom("O" if i == 0 else "H%d" % i, el, w)
+            positions.append(mm.Vec3(x, y, z))
+
+    # Wrap ONCE as a Quantity(list-of-Vec3) (matches PDBFile.getPositions) — a
+    # per-element `p * unit.nanometer` list double-wraps and breaks Modeller.delete.
+    pos_q = unit.Quantity(positions, unit.nanometer)
+    return app.Modeller(top, pos_q), n_copy1
+
+
+def test_carve_default_off_and_guarded(ats):
+    """review condition C5 (OFF byte-identity): carve_void_waters defaults False on the
+    builder + serialize, and the carve call is guarded by `if carve_void_waters:`
+    so the OFF path executes zero carve code (no topology mutation)."""
+    import inspect
+    sig = inspect.signature(ats.build_inplace_res4_twocopy_system)
+    assert sig.parameters["carve_void_waters"].default is False
+    assert sig.parameters["carve_cutoff_nm"].default == ats.ATS_CARVE_VOID_CUTOFF_NM
+
+    src = inspect.getsource(ats.build_inplace_res4_twocopy_system)
+    # The carve call must sit under the opt-in guard (OFF => never invoked).
+    assert "if carve_void_waters:" in src
+    guard = src.index("if carve_void_waters:")
+    call = src.index("_carve_void_penetrating_waters(")
+    assert call > guard, "carve call must be under the carve_void_waters guard"
+
+
+def test_carve_removes_void_penetrating_whole_waters(ats):
+    """review condition C3/C4: the carve deletes the WHOLE waters penetrating the swap-
+    displaced indole volume, keeps far/bulk waters, conserves net charge, and
+    leaves the soft-core canon untouched."""
+    if not _have_openmm():
+        pytest.skip("openmm not importable")
+    spec = _carve_test_spec(ats)
+    dvec = (4.0, 0.0, 0.0)
+    # 3 waters: (i) penetrating the site void (coincident with NE1 displaced pos),
+    # (ii) far in open solvent, (iii) at the BULK indole location (must be KEPT —
+    # the carve targets the SITE void at x~0, not the occupied bulk copy at x~4).
+    waters = [
+        (101, "HOH", [(0.05, 0.55, 0.0), (0.06, 0.56, 0.0), (0.04, 0.56, 0.0)]),
+        (102, "HOH", [(5.0, 0.0, 0.0), (5.01, 0.01, 0.0), (4.99, 0.01, 0.0)]),
+        (103, "HOH", [(4.0, 0.55, 0.0), (4.01, 0.56, 0.0), (3.99, 0.56, 0.0)]),
+    ]
+    merged, n_copy1 = _build_synthetic_carve_modeller(ats, dvec, waters)
+    n_before = merged.topology.getNumAtoms()
+
+    report = ats._carve_void_penetrating_waters(
+        merged, n_copy1, dvec, spec, binder_chain="B", cutoff_nm=0.25)
+
+    assert report["n_waters_removed"] == 1
+    assert [w["resid"] for w in report["removed_waters"]] == ["101"]
+    # the removed water came from copy-2 (TRP) swapping toward the copy-1 site.
+    assert report["removed_waters"][0]["source_copy"] == 2
+    assert report["net_charge_delta_e"] == 0.0
+    assert report["net_charge_invariant"] is True
+    assert report["atom_count_delta"] == -3
+    assert merged.topology.getNumAtoms() == n_before - 3
+    # the far + bulk waters survive (only the site-void water is gone).
+    remaining_hoh = [r.id for r in merged.topology.residues() if r.name == "HOH"]
+    assert set(remaining_hoh) == {"102", "103"}
+    # soft-core canon must be untouched by the carve.
+    assert ats.ATS_UMAX_KCAL == 200.0
+    assert ats.ATS_UBCORE_KCAL == 100.0
+    assert ats.ATS_ACORE == 0.062500
+
+
+def test_carve_fail_loud_on_partial_water(ats):
+    """review condition C4: a selected residue that is NOT a whole 3-atom HOH (O + 2 H)
+    must fail loud (never delete a partial / malformed water)."""
+    if not _have_openmm():
+        pytest.skip("openmm not importable")
+    spec = _carve_test_spec(ats)
+    dvec = (4.0, 0.0, 0.0)
+    # A malformed 2-atom "HOH" sitting in the site void -> geometrically selected,
+    # then rejected by the whole-water gate.
+    waters = [
+        (201, "HOH", [(0.05, 0.55, 0.0), (0.06, 0.56, 0.0)]),   # 2 atoms only
+    ]
+    merged, n_copy1 = _build_synthetic_carve_modeller(ats, dvec, waters)
+    with pytest.raises(ats.VoidWaterCarveError, match="non-whole-water"):
+        ats._carve_void_penetrating_waters(
+            merged, n_copy1, dvec, spec, binder_chain="B", cutoff_nm=0.25)
+
+
+def test_carve_serialize_defaults_off_and_single_core_wiring_guard():
+    """review condition C5: the serialize layer defaults carve OFF, and a True flag on the
+    single_core path is a fail-loud wiring error (never silently ignored)."""
+    if not _have_openmm():
+        pytest.skip("openmm not importable")
+    import inspect
+    rbfe_spec = importlib.util.spec_from_file_location(
+        "atm_trackB_inplace_rbfe",
+        os.path.join(_UTILS, "atm_trackB_inplace_rbfe.py"))
+    rbfe = importlib.util.module_from_spec(rbfe_spec)
+    rbfe_spec.loader.exec_module(rbfe)
+
+    sig = inspect.signature(rbfe.serialize_inplace_rbfe_system)
+    assert sig.parameters["carve_void_waters"].default is False
+    # single_core + carve_void_waters=True must raise (two-copy-only knob).
+    with pytest.raises(ValueError, match="carve_void_waters is only supported"):
+        rbfe.serialize_inplace_rbfe_system(
+            leg="free", construction="single_core", carve_void_waters=True)
+
+
 # --- Two-copy smoke-script plumbing ---
 def _load_twocopy_smoke():
     spec = importlib.util.spec_from_file_location(
@@ -2831,7 +2995,7 @@ def test_autosearch_escalates_magnitude_when_small_d_insufficient(ats):
 def test_autosearch_raises_when_exhausted(ats):
     """When no magnitude clears the acceptance line (every tried d leaves the raw
     distance below it), the search raises a deterministic final failure naming the
-    best achieved distance (caller -> Path escalate, no silent pass)."""
+    best achieved distance (caller escalates, no silent pass)."""
     c1 = _toy_copy_build(
         ats, [(0.0, 0.0, 0.0), (0.3, 0.0, 0.0), (0.0, 0.3, 0.0)])
     c2 = _toy_copy_build(ats, [(0.1, 0.0, 0.0)])
@@ -2848,8 +3012,7 @@ def test_autosearch_raises_when_exhausted(ats):
 def test_build_auto_search_surfaces_mode_and_log(ats):
     """task #100/#114: building with auto_search_displacement=True drives the
     engine's direction-aware search and surfaces an AUDITABLE displacement_log
-    (mode + selected dir/magnitude + achieved min-image sep) for the Keeper /
-    Path. Unsolvated free leg (cheap CPU); the auto-search runs on the per-copy
+    (mode + selected dir/magnitude + achieved min-image sep) for the integrity/post-run review. Unsolvated free leg (cheap CPU); the auto-search runs on the per-copy
     coordinates (no System rebuild per candidate)."""
     build = ats.build_inplace_res4_twocopy_system(
         leg="free", seed="s7", solvate=False, harmonize_common_charges=False,

@@ -737,6 +737,10 @@ def _serialize_twocopy_system(
     mutation_spec: Optional[Any] = None,
     auto_search_displacement: bool = False,
     accept_sep_nm: float = ats.ATS_TWOCOPY_ACCEPT_SEP_NM,
+    leg_inputs: Optional[Dict[str, Any]] = None,
+    appearing_h_retry_k: Optional[int] = None,
+    carve_void_waters: bool = False,
+    carve_cutoff_nm: float = ats.ATS_CARVE_VOID_CUTOFF_NM,
 ) -> Dict[str, Any]:
     """Build + serialize the CANONICAL ATS TWO-COPY box for one leg.
 
@@ -754,14 +758,36 @@ def _serialize_twocopy_system(
         decouple direction the C8 bound-leg gate validates); for the free leg the
         same finite vector is returned (any bulk direction is valid free).
     """
-    build = ats.build_inplace_res4_twocopy_system(
+    build_kwargs = dict(
         leg=leg, seed=seed, binder_chain=binder_chain, solvate=solvate,
         harmonize_common_charges=harmonize_common_charges,
         displacement_nm=displacement_nm, mtr_ncaa_xml=mtr_ncaa_xml,
         constraints=constraints, spec=mutation_spec,
         auto_search_displacement=auto_search_displacement,
-        accept_sep_nm=accept_sep_nm,
+        accept_sep_nm=accept_sep_nm, leg_inputs=leg_inputs,
+        # Opt-in void-water carve (default OFF -> byte-identical): delete the whole
+        # bulk waters that penetrate the swap-displaced disappearing-heavy volume
+        # (backward-endpoint NaN-crash fix). Forwarded verbatim to the builder.
+        carve_void_waters=carve_void_waters, carve_cutoff_nm=carve_cutoff_nm,
     )
+    # P3-#116 FIX2 (opt-in, default None -> byte-identical legacy build): the bounded
+    # R2-retry + deterministic per-unit appearing-H placement. When appearing_h_retry_k
+    # is set the build routes through build_inplace_res4_twocopy_system_r2_retry, which
+    # seeds the addHydrogens jitter deterministically per unit and re-places on the rare
+    # R2 seed-clash FAIL (up to K attempts, K exhaustion is fail-loud). The retry is a
+    # PURE placement fix — the forwarded build_kwargs (soft-core canon, λ-schedule,
+    # templates/charges, box/PME, frozen FE core) are untouched. Default None keeps
+    # every existing MTR/V3I/A9G/W4A caller on the exact legacy build.
+    if appearing_h_retry_k is not None:
+        # Per-unit identity for the deterministic seed: velocity-seed label + leg +
+        # mutation name (direction is applied downstream in the ladder, so the build
+        # is direction-agnostic). Stable across processes / build order.
+        unit_key = "%s|%s|%s" % (
+            seed, leg, getattr(mutation_spec, "name", None) or "default")
+        build = ats.build_inplace_res4_twocopy_system_r2_retry(
+            unit_key=unit_key, retry_k=appearing_h_retry_k, **build_kwargs)
+    else:
+        build = ats.build_inplace_res4_twocopy_system(**build_kwargs)
     if build.get("outcome") != "twocopy_attached":
         raise RuntimeError(
             "serialize_inplace_rbfe_system(construction='twocopy'): the two-copy "
@@ -807,9 +833,12 @@ def _serialize_twocopy_system(
         "displacement_vector_nm": [float(c) for c in dvec] if dvec else None,
         # task #100/#6: how d was chosen (fixed_direction vs auto_search) + the
         # per-build search trail (selected dir/magnitude/min-image sep) so the
-        # run_manifest records it for the Keeper audit + Path decoupling check.
+        # run_manifest records it for the integrity audit + post-run decoupling check.
         "displacement_mode": build.get("displacement_mode"),
         "displacement_log": build.get("displacement_log"),
+        # Opt-in void-water carve report (None when carve_void_waters=False) —
+        # surfaced so the launcher can log per-leg (free vs bound) carve counts.
+        "carve_report": fused.get("carve_report"),
         "common_charges_harmonized": build.get("common_charges_harmonized"),
         "mtr_ncaa_xml": build.get("mtr_ncaa_xml"),
         # C8 SIGN-critical: for the two-copy box the decouple direction is the
@@ -851,6 +880,10 @@ def serialize_inplace_rbfe_system(
     mutation_spec: Optional[Any] = None,
     auto_search_displacement: bool = False,
     accept_sep_nm: float = ats.ATS_TWOCOPY_ACCEPT_SEP_NM,
+    leg_inputs: Optional[Dict[str, Any]] = None,
+    appearing_h_retry_k: Optional[int] = None,
+    carve_void_waters: bool = False,
+    carve_cutoff_nm: float = ats.ATS_CARVE_VOID_CUTOFF_NM,
 ) -> Dict[str, Any]:
     """Build + serialize the in-place fused RBFE System for one leg.
 
@@ -925,7 +958,9 @@ def serialize_inplace_rbfe_system(
             displacement_nm=displacement_nm, mtr_ncaa_xml=mtr_ncaa_xml,
             constraints=constraints, mutation_spec=mutation_spec,
             auto_search_displacement=auto_search_displacement,
-            accept_sep_nm=accept_sep_nm)
+            accept_sep_nm=accept_sep_nm, leg_inputs=leg_inputs,
+            appearing_h_retry_k=appearing_h_retry_k,
+            carve_void_waters=carve_void_waters, carve_cutoff_nm=carve_cutoff_nm)
 
     # --- SINGLE-CORE (legacy default; byte-identical) ---------------------
     # mutation_spec is two-copy-only (single-core is the MTR<->Trp single-shared-
@@ -936,6 +971,14 @@ def serialize_inplace_rbfe_system(
             "serialize_inplace_rbfe_system: mutation_spec is only supported with "
             "construction='twocopy' (the single_core path is the MTR<->Trp "
             "single-shared-core build).")
+    # leg_inputs (the single-scaffold folding-thermocycle input override) is a
+    # two-copy-only knob; a non-None override on single_core is a wiring error
+    # (not silently ignored — the single_core build uses the 2QKI resolver).
+    if leg_inputs is not None:
+        raise ValueError(
+            "serialize_inplace_rbfe_system: leg_inputs is only supported with "
+            "construction='twocopy' (the single_core path resolves 2QKI inputs "
+            "directly).")
     # auto_search_displacement is a two-copy-only displacement-construction knob
     # (single_core has no copy-2 bulk displacement to search); a True flag on
     # single_core is a wiring error, not silently ignored. accept_sep_nm is only
@@ -945,6 +988,26 @@ def serialize_inplace_rbfe_system(
             "serialize_inplace_rbfe_system: auto_search_displacement is only "
             "supported with construction='twocopy' (the single_core path has no "
             "copy-2 bulk displacement to search).")
+    # carve_void_waters is a two-copy-only build knob (the void arises from the
+    # displaced bulk copy's disappearing-heavy atoms swapping into the partner
+    # copy's site — single_core has no displaced bulk copy). A True flag on
+    # single_core is a wiring error, not silently ignored.
+    if carve_void_waters:
+        raise ValueError(
+            "serialize_inplace_rbfe_system: carve_void_waters is only supported "
+            "with construction='twocopy' (the single_core path has no displaced "
+            "bulk copy whose disappearing-heavy atoms swap into a water-filled "
+            "void).")
+    # appearing_h_retry_k (the P3-#116 FIX2 deterministic + bounded-retry appearing-H
+    # placement) is a two-copy-only knob: the single_core MTR<->Trp path reads both
+    # endpoints from their own final.pdb and never runs the canonical mutated-copy
+    # addHydrogens placement, so a non-None value is a wiring error (not silently
+    # ignored).
+    if appearing_h_retry_k is not None:
+        raise ValueError(
+            "serialize_inplace_rbfe_system: appearing_h_retry_k is only supported "
+            "with construction='twocopy' (the single_core path does not place the "
+            "canonical mutated-copy appearing hydrogens).")
     build = ats.build_inplace_res4_fused_system(
         leg=leg, seed=seed, binder_chain=binder_chain, solvate=solvate,
         harmonize_common_charges=harmonize_common_charges, swap_mode=swap_mode,

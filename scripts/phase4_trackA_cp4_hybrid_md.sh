@@ -1,7 +1,7 @@
 #!/bin/bash
 # ============================================================================
 # Phase IV Track A — Cp4 hybrid-charge production MD for the #84 seed set
-# (ADR-0010, SciVal verdict A-C1 / B-C1: Option-β / regime-2 hybrid MTR FF).
+# (ADR-0010, scientific-review verdict A-C1 / B-C1: Option-β / regime-2 hybrid MTR FF).
 # ----------------------------------------------------------------------------
 # Generates the strip-direction base ensemble for the 1-trajectory QM ΔΔ_int
 # (scripts/phase4_qmmm_iva_1traj.py). The graft-direction WT ensemble already
@@ -55,7 +55,7 @@
 # probed read-only) so Stage D MM-PBSA runs ON the VM — no DCD sync-back-for-host.
 #
 # NOTE: this script BUILDS and DRY-RUNS only by default-safe gating. The actual
-# launch is Keeper-gated + user-approved (ADR-0010). Use --dry-run to print the
+# launch is integrity-gated + user-approved (ADR-0010). Use --dry-run to print the
 # resolved protocol + per-lane seed assignment + per-seed host commands + the VM
 # rsync/SSH commands without executing MD.
 #
@@ -80,11 +80,16 @@ source /home/san/miniconda3/etc/profile.d/conda.sh
 
 # Cohort consistency note (ADR-0010): unlike the patch-OFF baseline which runs a
 # 2-layer MD-UNPATCHED + PBSA-PATCHED XML swap, the hybrid Track A ensemble uses
-# ONE charge model (the hybrid XML) at every stage — that is the SciVal-approved
+# ONE charge model (the hybrid XML) at every stage — that is the scientifically approved
 # deviation. UPDD_MTR_AMBER14_PATCH=0 is set defensively (inert at MD time; the
 # charge model is fully determined by the local params/MTR_gaff2.xml = hybrid).
 export UPDD_MTR_AMBER14_PATCH=0
-export UPDD_MMGBSA_PLATFORM=CPU  # CPU-forced for MM-PBSA to avoid GPU contention
+# Stage D MM-PBSA platform: CUDA (baseline path, run_mmpbsa.py:540 default).
+# CPU was attempted to free GPU for concurrent QM but caused futex deadlock in
+# CpuCustomGBForce::calculateIxn on this 123k-atom GBn2 system (OpenMM #1893 /
+# #3034). 2026-05-30 bisect confirmed CUDA is the only stable platform here.
+# Per-lane CUDA processes share MD_GPU; verified 2-proc/GPU sweet spot.
+export UPDD_MMGBSA_PLATFORM=CUDA
 
 # Host-lane GPU index (RTX 5070 Ti = 0). Override only for diagnosis.
 MD_GPU="${UPDD_TRACKA_MD_GPU:-0}"
@@ -134,7 +139,7 @@ done
 # SMT layout   (LOGICAL >= 2*PHYS, 예: 9800X3D 8C/16T):
 #   MD    -> core 0 + 그 SMT sibling (PHYS)      => "0,${PHYS}"
 #   MMPBSA-> 나머지 physical + 나머지 sibling     => "1-(PHYS-1),(PHYS+1)-(LOGICAL-1)"
-#   (baseline t1_phase1_5_fresh.sh lines 62-74 와 byte-identical, host Keeper-🟢 보존)
+#   (baseline t1_phase1_5_fresh.sh lines 62-74 와 byte-identical, host integrity review-🟢 보존)
 # No-SMT layout (LOGICAL == PHYS, 예: V100 VM 4C/4T):
 #   MD    -> core 0,  MMPBSA -> core 1..(LOGICAL-1) (flat split, reversed range 불가)
 #   MMPBSA core 가 부족하면 (LOGICAL < 2) pinning 해제 → OS scheduler.
@@ -180,11 +185,13 @@ fi
 # × ~14 threads ≫ 16 hardware threads → thrash + thermal runaway. Two fixes:
 #
 #   (1) PER-WORKER THREAD PIN — mirror UPDD.py::_UPDD_DEFAULT_ENV (hardware_opt.md
-#       "BLAS thread pinning"): OMP/OPENBLAS/MKL/NUMEXPR/VECLIB = 1. ADD
-#       OPENMM_CPU_THREADS=1 — run_mmpbsa.py's Fix-4 minimize uses the OpenMM CPU
-#       platform, whose Threads property defaults to OPENMM_CPU_THREADS (else all
-#       cores). MMPBSA.py/sander are serial single-process (use_sander=1, no MPI),
-#       so per worker ≈ 1 compute thread once these are pinned.
+#       "BLAS thread pinning"): OMP/OPENBLAS/MKL/NUMEXPR/VECLIB = 1. OPENMM_CPU_THREADS
+#       intentionally NOT pinned — Stage D Fix-4 minimize runs on CUDA (baseline path,
+#       per `run_mmpbsa.py:540` default + 4월말 archive verdict_stage_d_cuda_4lane_20260530.md).
+#       The CPU OpenMM platform deadlocks on this 123k-atom GBn2 system inside
+#       CpuCustomGBForce ThreadPool barrier (OpenMM #1893 / #3034). MMPBSA.py/sander
+#       are serial single-process (use_sander=1, no MPI), so per worker ≈ 1 compute
+#       thread once BLAS is pinned + GPU handles the minimize.
 #   (2) DISJOINT PER-LANE CORES — even pinned to 1, 4 lanes sharing the SAME
 #       14-core mask let the kernel migrate all 4 onto a few cores. Partition the
 #       MM-PBSA logical-core POOL (the cores MMPBSA_AFFINITY already owns) into
@@ -194,8 +201,9 @@ fi
 #       reversed-range / no-SMT pitfalls already handled in the MD affinity block.
 # ============================================================================
 # Single-thread env pin applied to every run_mmpbsa.py worker (names mirror
-# UPDD.py::_UPDD_DEFAULT_ENV exactly; OPENMM_CPU_THREADS added for the CPU minimize).
-MMPBSA_THREAD_PIN="OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 OPENMM_CPU_THREADS=1"
+# UPDD.py::_UPDD_DEFAULT_ENV exactly). OPENMM_CPU_THREADS NOT pinned — see L184
+# block: Stage D minimize runs on CUDA, not CPU OpenMM.
+MMPBSA_THREAD_PIN="OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1"
 
 # Expand MMPBSA_AFFINITY ("1-7,9-15" or "1-3" or "1") into an explicit logical-CPU
 # id list, then partition into disjoint per-lane slices. Falls back to a single
@@ -936,11 +944,15 @@ run_one_pbsa () {
     # t1_phase1_5_fresh.sh keeps qmmm active through Stage D (no deactivate after
     # Stage C); our lane deactivates after Stage C, so we re-establish it per worker.
     conda activate qmmm
-    # MMPBSA_THREAD_PIN (BLAS/OMP/OpenMM = 1) prevents this lane's python from
-    # spawning a core-sized thread pool; $pbsa_prefix pins it to a DISJOINT core
-    # slice. The science args below (md_dir/protocol/ncaa_elem/chains/target_id)
-    # are byte-identical to the baseline — thread count ≠ MM-PBSA result.
-    CUDA_VISIBLE_DEVICES="" UPDD_MMGBSA_PLATFORM=CPU env $MMPBSA_THREAD_PIN \
+    # MMPBSA_THREAD_PIN (BLAS/OMP = 1) prevents this lane's python from spawning
+    # a core-sized BLAS pool; $pbsa_prefix pins sander to a DISJOINT core slice.
+    # Stage D Fix-4 minimize uses CUDA (baseline path, run_mmpbsa.py:540 default;
+    # CPU OpenMM deadlocks on this 123k-atom GBn2 system — OpenMM #1893/#3034).
+    # Per-lane CUDA processes share MD_GPU; 5070Ti VRAM 16GB / V100 32GB easily
+    # hold 2-4 concurrent minimize contexts (verified 2026-05-30, ~500 MiB each).
+    # The science args (md_dir/protocol/ncaa_elem/chains/target_id) are byte-
+    # identical to the 4월말 baseline (platform=CUDA in those archives).
+    CUDA_VISIBLE_DEVICES="${MD_GPU:-0}" env $MMPBSA_THREAD_PIN \
         $pbsa_prefix "$PY" scripts/run_mmpbsa.py \
         --md_dir "$snap_dir" --outputdir "$out_dir" \
         --ncaa_elem "$MMPBSA_NCAA_ELEM" --receptor_chain "$MMPBSA_RECEPTOR_CHAIN" \

@@ -152,6 +152,15 @@ DEFAULT_MD_STEPS_PER_CYCLE = 250
 # divergence is a wiring error the auto-search dry-run + tests will surface).
 _ATS_ACCEPT_SEP_NM_DEFAULT = 1.5
 
+# Two-copy void-water carve cutoff default (nm). MIRRORS
+# atm_trackB_setup.ATS_CARVE_VOID_CUTOFF_NM — declared here so the argparse default
+# is available WITHOUT importing the openmm-heavy ats engine at parse time (the
+# engine is loaded lazily via _load_ats()). Keep in lockstep with the engine
+# constant (a divergence is a wiring error the tests surface). 2.5 Å (reviewed band
+# 2.4-2.6 Å): a whole HOH within this distance of a swap-displaced disappearing-
+# heavy atom is carved. Only consulted when --carve-void-waters is set.
+_CARVE_CUTOFF_NM_DEFAULT = 0.25
+
 
 # ---------------------------------------------------------------------------
 # Module loaders (importlib spec-load to avoid sys.modules pollution + so the
@@ -363,11 +372,11 @@ def _existing_rep_seed(rep_dir: str) -> Optional[str]:
 # Every (endpoint x seed x leg) cell of one invocation MUST carry the SAME
 # displacement policy (auto_search bool / accept_sep_nm / displacement_nm). The
 # launcher only ever sources one policy from the CLI, so the cells are uniform by
-# construction; the explicit record + assert (a) lets a Keeper post-hoc audit
+# construction; the explicit record + assert (a) lets a integrity review post-hoc audit
 # spot a MIXED policy across separate invocations on the same out-root (read from
 # pre_registration.json), and (b) hard-fails if a future code path ever varies
 # the policy per cell within one invocation (anti-HARKing — a single pre-
-# registered policy applied uniformly; SciVal condition 2 for task #100/#114).
+# registered policy applied uniformly; scientific-review condition 2 for task #100/#114).
 # ---------------------------------------------------------------------------
 def _build_displacement_cells(endpoints: List[str], seeds: List[str], leg: str,
                               auto_search_displacement: bool,
@@ -1151,6 +1160,10 @@ def run_one_replicate(
     reseed_endpoint_equil_steps: int = 2000,
     dcd_enabled: bool = False,
     dcd_stride_cycles: int = 1,
+    leg_inputs: Optional[Dict[str, Any]] = None,
+    appearing_h_retry_k: Optional[int] = None,
+    carve_void_waters: bool = False,
+    carve_cutoff_nm: float = _CARVE_CUTOFF_NM_DEFAULT,
 ) -> Dict[str, Any]:
     """Run one matched-seed replicate of one (endpoint, leg): the requested
     direction(s) + (when BOTH ran) merge into the combined leg dir UWHAM consumes.
@@ -1274,6 +1287,26 @@ def run_one_replicate(
         # byte-identical.
         if construction == "twocopy" and mutation_spec is not None:
             serialize_kwargs["mutation_spec"] = mutation_spec
+        # leg_inputs (the single-scaffold folding-thermocycle input override) is
+        # two-copy-only; pass it through ONLY on the twocopy path + ONLY when set so
+        # the single-core serialize signature is unaffected and the default (None =>
+        # 2QKI resolver) stays byte-identical.
+        if construction == "twocopy" and leg_inputs is not None:
+            serialize_kwargs["leg_inputs"] = leg_inputs
+        # appearing_h_retry_k (P3-#116 FIX2: deterministic + bounded-retry appearing-H
+        # placement) is two-copy-only; pass it through ONLY on the twocopy path + ONLY
+        # when set so the single-core serialize signature is unaffected and the default
+        # (None => legacy unseeded single-attempt placement) stays byte-identical.
+        if construction == "twocopy" and appearing_h_retry_k is not None:
+            serialize_kwargs["appearing_h_retry_k"] = appearing_h_retry_k
+        # carve_void_waters (opt-in build-time delete of the swap-displaced
+        # disappearing-heavy void waters — the backward-endpoint NaN-crash fix) is
+        # two-copy-only; pass it through ONLY on the twocopy path + ONLY when
+        # ENABLED so the single-core / default-off serialize signature is
+        # byte-identical. The cutoff rides along only when the carve is on.
+        if construction == "twocopy" and carve_void_waters:
+            serialize_kwargs["carve_void_waters"] = True
+            serialize_kwargs["carve_cutoff_nm"] = carve_cutoff_nm
         ser = rbfe.serialize_inplace_rbfe_system(**serialize_kwargs)
         # C8 SIGN-critical: validate the bound-leg decouple direction (fail loud).
         c8 = gate_decouple_direction(leg, ser.get("genuine_decouple_dir"),
@@ -1374,9 +1407,9 @@ def run_one_replicate(
             "reused": bool(ser.get("reused")),
             "construction": ser.get("construction", construction),
             # task #100/#6: how d was chosen + the per-build search trail (selected
-            # direction/magnitude/achieved min-image sep) so the Keeper can audit
+            # direction/magnitude/achieved min-image sep) so the integrity review can audit
             # declared (pre_registration) vs runtime displacement policy and the
-            # Path decoupling check has the realised separations. None on the
+            # post-run decoupling check has the realised separations. None on the
             # single-core path / box-reuse (no fresh two-copy build).
             "displacement_mode": ser.get("displacement_mode"),
             "displacement_log": ser.get("displacement_log"),
@@ -1431,6 +1464,10 @@ def run_leg(
     reseed_endpoint_equil_steps: int = 2000,
     dcd_enabled: bool = False,
     dcd_stride_cycles: int = 1,
+    leg_inputs: Optional[Dict[str, Any]] = None,
+    appearing_h_retry_k: Optional[int] = None,
+    carve_void_waters: bool = False,
+    carve_cutoff_nm: float = _CARVE_CUTOFF_NM_DEFAULT,
 ) -> Dict[str, Any]:
     """Run all matched-seed replicates of one (endpoint, leg)."""
     rbfe = _load_rbfe()
@@ -1460,7 +1497,10 @@ def run_leg(
             reseed_perm_seed=reseed_perm_seed, reseed_endpoint=reseed_endpoint,
             reseed_endpoint_band_lambda2_max=reseed_endpoint_band_lambda2_max,
             reseed_endpoint_equil_steps=reseed_endpoint_equil_steps,
-            dcd_enabled=dcd_enabled, dcd_stride_cycles=dcd_stride_cycles))
+            dcd_enabled=dcd_enabled, dcd_stride_cycles=dcd_stride_cycles,
+            leg_inputs=leg_inputs, appearing_h_retry_k=appearing_h_retry_k,
+            carve_void_waters=carve_void_waters,
+            carve_cutoff_nm=carve_cutoff_nm))
     return {
         "endpoint": endpoint,
         "leg": leg,
@@ -1866,10 +1906,11 @@ def check_leg_hardened_mixing(
 # GPU via CUDA_VISIBLE_DEVICES. The dispatcher packs concurrent units per GPU to
 # the GPU's free VRAM (with headroom), so both GPUs stay saturated.
 #
-# THREAD-PIN (REAL utilization, not thrashing): every worker inherits the BLAS /
-# OMP single-thread pin (OPENBLAS/MKL/NUMEXPR/VECLIB = 1) so N concurrent
-# OpenMM + numpy workers do not oversubscribe the 16 HW threads. OpenMM's GPU
-# kernels are the compute; the CPU side is light per worker.
+# THREAD-PIN (REAL utilization, not thrashing): every worker caps BLAS-like
+# libraries to one thread (OPENBLAS/MKL/NUMEXPR/VECLIB = 1) and caps OpenMP
+# to a small default (OMP_NUM_THREADS=2 unless already set), so concurrent
+# OpenMM + numpy workers do not oversubscribe the 16 HW threads. GPU kernels
+# do the heavy compute; the CPU side is light per worker.
 #
 # DUAL-GPU: the free leg (~1-2 GB/unit, 4252-atom box) packs many units on the
 # 5070Ti (device 0). The bound leg (~6 GB/unit, 541k-atom box) is V100-class
@@ -1902,7 +1943,7 @@ def _max_concurrent_units(free_gb: float, unit_gb: float) -> int:
 
 
 def _worker_env(device_index: int) -> Dict[str, str]:
-    """Subprocess env: pin to one GPU + single-thread BLAS/OMP (no thrash)."""
+    """Subprocess env: pin to one GPU + capped BLAS/OpenMP threads."""
     env = dict(os.environ)
     env["CUDA_VISIBLE_DEVICES"] = str(device_index)
     env.setdefault("OMP_NUM_THREADS", "2")
@@ -2024,6 +2065,14 @@ def run_pool_local(
             if ladder_args.get("lambda2_rampup") is not None:
                 cmd += ["--lambda2-rampdown",
                         ",".join(str(x) for x in ladder_args["lambda2_rampup"])]
+            # Void-water carve (two-copy-only, opt-in): propagate the flag + the
+            # cutoff so every worker builds the SAME carved box the dispatcher
+            # requested (default off => omitted; byte-identical fixed-shell build).
+            if ladder_args.get("carve_void_waters"):
+                cmd.append("--carve-void-waters")
+                cmd += ["--carve-cutoff-nm",
+                        str(ladder_args.get("carve_cutoff_nm",
+                                            _CARVE_CUTOFF_NM_DEFAULT))]
         # OPT-IN DCD (probe diagnostic): thread the same flag + stride the
         # dispatcher set so each pool worker writes its per-walker trajectory.
         # Default off => omitted (byte-identical; production legs do not pass it).
@@ -2196,6 +2245,25 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "solvate C6 separation assert always enforces the 1.0 nm "
                         "clash floor + periodic-image gate regardless."
                         % _ATS_ACCEPT_SEP_NM_DEFAULT)
+    p.add_argument("--carve-void-waters", action="store_true",
+                   help="Two-copy ONLY (opt-in): AFTER addSolvent and BEFORE "
+                        "createSystem, delete the whole bulk waters that penetrate "
+                        "the swap-displaced disappearing-heavy-atom volume of each "
+                        "copy (e.g. the Trp indole volume that swaps onto an Ala "
+                        "site). Fixes the backward-endpoint NaN crash where the "
+                        "ATMForce base energy u1 carries the raw uncapped void-water "
+                        "clash (soft-core caps only u1-u0, never u1). Conserves net "
+                        "charge (whole neutral waters only; fail-loud on any "
+                        "non-water / partial / charged selection). DEFAULT OFF = "
+                        "fixed water shell (byte-identical legacy build).")
+    p.add_argument("--carve-cutoff-nm", type=float,
+                   default=_CARVE_CUTOFF_NM_DEFAULT,
+                   help="Two-copy --carve-void-waters ONLY: a whole HOH with any "
+                        "atom within this distance (nm) of any swap-displaced "
+                        "disappearing-heavy atom is carved. Default %.2f nm (2.5 A; "
+                        "reviewed band 2.4-2.6 A). Consulted only when "
+                        "--carve-void-waters is set."
+                        % _CARVE_CUTOFF_NM_DEFAULT)
     p.add_argument("--mutation", default=None,
                    help="Two-copy ONLY: the mutation-definition spec (the residue + "
                         "alchemical-atom partition). Default None => the legacy "
@@ -2316,7 +2384,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "dgbind1/UWHAM estimator is byte-identical. DEFAULT OFF "
                         "(production legs do not write DCD). The frames are "
                         "post-run moved to ExpDATA + symlinked back by the "
-                        "Runner's localize hook; deleted only after analysis.")
+                        "execution review's localize hook; deleted only after analysis.")
     p.add_argument("--dcd-stride-cycles", type=int, default=1,
                    help="DCD frame stride in asyncre CYCLES (default 1 = one "
                         "frame/walker/cycle = one frame every "
@@ -2449,7 +2517,9 @@ def main(argv: Optional[List[str]] = None) -> int:
                     args.reseed_endpoint_band_lambda2_max),
                 reseed_endpoint_equil_steps=args.reseed_endpoint_equil_steps,
                 dcd_enabled=args.dcd,
-                dcd_stride_cycles=args.dcd_stride_cycles)
+                dcd_stride_cycles=args.dcd_stride_cycles,
+                carve_void_waters=args.carve_void_waters,
+                carve_cutoff_nm=args.carve_cutoff_nm)
         except Exception as exc:  # noqa: BLE001 — surface as non-zero worker exit
             print("WORKER FAILED %s/%s rep%d: %s"
                   % (args.worker_endpoint, leg, args.worker_replicate, exc),
@@ -2468,8 +2538,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         "platform": args.platform, "timestep_fs": args.timestep_fs,
         "genuine_decouple_nm": args.genuine_decouple_nm,
         "construction": construction, "displacement_nm": displacement_nm,
-        # task #100/#3 (SciVal condition 2): pre-register the SINGLE displacement
-        # search policy (anti-HARKing — fixed BEFORE the data + Keeper-auditable
+        # task #100/#3 (scientific-review condition 2): pre-register the SINGLE displacement
+        # search policy (anti-HARKing — fixed BEFORE the data + integrity-auditable
         # vs the runtime displacement_log). The same policy is applied to EVERY
         # seed x leg; d-result heterogeneity (different chosen vectors) is harmless,
         # policy heterogeneity is forbidden. The cone half-angle + magnitude ladder
@@ -2489,7 +2559,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             # G2 — per-cell displacement policy record. The launcher applies ONE
             # policy (from the CLI) to EVERY (endpoint x seed) cell of this leg, so
             # the cells here are uniform BY CONSTRUCTION; recording them per-cell
-            # makes the on-disk prereg the post-hoc audit artifact a Keeper can
+            # makes the on-disk prereg the post-hoc audit artifact a integrity review can
             # cross-check between SEPARATE invocations sharing an out-root (where
             # mixed policies WOULD be a real hazard — caught by the uniformity
             # assert below + the G3 collision guard at run time).
@@ -2506,6 +2576,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         "reseed_endpoint": args.reseed_endpoint,
         "reseed_endpoint_band_lambda2_max": args.reseed_endpoint_band_lambda2_max,
         "reseed_endpoint_equil_steps": args.reseed_endpoint_equil_steps,
+        # Void-water carve (two-copy-only, opt-in) — pre-registered so the on-disk
+        # prereg records whether the build carved the swap-void waters + the cutoff
+        # used (integrity audit vs the per-build carve_report). Default off.
+        "carve_void_waters": args.carve_void_waters,
+        "carve_cutoff_nm": (args.carve_cutoff_nm if args.carve_void_waters
+                            else None),
         "out_root": out_root, "mintimeid": mintimeid,
     }
 
@@ -2621,6 +2697,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             "reseed_endpoint_equil_steps": args.reseed_endpoint_equil_steps,
             "dcd": args.dcd,
             "dcd_stride_cycles": args.dcd_stride_cycles,
+            "carve_void_waters": args.carve_void_waters,
+            "carve_cutoff_nm": args.carve_cutoff_nm,
         }
 
         if args.pool:
@@ -2685,7 +2763,9 @@ def main(argv: Optional[List[str]] = None) -> int:
                         args.reseed_endpoint_band_lambda2_max),
                     reseed_endpoint_equil_steps=args.reseed_endpoint_equil_steps,
                     dcd_enabled=args.dcd,
-                    dcd_stride_cycles=args.dcd_stride_cycles)
+                    dcd_stride_cycles=args.dcd_stride_cycles,
+                    carve_void_waters=args.carve_void_waters,
+                    carve_cutoff_nm=args.carve_cutoff_nm)
                 print("[%s/%s] done in %.1f s (%d replicates)"
                       % (endpoint, leg, time.time() - t0,
                          leg_result["n_replicates"]))

@@ -1,0 +1,61 @@
+{
+  "geometry_ssot": "target/2QKI_clean.pdb",
+  "prereg_outcomes": {
+    "i_ff_fixable": "|ddE_int^CCSD(T)| >= ~1 kcal AND SAPT-attributed AND FF deviates in that component",
+    "ii_ranking_only": "|ddE_int^CCSD(T)| <~ chem accuracy AND within method spread",
+    "iii_ff_structural_error": "sign(ddE^FF) != sign(ddE^CCSD(T)) OR >2-3x AND SAPT names an omitted component",
+    "w4a_control": "|ddE_int^CCSD(T)| MUST be large & unfavorable; else control FAIL -> MTR untrustworthy"
+  },
+  "caveats_R11_R18": "ddE_int = gas-phase fixed-geometry 2-body interaction energy, NOT ddG_bind; Magotti -1.4/-3.0 kcal is a different quantity (SIGN suggestive only).",
+  "tiers": {
+    "tier1": {
+      "per_variant": {
+        "WT": {
+          "ff_kcal": null,
+          "sapt0_kcal": -4.758064694757286,
+          "sapt2p3_dmp2_kcal": -4.770577229711635,
+          "fno_ccsd_t_kcal": -4.31441212070811,
+          "wb97xd_kcal": -4.67658112408251
+        },
+        "MTR": {
+          "ff_kcal": null,
+          "sapt0_kcal": -5.794572260202466,
+          "sapt2p3_dmp2_kcal": -5.908229220167426,
+          "fno_ccsd_t_kcal": -5.343694558201728,
+          "wb97xd_kcal": -6.0985724992841215
+        }
+      },
+      "ddE_int": {
+        "MTR": {
+          "ff_kcal": null,
+          "sapt0_kcal": -1.0365075654451799,
+          "sapt2p3_dmp2_kcal": -1.1376519904557911,
+          "fno_ccsd_t_kcal": -1.0292824374936176,
+          "wb97xd_kcal": -1.4219913752016113
+        }
+      },
+      "sapt_decomposition_ddE": {
+        "MTR": {
+          "sapt0": {
+            "elst_kcal": -0.3835241180131992,
+            "exch_kcal": 1.1519015233480947,
+            "ind_kcal": -0.18453229992411857,
+            "disp_kcal": -1.620352670855957
+          },
+          "sapt2p3_dmp2": {
+            "elst_kcal": -0.38982938137332335,
+            "exch_kcal": 1.278995877537033,
+            "ind_kcal": -0.23632465921045892,
+            "disp_kcal": -1.7904938274090414
+          }
+        }
+      },
+      "classification": {
+        "MTR": {
+          "outcome": "incomplete",
+          "reason": "missing CCSD(T)/SAPT2+(3) or FF ddE"
+        }
+      }
+    }
+  }
+}

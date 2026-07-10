@@ -1,0 +1,428 @@
+{
+  "analysis": "d2_tail_dcd_probe_20260710",
+  "cells": [
+    {
+      "cell_id": "w23a_s101_bound_dplus",
+      "control": false,
+      "direction": "dplus",
+      "elapsed_s": 387.83664083480835,
+      "leg": "bound",
+      "mixing": {
+        "adjacent_crossings": {
+          "0-1": 8,
+          "1-2": 34,
+          "10-11": 28,
+          "11-12": 14,
+          "12-13": 34,
+          "13-14": 32,
+          "2-3": 34,
+          "3-4": 40,
+          "4-5": 38,
+          "5-6": 40,
+          "6-7": 22,
+          "7-8": 38,
+          "8-9": 40,
+          "9-10": 34
+        },
+        "both_ends_visited_count": 1,
+        "gate_passed": true,
+        "n_adjacent_pairs": 14,
+        "n_adjacent_with_crossings": 14,
+        "total_round_trips": 0,
+        "walls": []
+      },
+      "n_frames": 750,
+      "n_local_water_residues": 24,
+      "n_selected_atoms": 1949,
+      "seed": "s101",
+      "site_rmsd_nm": {
+        "max": 0.12634199857711792,
+        "min": 0.0,
+        "n": 750,
+        "p01": 0.0,
+        "p50": 0.06312965229153633,
+        "p95": 0.10869100913405418
+      },
+      "system": "w23a_gateA",
+      "water_min_nm": {
+        "frac_lt_0p26": 0.042666666666666665,
+        "frac_lt_0p35": 1.0,
+        "max": 0.3493725657463074,
+        "min": 0.2520429790019989,
+        "n": 750,
+        "p01": 0.2560723239183426,
+        "p50": 0.2830861210823059,
+        "p95": 0.31900948733091355
+      }
+    },
+    {
+      "cell_id": "w23a_s101_bound_dminus",
+      "control": false,
+      "direction": "dminus",
+      "elapsed_s": 517.710851430893,
+      "leg": "bound",
+      "mixing": {
+        "adjacent_crossings": {
+          "0-1": 28,
+          "1-2": 38,
+          "10-11": 36,
+          "11-12": 28,
+          "12-13": 32,
+          "13-14": 22,
+          "2-3": 24,
+          "3-4": 18,
+          "4-5": 24,
+          "5-6": 30,
+          "6-7": 34,
+          "7-8": 44,
+          "8-9": 38,
+          "9-10": 20
+        },
+        "both_ends_visited_count": 0,
+        "gate_passed": false,
+        "n_adjacent_pairs": 14,
+        "n_adjacent_with_crossings": 14,
+        "total_round_trips": 0,
+        "walls": []
+      },
+      "n_frames": 750,
+      "n_local_water_residues": 24,
+      "n_selected_atoms": 1949,
+      "seed": "s101",
+      "site_rmsd_nm": {
+        "max": 0.14372608065605164,
+        "min": 0.0,
+        "n": 750,
+        "p01": 0.0,
+        "p50": 0.049129415303468704,
+        "p95": 0.10329162776470183
+      },
+      "system": "w23a_gateA",
+      "water_min_nm": {
+        "frac_lt_0p26": 0.29333333333333333,
+        "frac_lt_0p35": 0.9946666666666667,
+        "max": 0.3591610789299011,
+        "min": 0.033000215888023376,
+        "n": 750,
+        "p01": 0.08561161413788795,
+        "p50": 0.26998598873615265,
+        "p95": 0.30799976438283916
+      }
+    },
+    {
+      "cell_id": "w23a_s101_free_dplus",
+      "control": false,
+      "direction": "dplus",
+      "elapsed_s": 181.03744745254517,
+      "leg": "free",
+      "mixing": {
+        "adjacent_crossings": {
+          "0-1": 18,
+          "1-2": 20,
+          "10-11": 24,
+          "11-12": 26,
+          "12-13": 26,
+          "13-14": 18,
+          "2-3": 28,
+          "3-4": 42,
+          "4-5": 38,
+          "5-6": 46,
+          "6-7": 42,
+          "7-8": 20,
+          "8-9": 34,
+          "9-10": 24
+        },
+        "both_ends_visited_count": 0,
+        "gate_passed": false,
+        "n_adjacent_pairs": 14,
+        "n_adjacent_with_crossings": 14,
+        "total_round_trips": 0,
+        "walls": []
+      },
+      "n_frames": 750,
+      "n_local_water_residues": 30,
+      "n_selected_atoms": 518,
+      "seed": "s101",
+      "site_rmsd_nm": {
+        "max": 0.17909207940101624,
+        "min": 0.0,
+        "n": 750,
+        "p01": 0.0,
+        "p50": 0.08170244842767715,
+        "p95": 0.14387541860342024
+      },
+      "system": "w23a_gateA",
+      "water_min_nm": {
+        "frac_lt_0p26": 0.032,
+        "frac_lt_0p35": 0.992,
+        "max": 0.3694598376750946,
+        "min": 0.24551360309123993,
+        "n": 750,
+        "p01": 0.2540734842419624,
+        "p50": 0.2924370765686035,
+        "p95": 0.3309664160013199
+      }
+    },
+    {
+      "cell_id": "w23a_ctrl_s42_bound_dminus",
+      "control": true,
+      "direction": "dminus",
+      "elapsed_s": 381.8514280319214,
+      "leg": "bound",
+      "mixing": {
+        "adjacent_crossings": {
+          "0-1": 22,
+          "1-2": 32,
+          "10-11": 30,
+          "11-12": 34,
+          "12-13": 32,
+          "13-14": 30,
+          "2-3": 26,
+          "3-4": 22,
+          "4-5": 28,
+          "5-6": 30,
+          "6-7": 32,
+          "7-8": 44,
+          "8-9": 42,
+          "9-10": 36
+        },
+        "both_ends_visited_count": 0,
+        "gate_passed": false,
+        "n_adjacent_pairs": 14,
+        "n_adjacent_with_crossings": 14,
+        "total_round_trips": 0,
+        "walls": []
+      },
+      "n_frames": 750,
+      "n_local_water_residues": 30,
+      "n_selected_atoms": 1967,
+      "seed": "s42",
+      "site_rmsd_nm": {
+        "max": 1.7079235315322876,
+        "min": 0.0,
+        "n": 750,
+        "p01": 0.0,
+        "p50": 0.056523486971855164,
+        "p95": 0.13597567826509474
+      },
+      "system": "w23a_gateA",
+      "water_min_nm": {
+        "frac_lt_0p26": 0.18,
+        "frac_lt_0p35": 0.7253333333333334,
+        "max": 0.5338250994682312,
+        "min": 0.04288923740386963,
+        "n": 750,
+        "p01": 0.11365500703454018,
+        "p50": 0.31074588000774384,
+        "p95": 0.4324536815285681
+      }
+    },
+    {
+      "cell_id": "w4a_carved_s127_free_dplus",
+      "control": false,
+      "direction": "dplus",
+      "elapsed_s": 129.07366609573364,
+      "leg": "free",
+      "mixing": {
+        "adjacent_crossings": {
+          "0-1": 18,
+          "1-2": 30,
+          "10-11": 26,
+          "2-3": 12,
+          "3-4": 34,
+          "4-5": 44,
+          "5-6": 18,
+          "6-7": 20,
+          "7-8": 28,
+          "8-9": 18,
+          "9-10": 32
+        },
+        "both_ends_visited_count": 2,
+        "gate_passed": true,
+        "n_adjacent_pairs": 11,
+        "n_adjacent_with_crossings": 11,
+        "total_round_trips": 0,
+        "walls": []
+      },
+      "n_frames": 600,
+      "n_local_water_residues": 49,
+      "n_selected_atoms": 547,
+      "seed": "s127",
+      "site_rmsd_nm": {
+        "max": 0.11962245404720306,
+        "min": 0.0,
+        "n": 600,
+        "p01": 0.0,
+        "p50": 0.052966075018048286,
+        "p95": 0.09104700982570649
+      },
+      "system": "w4a_c1_carved",
+      "water_min_nm": {
+        "frac_lt_0p26": 0.16666666666666666,
+        "frac_lt_0p35": 1.0,
+        "max": 0.3066551089286804,
+        "min": 0.24575895071029663,
+        "n": 600,
+        "p01": 0.2520873761177063,
+        "p50": 0.26773011684417725,
+        "p95": 0.2858308270573616
+      }
+    },
+    {
+      "cell_id": "w4a_carved_s127_bound_dminus",
+      "control": false,
+      "direction": "dminus",
+      "elapsed_s": 1352.1729464530945,
+      "leg": "bound",
+      "mixing": {
+        "adjacent_crossings": {
+          "0-1": 14,
+          "1-2": 34,
+          "10-11": 14,
+          "2-3": 38,
+          "3-4": 38,
+          "4-5": 42,
+          "5-6": 46,
+          "6-7": 42,
+          "7-8": 36,
+          "8-9": 38,
+          "9-10": 30
+        },
+        "both_ends_visited_count": 3,
+        "gate_passed": true,
+        "n_adjacent_pairs": 11,
+        "n_adjacent_with_crossings": 11,
+        "total_round_trips": 0,
+        "walls": []
+      },
+      "n_frames": 600,
+      "n_local_water_residues": 38,
+      "n_selected_atoms": 10410,
+      "seed": "s127",
+      "site_rmsd_nm": {
+        "max": 0.19281503558158875,
+        "min": 0.0,
+        "n": 600,
+        "p01": 0.0,
+        "p50": 0.05680161155760288,
+        "p95": 0.14030419513583173
+      },
+      "system": "w4a_c1_carved",
+      "water_min_nm": {
+        "frac_lt_0p26": 0.515,
+        "frac_lt_0p35": 0.9966666666666667,
+        "max": 0.3932363986968994,
+        "min": 0.043389156460762024,
+        "n": 600,
+        "p01": 0.07357897527515889,
+        "p50": 0.25948916375637054,
+        "p95": 0.29335676729679105
+      }
+    },
+    {
+      "cell_id": "w4a_carved_ctrl_s101_free_dplus",
+      "control": true,
+      "direction": "dplus",
+      "elapsed_s": 129.6771376132965,
+      "leg": "free",
+      "mixing": {
+        "adjacent_crossings": {
+          "0-1": 12,
+          "1-2": 24,
+          "10-11": 18,
+          "2-3": 32,
+          "3-4": 36,
+          "4-5": 38,
+          "5-6": 46,
+          "6-7": 46,
+          "7-8": 46,
+          "8-9": 10,
+          "9-10": 26
+        },
+        "both_ends_visited_count": 1,
+        "gate_passed": true,
+        "n_adjacent_pairs": 11,
+        "n_adjacent_with_crossings": 11,
+        "total_round_trips": 0,
+        "walls": []
+      },
+      "n_frames": 600,
+      "n_local_water_residues": 58,
+      "n_selected_atoms": 574,
+      "seed": "s101",
+      "site_rmsd_nm": {
+        "max": 0.27337729930877686,
+        "min": 0.0,
+        "n": 600,
+        "p01": 0.0,
+        "p50": 0.06219230219721794,
+        "p95": 0.1575863726437091
+      },
+      "system": "w4a_c1_carved",
+      "water_min_nm": {
+        "frac_lt_0p26": 0.175,
+        "frac_lt_0p35": 1.0,
+        "max": 0.30207452178001404,
+        "min": 0.238704651594162,
+        "n": 600,
+        "p01": 0.24947804048657418,
+        "p50": 0.26848238706588745,
+        "p95": 0.2867140471935272
+      }
+    },
+    {
+      "cell_id": "w4a_carved_ctrl_s163_bound_dminus",
+      "control": true,
+      "direction": "dminus",
+      "elapsed_s": 1422.7912261486053,
+      "leg": "bound",
+      "mixing": {
+        "adjacent_crossings": {
+          "0-1": 32,
+          "1-2": 32,
+          "10-11": 12,
+          "2-3": 24,
+          "3-4": 30,
+          "4-5": 36,
+          "5-6": 30,
+          "6-7": 44,
+          "7-8": 42,
+          "8-9": 34,
+          "9-10": 12
+        },
+        "both_ends_visited_count": 0,
+        "gate_passed": false,
+        "n_adjacent_pairs": 11,
+        "n_adjacent_with_crossings": 11,
+        "total_round_trips": 0,
+        "walls": []
+      },
+      "n_frames": 600,
+      "n_local_water_residues": 37,
+      "n_selected_atoms": 10407,
+      "seed": "s163",
+      "site_rmsd_nm": {
+        "max": 0.13125844299793243,
+        "min": 0.0,
+        "n": 600,
+        "p01": 0.0,
+        "p50": 0.056081345304846764,
+        "p95": 0.10753764659166334
+      },
+      "system": "w4a_c1_carved",
+      "water_min_nm": {
+        "frac_lt_0p26": 0.275,
+        "frac_lt_0p35": 1.0,
+        "max": 0.33753928542137146,
+        "min": 0.02911040373146534,
+        "n": 600,
+        "p01": 0.08081263430416584,
+        "p50": 0.2679668515920639,
+        "p95": 0.29592683315277096
+      }
+    }
+  ],
+  "generated": "2026-07-10 11:42:04",
+  "n_cells": 8,
+  "out_root": "/home/san/UPDD_proj/outputs/_trackb/d2_tail_dcd_probe_20260710"
+}

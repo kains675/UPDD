@@ -1,0 +1,52 @@
+{
+  "note": "D2/precheck can record risk only. A-promotion is active only for phase=post_densify, after the densify+seed expansion campaign.",
+  "pairs": [
+    {
+      "control_baseline_persists": true,
+      "control_cell": "w23a_ctrl_s42_bound_dminus",
+      "control_frac_lt_0p26": 0.18,
+      "delta": 0.11333333333333334,
+      "high_cell": "w23a_s101_bound_dminus",
+      "high_frac_lt_0p26": 0.29333333333333333,
+      "high_leverage_amplified": true,
+      "kind": "bound_dminus",
+      "name": "w23a_bound_dminus",
+      "post_densify_a_trigger": false,
+      "ratio": 1.6296296296296298
+    },
+    {
+      "control_baseline_persists": true,
+      "control_cell": "w4a_carved_ctrl_s163_bound_dminus",
+      "control_frac_lt_0p26": 0.275,
+      "delta": 0.24,
+      "high_cell": "w4a_carved_s127_bound_dminus",
+      "high_frac_lt_0p26": 0.515,
+      "high_leverage_amplified": true,
+      "kind": "bound_dminus",
+      "name": "w4a_carved_bound_dminus",
+      "post_densify_a_trigger": false,
+      "ratio": 1.8727272727272726
+    },
+    {
+      "control_baseline_persists": false,
+      "control_cell": "w4a_carved_ctrl_s101_free_dplus",
+      "control_frac_lt_0p26": 0.175,
+      "delta": -0.008333333333333331,
+      "high_cell": "w4a_carved_s127_free_dplus",
+      "high_frac_lt_0p26": 0.16666666666666666,
+      "high_leverage_amplified": false,
+      "kind": "free_dplus",
+      "name": "w4a_carved_free_dplus",
+      "post_densify_a_trigger": false,
+      "ratio": 0.9523809523809524
+    }
+  ],
+  "phase": "precheck",
+  "post_densify_a_triggers": [],
+  "thresholds": {
+    "amp_delta": 0.1,
+    "amp_ratio": 1.5,
+    "baseline_floor": 0.15
+  },
+  "verdict": "PRECHECK_BASELINE_RECORDED"
+}

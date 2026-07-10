@@ -1406,6 +1406,16 @@ def test_w4a_spec_registered_and_resolvable(ats):
         assert name in ats.MUTATION_SPECS
 
 
+def test_twocopy_required_final_endpoints_are_spec_specific(ats):
+    """MTR uses the paired Cp4/WT endpoint finals; canonical all-amber specs use
+    only the WT scaffold final."""
+    assert ats._required_final_endpoint_keys_for_twocopy_spec(None) == ("cp4", "wt")
+    assert ats._required_final_endpoint_keys_for_twocopy_spec("mtr_trp_res4") \
+        == ("cp4", "wt")
+    for name in ("v3i_val_ile_res3", "a9g_ala_gly_res9", "w4a_trp_ala_res4"):
+        assert ats._required_final_endpoint_keys_for_twocopy_spec(name) == ("wt",)
+
+
 def test_w4a_spec_shape_is_connected_group(ats):
     """W4A resolves to the connected-subgraph RING shape (ring-first classifier):
     a non-empty ring_closure_bonds + connected_group_certified=True ->

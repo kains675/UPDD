@@ -887,9 +887,9 @@ def resolve_fold_leg_inputs(
     is a CANONICAL single-scaffold mutation with NO cp4/wt endpoint pair. For the
     canonical (non-MTR) two-copy path the builder reads ONLY ``li['final']['wt']``
     (``scaffold_final``) — copy-1 is the point-mutation of that scaffold and copy-2
-    is its native residue. The both-finals guard also requires ``li['final']['cp4']``
-    to be non-None, so BOTH slots are pointed at the SAME real scaffold (the cp4 slot
-    is never consumed on the canonical path; it only satisfies the guard).
+    is its native residue. Both final slots are still populated for schema parity
+    with the 2QKI endpoint resolver, but canonical all-amber two-copy builds read
+    only the ``wt`` scaffold slot.
 
     Returns the same schema as :func:`resolve_leg_inputs` (bound/free/final +
     hydrogens_xml) so the override is drop-in for the ``leg_inputs`` kwarg;
@@ -933,6 +933,14 @@ def _extract_binder_only(in_pdb: str, out_pdb: str, binder_chain: str = "B") -> 
         fh.writelines(kept)
         fh.write("END\n")
     return out_pdb
+
+
+def _required_final_endpoint_keys_for_twocopy_spec(spec: Optional[Any]) -> Tuple[str, ...]:
+    """Endpoint final.pdb keys required before a two-copy build can start."""
+    ms = resolve_mutation_spec(spec)
+    if ms.stateB_resname == "MTR":
+        return ("cp4", "wt")
+    return ("wt",)
 
 
 def _pdbfixer_prep_termini(in_pdb: str, out_pdb: str,
@@ -5555,14 +5563,20 @@ def build_inplace_res4_twocopy_system(
     # optional pre-resolved leg-input dict (same schema as resolve_leg_inputs). It is
     # the single-scaffold folding-thermocycle override (resolve_fold_leg_inputs points
     # both endpoint slots at one barnase / tripeptide scaffold), read-only here and
-    # threaded through serialize + run_one_replicate. When None the legacy per-seed
-    # 2QKI resolver runs unchanged (all existing MTR/V3I/A9G/W4A callers unaffected).
+    # threaded through serialize + run_one_replicate. MTR requires both endpoint
+    # finals; canonical all-amber specs use only the WT scaffold final.
     li = leg_inputs or resolve_leg_inputs(seed)
-    if not li["final"]["wt"] or not li["final"]["cp4"]:
+    final_inputs = li.get("final", {})
+    required_final_keys = _required_final_endpoint_keys_for_twocopy_spec(ms)
+    missing_final_keys = [
+        key for key in required_final_keys if not final_inputs.get(key)
+    ]
+    if missing_final_keys:
         raise FileNotFoundError(
-            "build_inplace_res4_twocopy_system requires both endpoint final.pdb "
-            "(seed %s). Got wt=%s cp4=%s"
-            % (seed, li["final"]["wt"], li["final"]["cp4"]))
+            "build_inplace_res4_twocopy_system requires %s endpoint final.pdb "
+            "for mutation %s (seed %s). Got wt=%s cp4=%s"
+            % (",".join(required_final_keys), ms.name, seed,
+               final_inputs.get("wt"), final_inputs.get("cp4")))
 
     # 1) Endpoint structures (UNSOLVATED; the merge solvates once after the
     #    displacement so both copies + the d-gap share one water shell). copy-1 =

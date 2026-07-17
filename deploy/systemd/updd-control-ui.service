@@ -1,0 +1,19 @@
+[Unit]
+Description=UPDD local control-center UI
+Requires=updd-control-api.service
+After=updd-control-api.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/san/UPDD_proj
+Environment=PYTHONUNBUFFERED=1
+Environment=UPDD_CC_API_URL=http://127.0.0.1:8765
+ExecStart=/home/san/miniconda3/envs/md-dashboard/bin/python -m streamlit run /home/san/UPDD_proj/utils/updd_control_center_app.py --server.address=127.0.0.1 --server.port=1995 --server.headless=true --browser.gatherUsageStats=false
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,1604 @@
+{
+  "analysis_preregistration": {
+    "path": "analysis/w4a_postdensify_dcd_20260716/PREREGISTRATION.md",
+    "sha256": "080317080bf08a24de5ed0e44eb5e5ca6b5518572fc8cb97c3eadd70f9680513",
+    "size": 5289
+  },
+  "arms": {
+    "carved": {
+      "artifact": {
+        "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/pre_registration.json",
+        "sha256": "af2848f3bf1d12c7c7217c6fd1771f8c1236d7a94c4fd1fe02a789ae35c535d0",
+        "size": 4891
+      },
+      "config": {
+        "carve_void_waters": true,
+        "construction": "twocopy",
+        "directions": [
+          "dplus",
+          "dminus"
+        ],
+        "endpoints": [
+          "wt"
+        ],
+        "lambda1_rampdown": [
+          0.025,
+          0.05,
+          0.1,
+          0.2,
+          0.3,
+          0.4,
+          0.5
+        ],
+        "lambda2_rampup": [
+          0.0,
+          0.05,
+          0.1,
+          0.15,
+          0.2,
+          0.3,
+          0.4,
+          0.5
+        ],
+        "leg": "bound",
+        "md_steps_per_cycle": 250,
+        "mintimeid": 600,
+        "mutation_spec": "w4a_trp_ala_res4",
+        "n_cycles": 800,
+        "seeds": [
+          "s7",
+          "s19",
+          "s23",
+          "s42",
+          "s83",
+          "s101",
+          "s127",
+          "s163",
+          "s199",
+          "s251"
+        ]
+      }
+    },
+    "uncarved": {
+      "artifact": {
+        "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/pre_registration.json",
+        "sha256": "3cc0dadb45a0bb955453167f123bd10838179c11a16a4e5a0aa8ed18bc0a2378",
+        "size": 4894
+      },
+      "config": {
+        "carve_void_waters": false,
+        "construction": "twocopy",
+        "directions": [
+          "dplus",
+          "dminus"
+        ],
+        "endpoints": [
+          "wt"
+        ],
+        "lambda1_rampdown": [
+          0.025,
+          0.05,
+          0.1,
+          0.2,
+          0.3,
+          0.4,
+          0.5
+        ],
+        "lambda2_rampup": [
+          0.0,
+          0.05,
+          0.1,
+          0.15,
+          0.2,
+          0.3,
+          0.4,
+          0.5
+        ],
+        "leg": "bound",
+        "md_steps_per_cycle": 250,
+        "mintimeid": 600,
+        "mutation_spec": "w4a_trp_ala_res4",
+        "n_cycles": 800,
+        "seeds": [
+          "s7",
+          "s19",
+          "s23",
+          "s42",
+          "s83",
+          "s101",
+          "s127",
+          "s163",
+          "s199",
+          "s251"
+        ]
+      }
+    }
+  },
+  "cells": [
+    {
+      "arm": "carved",
+      "artifacts": {
+        "dminus_cntl": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep0/dminus/trackb_dminus_asyncre.cntl",
+          "sha256": "254a922b326cbe05a0a7832ffd16c12498e61ac710c7963391580edc2332bd46",
+          "size": 1027
+        },
+        "run_manifest": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep0/run_manifest.json",
+          "sha256": "6bea1667fc1517370551fd45dc27fa1bae5368fbe45bf4fb004a5579cfedb2d1",
+          "size": 373003
+        },
+        "serialized_pdb": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep0/inplace_rbfe_bound.pdb",
+          "sha256": "934f9e9d9759b3fa73b3acadbf9049227eb1c4ef2ff7083b69fb05ebc41a01ed",
+          "size": 23650823
+        },
+        "serialized_xml": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep0/inplace_rbfe_bound_sys.xml",
+          "sha256": "29d61737dd57ce398d083b5dad9f98a5cd44d762e575a1bab808acbfa3fc8efb",
+          "size": 105833773
+        }
+      },
+      "cell_id": "w4a_carved_s7_bound_dminus",
+      "pdb": {
+        "n_atoms": 291981,
+        "n_site_heavy": 19,
+        "n_waters": 93725
+      },
+      "replicate_index": 0,
+      "seed": "s7",
+      "source_direction": {
+        "finite": true,
+        "n_columns": 11,
+        "n_walkers": 15,
+        "nan_any_manifest": false,
+        "rows_per_walker": {
+          "r0": 800,
+          "r1": 800,
+          "r10": 800,
+          "r11": 800,
+          "r12": 800,
+          "r13": 800,
+          "r14": 800,
+          "r2": 800,
+          "r3": 800,
+          "r4": 800,
+          "r5": 800,
+          "r6": 800,
+          "r7": 800,
+          "r8": 800,
+          "r9": 800
+        },
+        "states": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14
+        ]
+      },
+      "source_rep_dir": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep0"
+    },
+    {
+      "arm": "carved",
+      "artifacts": {
+        "dminus_cntl": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep1/dminus/trackb_dminus_asyncre.cntl",
+          "sha256": "254a922b326cbe05a0a7832ffd16c12498e61ac710c7963391580edc2332bd46",
+          "size": 1027
+        },
+        "run_manifest": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep1/run_manifest.json",
+          "sha256": "d9bc9710ab2db6a2d9d34a88136bc657bf9f9df7521d26dcfa2e50679691df13",
+          "size": 373003
+        },
+        "serialized_pdb": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep1/inplace_rbfe_bound.pdb",
+          "sha256": "498c2b5c9a30cafdea8a091c79d34c0daf0f7bd74c7b37403b8a88b188568765",
+          "size": 21521657
+        },
+        "serialized_xml": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep1/inplace_rbfe_bound_sys.xml",
+          "sha256": "bdbb897d52c1ee352572204e9c04d5d5db9344f0c1695e0298dc38f6f1ec652c",
+          "size": 97147613
+        }
+      },
+      "cell_id": "w4a_carved_s19_bound_dminus",
+      "pdb": {
+        "n_atoms": 265695,
+        "n_site_heavy": 19,
+        "n_waters": 84979
+      },
+      "replicate_index": 1,
+      "seed": "s19",
+      "source_direction": {
+        "finite": true,
+        "n_columns": 11,
+        "n_walkers": 15,
+        "nan_any_manifest": false,
+        "rows_per_walker": {
+          "r0": 800,
+          "r1": 800,
+          "r10": 800,
+          "r11": 800,
+          "r12": 800,
+          "r13": 800,
+          "r14": 800,
+          "r2": 800,
+          "r3": 800,
+          "r4": 800,
+          "r5": 800,
+          "r6": 800,
+          "r7": 800,
+          "r8": 800,
+          "r9": 800
+        },
+        "states": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14
+        ]
+      },
+      "source_rep_dir": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep1"
+    },
+    {
+      "arm": "carved",
+      "artifacts": {
+        "dminus_cntl": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep2/dminus/trackb_dminus_asyncre.cntl",
+          "sha256": "254a922b326cbe05a0a7832ffd16c12498e61ac710c7963391580edc2332bd46",
+          "size": 1027
+        },
+        "run_manifest": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep2/run_manifest.json",
+          "sha256": "107c754979d93d867844297e37aea64f8991cc229118dd6c2d3686681254a2f4",
+          "size": 373008
+        },
+        "serialized_pdb": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep2/inplace_rbfe_bound.pdb",
+          "sha256": "62b45b704f8fceeca85026fc2adc23c91798aff455b51af51a4c3176acb303c4",
+          "size": 26680466
+        },
+        "serialized_xml": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep2/inplace_rbfe_bound_sys.xml",
+          "sha256": "fe7b53ce83abe08f34feeadbb6f9d48f2a1ec7ed1805f72197e545bd98b7f6a8",
+          "size": 118193561
+        }
+      },
+      "cell_id": "w4a_carved_s23_bound_dminus",
+      "pdb": {
+        "n_atoms": 329384,
+        "n_site_heavy": 19,
+        "n_waters": 106170
+      },
+      "replicate_index": 2,
+      "seed": "s23",
+      "source_direction": {
+        "finite": true,
+        "n_columns": 11,
+        "n_walkers": 15,
+        "nan_any_manifest": false,
+        "rows_per_walker": {
+          "r0": 800,
+          "r1": 800,
+          "r10": 800,
+          "r11": 800,
+          "r12": 800,
+          "r13": 800,
+          "r14": 800,
+          "r2": 800,
+          "r3": 800,
+          "r4": 800,
+          "r5": 800,
+          "r6": 800,
+          "r7": 800,
+          "r8": 800,
+          "r9": 800
+        },
+        "states": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14
+        ]
+      },
+      "source_rep_dir": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep2"
+    },
+    {
+      "arm": "carved",
+      "artifacts": {
+        "dminus_cntl": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep3/dminus/trackb_dminus_asyncre.cntl",
+          "sha256": "254a922b326cbe05a0a7832ffd16c12498e61ac710c7963391580edc2332bd46",
+          "size": 1027
+        },
+        "run_manifest": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep3/run_manifest.json",
+          "sha256": "a6818144c14b23506119905838aba1a16122f7de556876dc1a4c48eab2976e36",
+          "size": 373023
+        },
+        "serialized_pdb": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep3/inplace_rbfe_bound.pdb",
+          "sha256": "3ba6c1e9e2df4f52579f757fd1217477a8fd320d73daaab7fea546d56e40a9f5",
+          "size": 24810581
+        },
+        "serialized_xml": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep3/inplace_rbfe_bound_sys.xml",
+          "sha256": "df5eb146b44246cec2686d17e11c90c339d3d4345d6f81535f00b903f8f8e47e",
+          "size": 110565147
+        }
+      },
+      "cell_id": "w4a_carved_s42_bound_dminus",
+      "pdb": {
+        "n_atoms": 306299,
+        "n_site_heavy": 19,
+        "n_waters": 98489
+      },
+      "replicate_index": 3,
+      "seed": "s42",
+      "source_direction": {
+        "finite": true,
+        "n_columns": 11,
+        "n_walkers": 15,
+        "nan_any_manifest": false,
+        "rows_per_walker": {
+          "r0": 800,
+          "r1": 800,
+          "r10": 800,
+          "r11": 800,
+          "r12": 800,
+          "r13": 800,
+          "r14": 800,
+          "r2": 800,
+          "r3": 800,
+          "r4": 800,
+          "r5": 800,
+          "r6": 800,
+          "r7": 800,
+          "r8": 800,
+          "r9": 800
+        },
+        "states": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14
+        ]
+      },
+      "source_rep_dir": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep3"
+    },
+    {
+      "arm": "carved",
+      "artifacts": {
+        "dminus_cntl": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep4/dminus/trackb_dminus_asyncre.cntl",
+          "sha256": "254a922b326cbe05a0a7832ffd16c12498e61ac710c7963391580edc2332bd46",
+          "size": 1027
+        },
+        "run_manifest": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep4/run_manifest.json",
+          "sha256": "64f4cfa6f60cc29a04b5f107dd147125aed021e1ab2011485a561dd030ba6f2d",
+          "size": 373022
+        },
+        "serialized_pdb": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep4/inplace_rbfe_bound.pdb",
+          "sha256": "736871906f3f897ca39e3fc2c5773dc9dd93ee74456b59ad441112444d0741c5",
+          "size": 23617289
+        },
+        "serialized_xml": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep4/inplace_rbfe_bound_sys.xml",
+          "sha256": "bd51174e5326ac26f386ed7814ae7f36b2f7130bf8556900ba200f0b1293a0cf",
+          "size": 105696868
+        }
+      },
+      "cell_id": "w4a_carved_s83_bound_dminus",
+      "pdb": {
+        "n_atoms": 291567,
+        "n_site_heavy": 19,
+        "n_waters": 93587
+      },
+      "replicate_index": 4,
+      "seed": "s83",
+      "source_direction": {
+        "finite": true,
+        "n_columns": 11,
+        "n_walkers": 15,
+        "nan_any_manifest": false,
+        "rows_per_walker": {
+          "r0": 800,
+          "r1": 800,
+          "r10": 800,
+          "r11": 800,
+          "r12": 800,
+          "r13": 800,
+          "r14": 800,
+          "r2": 800,
+          "r3": 800,
+          "r4": 800,
+          "r5": 800,
+          "r6": 800,
+          "r7": 800,
+          "r8": 800,
+          "r9": 800
+        },
+        "states": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14
+        ]
+      },
+      "source_rep_dir": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep4"
+    },
+    {
+      "arm": "carved",
+      "artifacts": {
+        "dminus_cntl": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep5/dminus/trackb_dminus_asyncre.cntl",
+          "sha256": "254a922b326cbe05a0a7832ffd16c12498e61ac710c7963391580edc2332bd46",
+          "size": 1027
+        },
+        "run_manifest": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep5/run_manifest.json",
+          "sha256": "9e6ce55c0fd3b65622d60385a88bda6d7386c8ef54d0638980383566a4f2cf15",
+          "size": 373008
+        },
+        "serialized_pdb": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep5/inplace_rbfe_bound.pdb",
+          "sha256": "49cb14e96d04c369ba6b367f5e4d39bb3f1942c5defc87ef2f8a1bfaf295fa05",
+          "size": 24333977
+        },
+        "serialized_xml": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep5/inplace_rbfe_bound_sys.xml",
+          "sha256": "18e405e306cdabdd62b4b295a275868a36c8ee343db699b7ce7f119f6e81a5b1",
+          "size": 108620698
+        }
+      },
+      "cell_id": "w4a_carved_s101_bound_dminus",
+      "pdb": {
+        "n_atoms": 300415,
+        "n_site_heavy": 19,
+        "n_waters": 96531
+      },
+      "replicate_index": 5,
+      "seed": "s101",
+      "source_direction": {
+        "finite": true,
+        "n_columns": 11,
+        "n_walkers": 15,
+        "nan_any_manifest": false,
+        "rows_per_walker": {
+          "r0": 800,
+          "r1": 800,
+          "r10": 800,
+          "r11": 800,
+          "r12": 800,
+          "r13": 800,
+          "r14": 800,
+          "r2": 800,
+          "r3": 800,
+          "r4": 800,
+          "r5": 800,
+          "r6": 800,
+          "r7": 800,
+          "r8": 800,
+          "r9": 800
+        },
+        "states": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14
+        ]
+      },
+      "source_rep_dir": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep5"
+    },
+    {
+      "arm": "carved",
+      "artifacts": {
+        "dminus_cntl": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep6/dminus/trackb_dminus_asyncre.cntl",
+          "sha256": "254a922b326cbe05a0a7832ffd16c12498e61ac710c7963391580edc2332bd46",
+          "size": 1027
+        },
+        "run_manifest": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep6/run_manifest.json",
+          "sha256": "ae975ba70e8632c5a664c91a1198e7248b80ac542b7a2da733ac218b99fc29ac",
+          "size": 373008
+        },
+        "serialized_pdb": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep6/inplace_rbfe_bound.pdb",
+          "sha256": "21de111a05004f9e028f0bf418213cfc53890fc89dd00791f601ebb97e3eefdd",
+          "size": 24520682
+        },
+        "serialized_xml": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep6/inplace_rbfe_bound_sys.xml",
+          "sha256": "2b4c9761f294deaaf5e76e5bffd7d6e20686a58ec547a650b8eb51866676f962",
+          "size": 109382409
+        }
+      },
+      "cell_id": "w4a_carved_s127_bound_dminus",
+      "pdb": {
+        "n_atoms": 302720,
+        "n_site_heavy": 19,
+        "n_waters": 97298
+      },
+      "replicate_index": 6,
+      "seed": "s127",
+      "source_direction": {
+        "finite": true,
+        "n_columns": 11,
+        "n_walkers": 15,
+        "nan_any_manifest": false,
+        "rows_per_walker": {
+          "r0": 800,
+          "r1": 800,
+          "r10": 800,
+          "r11": 800,
+          "r12": 800,
+          "r13": 800,
+          "r14": 800,
+          "r2": 800,
+          "r3": 800,
+          "r4": 800,
+          "r5": 800,
+          "r6": 800,
+          "r7": 800,
+          "r8": 800,
+          "r9": 800
+        },
+        "states": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14
+        ]
+      },
+      "source_rep_dir": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep6"
+    },
+    {
+      "arm": "carved",
+      "artifacts": {
+        "dminus_cntl": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep7/dminus/trackb_dminus_asyncre.cntl",
+          "sha256": "254a922b326cbe05a0a7832ffd16c12498e61ac710c7963391580edc2332bd46",
+          "size": 1027
+        },
+        "run_manifest": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep7/run_manifest.json",
+          "sha256": "89eeb097a12d1cebec8551b728e19b40e6c6a1cafadfdc11e5fb33a7adf17590",
+          "size": 373004
+        },
+        "serialized_pdb": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep7/inplace_rbfe_bound.pdb",
+          "sha256": "cfcc573cfa937bffe59be8049a6560fb57b4822352ace9055747c2ac6f881784",
+          "size": 25429421
+        },
+        "serialized_xml": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep7/inplace_rbfe_bound_sys.xml",
+          "sha256": "d37f3024c0dba2ed4a40481559a63d80dd74fc3b7303fc1d62d765999809fcb0",
+          "size": 113089762
+        }
+      },
+      "cell_id": "w4a_carved_s163_bound_dminus",
+      "pdb": {
+        "n_atoms": 313939,
+        "n_site_heavy": 19,
+        "n_waters": 101031
+      },
+      "replicate_index": 7,
+      "seed": "s163",
+      "source_direction": {
+        "finite": true,
+        "n_columns": 11,
+        "n_walkers": 15,
+        "nan_any_manifest": false,
+        "rows_per_walker": {
+          "r0": 800,
+          "r1": 800,
+          "r10": 800,
+          "r11": 800,
+          "r12": 800,
+          "r13": 800,
+          "r14": 800,
+          "r2": 800,
+          "r3": 800,
+          "r4": 800,
+          "r5": 800,
+          "r6": 800,
+          "r7": 800,
+          "r8": 800,
+          "r9": 800
+        },
+        "states": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14
+        ]
+      },
+      "source_rep_dir": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep7"
+    },
+    {
+      "arm": "carved",
+      "artifacts": {
+        "dminus_cntl": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep8/dminus/trackb_dminus_asyncre.cntl",
+          "sha256": "254a922b326cbe05a0a7832ffd16c12498e61ac710c7963391580edc2332bd46",
+          "size": 1027
+        },
+        "run_manifest": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep8/run_manifest.json",
+          "sha256": "ac28e32f806a6d72e58bae0a6c830673941b0c63b84d77a9177ee39044211bd4",
+          "size": 373008
+        },
+        "serialized_pdb": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep8/inplace_rbfe_bound.pdb",
+          "sha256": "b50ba07f578cf929f9a1f0c2e991b23e969072bc638eac059e6a99c13880e4b1",
+          "size": 22893797
+        },
+        "serialized_xml": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep8/inplace_rbfe_bound_sys.xml",
+          "sha256": "613f2a38b9589d730b57212355a281b03bece6a95c903432c36d255456749401",
+          "size": 102745277
+        }
+      },
+      "cell_id": "w4a_carved_s199_bound_dminus",
+      "pdb": {
+        "n_atoms": 282635,
+        "n_site_heavy": 19,
+        "n_waters": 90615
+      },
+      "replicate_index": 8,
+      "seed": "s199",
+      "source_direction": {
+        "finite": true,
+        "n_columns": 11,
+        "n_walkers": 15,
+        "nan_any_manifest": false,
+        "rows_per_walker": {
+          "r0": 800,
+          "r1": 800,
+          "r10": 800,
+          "r11": 800,
+          "r12": 800,
+          "r13": 800,
+          "r14": 800,
+          "r2": 800,
+          "r3": 800,
+          "r4": 800,
+          "r5": 800,
+          "r6": 800,
+          "r7": 800,
+          "r8": 800,
+          "r9": 800
+        },
+        "states": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14
+        ]
+      },
+      "source_rep_dir": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep8"
+    },
+    {
+      "arm": "carved",
+      "artifacts": {
+        "dminus_cntl": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep9/dminus/trackb_dminus_asyncre.cntl",
+          "sha256": "254a922b326cbe05a0a7832ffd16c12498e61ac710c7963391580edc2332bd46",
+          "size": 1027
+        },
+        "run_manifest": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep9/run_manifest.json",
+          "sha256": "5109dcb1212943e42a8419c18fb0244ec92f132c0ac3a8a78ab1e51ae719aed0",
+          "size": 373008
+        },
+        "serialized_pdb": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep9/inplace_rbfe_bound.pdb",
+          "sha256": "6f3e410b8246147aa112e0f7514d08dc9e5a56c70a860a149bf4e699844f9a83",
+          "size": 24761738
+        },
+        "serialized_xml": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep9/inplace_rbfe_bound_sys.xml",
+          "sha256": "d248ca391919949d87a57b1957b5960894b3ff4958d2d2571b1bffb84b5ebbf9",
+          "size": 110365755
+        }
+      },
+      "cell_id": "w4a_carved_s251_bound_dminus",
+      "pdb": {
+        "n_atoms": 305696,
+        "n_site_heavy": 19,
+        "n_waters": 98288
+      },
+      "replicate_index": 9,
+      "seed": "s251",
+      "source_direction": {
+        "finite": true,
+        "n_columns": 11,
+        "n_walkers": 15,
+        "nan_any_manifest": false,
+        "rows_per_walker": {
+          "r0": 800,
+          "r1": 800,
+          "r10": 800,
+          "r11": 800,
+          "r12": 800,
+          "r13": 800,
+          "r14": 800,
+          "r2": 800,
+          "r3": 800,
+          "r4": 800,
+          "r5": 800,
+          "r6": 800,
+          "r7": 800,
+          "r8": 800,
+          "r9": 800
+        },
+        "states": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14
+        ]
+      },
+      "source_rep_dir": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/carved_bound/wt/bound/rep9"
+    },
+    {
+      "arm": "uncarved",
+      "artifacts": {
+        "dminus_cntl": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep0/dminus/trackb_dminus_asyncre.cntl",
+          "sha256": "254a922b326cbe05a0a7832ffd16c12498e61ac710c7963391580edc2332bd46",
+          "size": 1027
+        },
+        "run_manifest": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep0/run_manifest.json",
+          "sha256": "d516da4d20c3406dede3442f7cc6503723e9e4fbbfab109deb9b5510ba6fa1b5",
+          "size": 373143
+        },
+        "serialized_pdb": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep0/inplace_rbfe_bound.pdb",
+          "sha256": "34f9232774aa7e92029b11608eb74ef770884a6789dd8652a020a28c99841b58",
+          "size": 23651795
+        },
+        "serialized_xml": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep0/inplace_rbfe_bound_sys.xml",
+          "sha256": "0910ec335729747b43aa43bac06b7855128681fdfae5980d32a3f77a8107ce76",
+          "size": 105837741
+        }
+      },
+      "cell_id": "w4a_uncarved_s7_bound_dminus",
+      "pdb": {
+        "n_atoms": 291993,
+        "n_site_heavy": 19,
+        "n_waters": 93729
+      },
+      "replicate_index": 0,
+      "seed": "s7",
+      "source_direction": {
+        "finite": true,
+        "n_columns": 11,
+        "n_walkers": 15,
+        "nan_any_manifest": false,
+        "rows_per_walker": {
+          "r0": 800,
+          "r1": 800,
+          "r10": 800,
+          "r11": 800,
+          "r12": 800,
+          "r13": 800,
+          "r14": 800,
+          "r2": 800,
+          "r3": 800,
+          "r4": 800,
+          "r5": 800,
+          "r6": 800,
+          "r7": 800,
+          "r8": 800,
+          "r9": 800
+        },
+        "states": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14
+        ]
+      },
+      "source_rep_dir": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep0"
+    },
+    {
+      "arm": "uncarved",
+      "artifacts": {
+        "dminus_cntl": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep1/dminus/trackb_dminus_asyncre.cntl",
+          "sha256": "254a922b326cbe05a0a7832ffd16c12498e61ac710c7963391580edc2332bd46",
+          "size": 1027
+        },
+        "run_manifest": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep1/run_manifest.json",
+          "sha256": "6c4ea58a73f21acc397b75753bb262ab0edcd25c6160e111a7c3a843ee54ef99",
+          "size": 373143
+        },
+        "serialized_pdb": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep1/inplace_rbfe_bound.pdb",
+          "sha256": "663a0d4a119236521576189b6aaff5f89b02f564518d7c87b424251746fd20c0",
+          "size": 21522143
+        },
+        "serialized_xml": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep1/inplace_rbfe_bound_sys.xml",
+          "sha256": "323ddf24bfb108d53d636f553234ba9abaf61275297f10adc7e41901534eac29",
+          "size": 97149597
+        }
+      },
+      "cell_id": "w4a_uncarved_s19_bound_dminus",
+      "pdb": {
+        "n_atoms": 265701,
+        "n_site_heavy": 19,
+        "n_waters": 84981
+      },
+      "replicate_index": 1,
+      "seed": "s19",
+      "source_direction": {
+        "finite": true,
+        "n_columns": 11,
+        "n_walkers": 15,
+        "nan_any_manifest": false,
+        "rows_per_walker": {
+          "r0": 800,
+          "r1": 800,
+          "r10": 800,
+          "r11": 800,
+          "r12": 800,
+          "r13": 800,
+          "r14": 800,
+          "r2": 800,
+          "r3": 800,
+          "r4": 800,
+          "r5": 800,
+          "r6": 800,
+          "r7": 800,
+          "r8": 800,
+          "r9": 800
+        },
+        "states": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14
+        ]
+      },
+      "source_rep_dir": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep1"
+    },
+    {
+      "arm": "uncarved",
+      "artifacts": {
+        "dminus_cntl": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep2/dminus/trackb_dminus_asyncre.cntl",
+          "sha256": "254a922b326cbe05a0a7832ffd16c12498e61ac710c7963391580edc2332bd46",
+          "size": 1027
+        },
+        "run_manifest": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep2/run_manifest.json",
+          "sha256": "fc6fafb366cdafd6aa8656c76ac1eea6220c54131e13364a56a90954c1353bda",
+          "size": 373148
+        },
+        "serialized_pdb": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep2/inplace_rbfe_bound.pdb",
+          "sha256": "536cb74bff8616fce903c074199e70c82e316d8cc7cd7549a7a8f5e5d1801aa2",
+          "size": 26681195
+        },
+        "serialized_xml": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep2/inplace_rbfe_bound_sys.xml",
+          "sha256": "2ba2282793f4f83d7911a5b2d3319648de0013dedd8f802fbcbdc8f28b41d5ab",
+          "size": 118196537
+        }
+      },
+      "cell_id": "w4a_uncarved_s23_bound_dminus",
+      "pdb": {
+        "n_atoms": 329393,
+        "n_site_heavy": 19,
+        "n_waters": 106173
+      },
+      "replicate_index": 2,
+      "seed": "s23",
+      "source_direction": {
+        "finite": true,
+        "n_columns": 11,
+        "n_walkers": 15,
+        "nan_any_manifest": false,
+        "rows_per_walker": {
+          "r0": 800,
+          "r1": 800,
+          "r10": 800,
+          "r11": 800,
+          "r12": 800,
+          "r13": 800,
+          "r14": 800,
+          "r2": 800,
+          "r3": 800,
+          "r4": 800,
+          "r5": 800,
+          "r6": 800,
+          "r7": 800,
+          "r8": 800,
+          "r9": 800
+        },
+        "states": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14
+        ]
+      },
+      "source_rep_dir": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep2"
+    },
+    {
+      "arm": "uncarved",
+      "artifacts": {
+        "dminus_cntl": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep3/dminus/trackb_dminus_asyncre.cntl",
+          "sha256": "254a922b326cbe05a0a7832ffd16c12498e61ac710c7963391580edc2332bd46",
+          "size": 1027
+        },
+        "run_manifest": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep3/run_manifest.json",
+          "sha256": "8c8cf5bf6a5116376103d8a337eda53de9b0325413b4a1e1ee1f94b3b354d268",
+          "size": 373163
+        },
+        "serialized_pdb": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep3/inplace_rbfe_bound.pdb",
+          "sha256": "c9531c69f188e6fec6a2dd30ffaf24a061f2054f5a516c9d197a1251b78dd904",
+          "size": 24810824
+        },
+        "serialized_xml": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep3/inplace_rbfe_bound_sys.xml",
+          "sha256": "4d6ec68c4f47344d9312930a89701134205b399516097a716c3f3aa771b43b3f",
+          "size": 110566139
+        }
+      },
+      "cell_id": "w4a_uncarved_s42_bound_dminus",
+      "pdb": {
+        "n_atoms": 306302,
+        "n_site_heavy": 19,
+        "n_waters": 98490
+      },
+      "replicate_index": 3,
+      "seed": "s42",
+      "source_direction": {
+        "finite": true,
+        "n_columns": 11,
+        "n_walkers": 15,
+        "nan_any_manifest": false,
+        "rows_per_walker": {
+          "r0": 800,
+          "r1": 800,
+          "r10": 800,
+          "r11": 800,
+          "r12": 800,
+          "r13": 800,
+          "r14": 800,
+          "r2": 800,
+          "r3": 800,
+          "r4": 800,
+          "r5": 800,
+          "r6": 800,
+          "r7": 800,
+          "r8": 800,
+          "r9": 800
+        },
+        "states": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14
+        ]
+      },
+      "source_rep_dir": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep3"
+    },
+    {
+      "arm": "uncarved",
+      "artifacts": {
+        "dminus_cntl": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep4/dminus/trackb_dminus_asyncre.cntl",
+          "sha256": "254a922b326cbe05a0a7832ffd16c12498e61ac710c7963391580edc2332bd46",
+          "size": 1027
+        },
+        "run_manifest": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep4/run_manifest.json",
+          "sha256": "7be48f18b5bc5b1ed299eb0f40e4d552628faebed91e6ad3269da43a4d8de449",
+          "size": 372089
+        },
+        "serialized_pdb": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep4/inplace_rbfe_bound.pdb",
+          "sha256": "c12802f45a2ce634b9766560ce4feee0017950e715f286fb92cfd466a88063ea",
+          "size": 23617775
+        },
+        "serialized_xml": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep4/inplace_rbfe_bound_sys.xml",
+          "sha256": "495f7af8c955095b37fefdd7641fb098c90d1f90698bddc7b6a19a4dd2fc5a3a",
+          "size": 105698852
+        }
+      },
+      "cell_id": "w4a_uncarved_s83_bound_dminus",
+      "pdb": {
+        "n_atoms": 291573,
+        "n_site_heavy": 19,
+        "n_waters": 93589
+      },
+      "replicate_index": 4,
+      "seed": "s83",
+      "source_direction": {
+        "finite": true,
+        "n_columns": 11,
+        "n_walkers": 15,
+        "nan_any_manifest": false,
+        "rows_per_walker": {
+          "r0": 800,
+          "r1": 800,
+          "r10": 800,
+          "r11": 800,
+          "r12": 800,
+          "r13": 800,
+          "r14": 800,
+          "r2": 800,
+          "r3": 800,
+          "r4": 800,
+          "r5": 800,
+          "r6": 800,
+          "r7": 800,
+          "r8": 800,
+          "r9": 800
+        },
+        "states": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14
+        ]
+      },
+      "source_rep_dir": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep4"
+    },
+    {
+      "arm": "uncarved",
+      "artifacts": {
+        "dminus_cntl": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep5/dminus/trackb_dminus_asyncre.cntl",
+          "sha256": "254a922b326cbe05a0a7832ffd16c12498e61ac710c7963391580edc2332bd46",
+          "size": 1027
+        },
+        "run_manifest": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep5/run_manifest.json",
+          "sha256": "9d10b34d475f43e8e2e7dad36d2f2470436ee998dbf9ce9d9701169038febb42",
+          "size": 373148
+        },
+        "serialized_pdb": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep5/inplace_rbfe_bound.pdb",
+          "sha256": "7428ec92cc9ad9a9b2a15c047e97fb9c1ba5d0fc861b4f7636ccf1be4e701e07",
+          "size": 24334706
+        },
+        "serialized_xml": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep5/inplace_rbfe_bound_sys.xml",
+          "sha256": "f07056214404603081639dc5ea3cdc833b3910e8467046a1da4a21b52eb9d726",
+          "size": 108623674
+        }
+      },
+      "cell_id": "w4a_uncarved_s101_bound_dminus",
+      "pdb": {
+        "n_atoms": 300424,
+        "n_site_heavy": 19,
+        "n_waters": 96534
+      },
+      "replicate_index": 5,
+      "seed": "s101",
+      "source_direction": {
+        "finite": true,
+        "n_columns": 11,
+        "n_walkers": 15,
+        "nan_any_manifest": false,
+        "rows_per_walker": {
+          "r0": 800,
+          "r1": 800,
+          "r10": 800,
+          "r11": 800,
+          "r12": 800,
+          "r13": 800,
+          "r14": 800,
+          "r2": 800,
+          "r3": 800,
+          "r4": 800,
+          "r5": 800,
+          "r6": 800,
+          "r7": 800,
+          "r8": 800,
+          "r9": 800
+        },
+        "states": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14
+        ]
+      },
+      "source_rep_dir": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep5"
+    },
+    {
+      "arm": "uncarved",
+      "artifacts": {
+        "dminus_cntl": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep6/dminus/trackb_dminus_asyncre.cntl",
+          "sha256": "254a922b326cbe05a0a7832ffd16c12498e61ac710c7963391580edc2332bd46",
+          "size": 1027
+        },
+        "run_manifest": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep6/run_manifest.json",
+          "sha256": "a3d74cc60c48457d3a41640152586ee4b1ec6953d7b6078cdd0e252841848fed",
+          "size": 373149
+        },
+        "serialized_pdb": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep6/inplace_rbfe_bound.pdb",
+          "sha256": "5e0dfdbf5650d45b0dec1fc73c1e97ddc178a5fb477a3943a5cb8679dd134529",
+          "size": 24521168
+        },
+        "serialized_xml": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep6/inplace_rbfe_bound_sys.xml",
+          "sha256": "2cf60c082a7a22438fd0b795b9ab50d95b4c6dcad3058d2c852eff71b9255c55",
+          "size": 109384393
+        }
+      },
+      "cell_id": "w4a_uncarved_s127_bound_dminus",
+      "pdb": {
+        "n_atoms": 302726,
+        "n_site_heavy": 19,
+        "n_waters": 97300
+      },
+      "replicate_index": 6,
+      "seed": "s127",
+      "source_direction": {
+        "finite": true,
+        "n_columns": 11,
+        "n_walkers": 15,
+        "nan_any_manifest": false,
+        "rows_per_walker": {
+          "r0": 800,
+          "r1": 800,
+          "r10": 800,
+          "r11": 800,
+          "r12": 800,
+          "r13": 800,
+          "r14": 800,
+          "r2": 800,
+          "r3": 800,
+          "r4": 800,
+          "r5": 800,
+          "r6": 800,
+          "r7": 800,
+          "r8": 800,
+          "r9": 800
+        },
+        "states": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14
+        ]
+      },
+      "source_rep_dir": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep6"
+    },
+    {
+      "arm": "uncarved",
+      "artifacts": {
+        "dminus_cntl": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep7/dminus/trackb_dminus_asyncre.cntl",
+          "sha256": "254a922b326cbe05a0a7832ffd16c12498e61ac710c7963391580edc2332bd46",
+          "size": 1027
+        },
+        "run_manifest": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep7/run_manifest.json",
+          "sha256": "7c1f725ad170cc818d1b39dce79d131328bd86ad7e82b66f5236129e92d38e0b",
+          "size": 373145
+        },
+        "serialized_pdb": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep7/inplace_rbfe_bound.pdb",
+          "sha256": "70893c4983cabb4b31bb21ae6a49074cebd39af8660c39e51576ca4407e1d34b",
+          "size": 25430393
+        },
+        "serialized_xml": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep7/inplace_rbfe_bound_sys.xml",
+          "sha256": "8b51ef0a6e6c45323b0f753e817923c48dbfd91910ec3c38baf6157dd074f730",
+          "size": 113093730
+        }
+      },
+      "cell_id": "w4a_uncarved_s163_bound_dminus",
+      "pdb": {
+        "n_atoms": 313951,
+        "n_site_heavy": 19,
+        "n_waters": 101035
+      },
+      "replicate_index": 7,
+      "seed": "s163",
+      "source_direction": {
+        "finite": true,
+        "n_columns": 11,
+        "n_walkers": 15,
+        "nan_any_manifest": false,
+        "rows_per_walker": {
+          "r0": 800,
+          "r1": 800,
+          "r10": 800,
+          "r11": 800,
+          "r12": 800,
+          "r13": 800,
+          "r14": 800,
+          "r2": 800,
+          "r3": 800,
+          "r4": 800,
+          "r5": 800,
+          "r6": 800,
+          "r7": 800,
+          "r8": 800,
+          "r9": 800
+        },
+        "states": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14
+        ]
+      },
+      "source_rep_dir": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep7"
+    },
+    {
+      "arm": "uncarved",
+      "artifacts": {
+        "dminus_cntl": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep8/dminus/trackb_dminus_asyncre.cntl",
+          "sha256": "254a922b326cbe05a0a7832ffd16c12498e61ac710c7963391580edc2332bd46",
+          "size": 1027
+        },
+        "run_manifest": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep8/run_manifest.json",
+          "sha256": "21e61d713471c21150dd8479f592b17d6a9de27d0b6623e7b51f52ba203743a1",
+          "size": 373147
+        },
+        "serialized_pdb": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep8/inplace_rbfe_bound.pdb",
+          "sha256": "576c3f3500169a4f881d09ed6adca9c1af80158449b078394370778ef7616eb1",
+          "size": 22894526
+        },
+        "serialized_xml": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep8/inplace_rbfe_bound_sys.xml",
+          "sha256": "aad527a23f89c3e30ad3f3b1d397f2249505cc5259f5938a2e4f54d4dae51f07",
+          "size": 102748253
+        }
+      },
+      "cell_id": "w4a_uncarved_s199_bound_dminus",
+      "pdb": {
+        "n_atoms": 282644,
+        "n_site_heavy": 19,
+        "n_waters": 90618
+      },
+      "replicate_index": 8,
+      "seed": "s199",
+      "source_direction": {
+        "finite": true,
+        "n_columns": 11,
+        "n_walkers": 15,
+        "nan_any_manifest": false,
+        "rows_per_walker": {
+          "r0": 800,
+          "r1": 800,
+          "r10": 800,
+          "r11": 800,
+          "r12": 800,
+          "r13": 800,
+          "r14": 800,
+          "r2": 800,
+          "r3": 800,
+          "r4": 800,
+          "r5": 800,
+          "r6": 800,
+          "r7": 800,
+          "r8": 800,
+          "r9": 800
+        },
+        "states": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14
+        ]
+      },
+      "source_rep_dir": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep8"
+    },
+    {
+      "arm": "uncarved",
+      "artifacts": {
+        "dminus_cntl": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep9/dminus/trackb_dminus_asyncre.cntl",
+          "sha256": "254a922b326cbe05a0a7832ffd16c12498e61ac710c7963391580edc2332bd46",
+          "size": 1027
+        },
+        "run_manifest": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep9/run_manifest.json",
+          "sha256": "24fc1042edef398f18ea2b0231240d9969fab8c960c3bd31e86a2dd990deb9a4",
+          "size": 373148
+        },
+        "serialized_pdb": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep9/inplace_rbfe_bound.pdb",
+          "sha256": "5a917b559a3ea46b906b4d4f0f2fa45bf2981c6f566fa0a65c360fcda18a284f",
+          "size": 24762710
+        },
+        "serialized_xml": {
+          "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep9/inplace_rbfe_bound_sys.xml",
+          "sha256": "52d09ef2a0159b39f7a39b38a93bb8224a4b1c087bbe13582907f3a10dbe4d10",
+          "size": 110369723
+        }
+      },
+      "cell_id": "w4a_uncarved_s251_bound_dminus",
+      "pdb": {
+        "n_atoms": 305708,
+        "n_site_heavy": 19,
+        "n_waters": 98292
+      },
+      "replicate_index": 9,
+      "seed": "s251",
+      "source_direction": {
+        "finite": true,
+        "n_columns": 11,
+        "n_walkers": 15,
+        "nan_any_manifest": false,
+        "rows_per_walker": {
+          "r0": 800,
+          "r1": 800,
+          "r10": 800,
+          "r11": 800,
+          "r12": 800,
+          "r13": 800,
+          "r14": 800,
+          "r2": 800,
+          "r3": 800,
+          "r4": 800,
+          "r5": 800,
+          "r6": 800,
+          "r7": 800,
+          "r8": 800,
+          "r9": 800
+        },
+        "states": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14
+        ]
+      },
+      "source_rep_dir": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep9"
+    }
+  ],
+  "generated": "2026-07-16 08:41:27 +0900",
+  "inventory_digest": "d67c4fa420ccb1d6b170a4bef0fe480c4c0cc79395c006f198d48fa1293cbee9",
+  "output_root": "outputs/_trackb/w4a_postdensify_dcd_20260716",
+  "schema": "w4a_postdensify_dcd_source_inventory_v1",
+  "source_root": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1"
+}

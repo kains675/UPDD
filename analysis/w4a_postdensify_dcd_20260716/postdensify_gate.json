@@ -1,0 +1,74 @@
+{
+  "carved_controls": {
+    "median": 0.33466666666666667,
+    "seeds": [
+      "s7",
+      "s19",
+      "s23",
+      "s42",
+      "s83",
+      "s101",
+      "s163",
+      "s199",
+      "s251"
+    ],
+    "values": {
+      "s101": 0.284,
+      "s163": 0.33466666666666667,
+      "s19": 0.312,
+      "s199": 0.3293333333333333,
+      "s23": 0.33866666666666667,
+      "s251": 0.348,
+      "s42": 0.38533333333333336,
+      "s7": 0.2986666666666667,
+      "s83": 0.3893333333333333
+    }
+  },
+  "criteria": {
+    "control_baseline_persists": true,
+    "high_leverage_amplification_persists": false,
+    "high_minus_control_median": 0.16266666666666668,
+    "high_over_control_median": 1.4860557768924303
+  },
+  "high_leverage": {
+    "frac_lt_0p26": 0.49733333333333335,
+    "seed": "s127"
+  },
+  "interpretation_limit": "Short-probe walker/cycle frames are correlated. Values are structural propensity diagnostics, not independent observations or free-energy estimates.",
+  "schema": "w4a_postdensify_dcd_gate_v1",
+  "secondary_context": {
+    "paired_carved_minus_uncarved": {
+      "s101": -0.1906666666666667,
+      "s127": 0.11333333333333334,
+      "s163": -0.018666666666666665,
+      "s19": -0.10133333333333333,
+      "s199": -0.09066666666666667,
+      "s23": -0.10933333333333334,
+      "s251": -0.040000000000000036,
+      "s42": -0.08399999999999996,
+      "s7": -0.09333333333333332,
+      "s83": -0.00666666666666671
+    },
+    "paired_difference_median": -0.08733333333333332,
+    "uncarved_median": 0.4046666666666667,
+    "uncarved_values": {
+      "s101": 0.4746666666666667,
+      "s127": 0.384,
+      "s163": 0.35333333333333333,
+      "s19": 0.41333333333333333,
+      "s199": 0.42,
+      "s23": 0.448,
+      "s251": 0.388,
+      "s42": 0.4693333333333333,
+      "s7": 0.392,
+      "s83": 0.396
+    }
+  },
+  "source_inventory_digest": "d67c4fa420ccb1d6b170a4bef0fe480c4c0cc79395c006f198d48fa1293cbee9",
+  "thresholds": {
+    "amplification_delta": 0.1,
+    "amplification_ratio": 1.5,
+    "baseline_floor": 0.15
+  },
+  "verdict": "PROMOTE_A_CARVE_REDESIGN"
+}

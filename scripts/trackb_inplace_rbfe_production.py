@@ -66,6 +66,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import math
 import os
 import shutil
 import sys
@@ -76,9 +77,15 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 _PROJ = os.path.dirname(_HERE)
 _UTILS = os.path.join(_PROJ, "utils")
 _SCRIPTS = os.path.join(_PROJ, "scripts")
-for _p in (_UTILS, _SCRIPTS):
+for _p in (_PROJ, _UTILS, _SCRIPTS):
     if _p not in sys.path:
         sys.path.insert(0, _p)
+
+from utils.control_center.control_token import (
+    PAUSE_EXIT_CODE,
+    boundary_pause_requested,
+    pause_pending,
+)
 
 
 # Endpoints + per-direction tags (fixed conventions, mirror the ABFE launcher).
@@ -86,6 +93,98 @@ ENDPOINTS = ("cp4", "wt")
 DIRECTION_TAGS = ("dplus", "dminus")               # forward, backward
 DIRECTION_OF_TAG = {"dplus": "forward", "dminus": "backward"}
 JOBNAME = "trackb"
+
+
+def _control_context() -> Optional[Dict[str, str]]:
+    values = {
+        "job_id": os.environ.get("UPDD_JOB_ID"),
+        "spec_hash": os.environ.get("UPDD_SPEC_HASH"),
+        "input_digest": os.environ.get("UPDD_INPUT_DIGEST"),
+    }
+    if not any(values.values()):
+        return None
+    if not all(values.values()):
+        raise RuntimeError("incomplete UPDD control-center identity environment")
+    return {key: str(value) for key, value in values.items()}
+
+
+def _control_completed_replicate(
+    out_root: str,
+    endpoint: str,
+    leg: str,
+    replicate_index: int,
+    seed: str,
+    directions: List[str],
+    n_cycles: int,
+) -> Optional[Dict[str, Any]]:
+    """Accept resume-skip only for a complete manifest from this exact spec."""
+    context = _control_context()
+    if context is None:
+        return None
+    rep_dir = _rep_dir(out_root, endpoint, leg, replicate_index)
+    path = os.path.join(rep_dir, "run_manifest.json")
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as handle:
+            manifest = json.load(handle)
+    except (OSError, ValueError) as exc:
+        raise RuntimeError("ambiguous completed manifest at %s: %s" % (path, exc))
+    if manifest.get("control_center") != context:
+        raise RuntimeError(
+            "completed manifest at %s does not belong to the active immutable spec" % path
+        )
+    expected = {
+        "endpoint": endpoint,
+        "leg": leg,
+        "replicate_index": replicate_index,
+        "seed": seed,
+    }
+    for key, value in expected.items():
+        if manifest.get(key) != value:
+            raise RuntimeError("completed manifest %s mismatch: %s" % (key, path))
+    if set(manifest.get("directions") or []) != set(directions):
+        raise RuntimeError("completed manifest direction mismatch: %s" % path)
+    per_direction = manifest.get("per_direction") or {}
+    for tag in directions:
+        row = per_direction.get(tag) or {}
+        if row.get("nan_any") is not False:
+            raise RuntimeError("completed manifest has missing/failed NaN gate: %s/%s" % (path, tag))
+        out_paths = sorted(
+            os.path.join(root, name)
+            for root, _dirs, files in os.walk(os.path.join(rep_dir, tag))
+            for name in files
+            if name == "trackb_%s.out" % tag
+        )
+        if not out_paths:
+            raise RuntimeError("completed manifest has no walker outputs: %s/%s" % (path, tag))
+        for out_path in out_paths:
+            rows = 0
+            with open(out_path, encoding="utf-8", errors="replace") as handle:
+                for line in handle:
+                    text = line.strip()
+                    if not text or text.startswith("#"):
+                        continue
+                    fields = text.split()
+                    if len(fields) != 11:
+                        raise RuntimeError("invalid completed output columns: %s" % out_path)
+                    values = [float(value) for value in fields]
+                    if not all(math.isfinite(value) for value in values):
+                        raise RuntimeError("non-finite completed output: %s" % out_path)
+                    rows += 1
+            if rows != n_cycles:
+                raise RuntimeError(
+                    "completed output row mismatch: %s expected=%d got=%d"
+                    % (out_path, n_cycles, rows)
+                )
+    return manifest
+
+
+def _control_pause_at_boundary(progress: Dict[str, Any]) -> bool:
+    if not boundary_pause_requested(progress):
+        return False
+    print("[control] cooperative pause acknowledged at Track B unit boundary")
+    return True
 
 # C5 — minimum matched-seed replicates before a SIGN claim is even attempted.
 MIN_REPLICATES_FOR_SIGN = 3
@@ -1418,6 +1517,9 @@ def run_one_replicate(
         "merged": merged,
         "apex_cosampled_C3": apex_cosampled,
     }
+    control_context = _control_context()
+    if control_context is not None:
+        manifest["control_center"] = control_context
     # git provenance (additive; swallow-all so it can never break a launch).
     manifest.update(_git_provenance())
     with open(os.path.join(leg_dir, "run_manifest.json"), "w") as fh:
@@ -1470,10 +1572,31 @@ def run_leg(
     carve_cutoff_nm: float = _CARVE_CUTOFF_NM_DEFAULT,
 ) -> Dict[str, Any]:
     """Run all matched-seed replicates of one (endpoint, leg)."""
+    reps: List[Dict[str, Any]] = []
+    pending: List[Tuple[int, str]] = []
+    for j, seed in enumerate(seeds):
+        completed = _control_completed_replicate(
+            out_root, endpoint, leg, j, seed, directions, n_cycles
+        )
+        if completed is not None:
+            print("[control] resume-skip %s/%s rep%d seed=%s" % (endpoint, leg, j, seed))
+            reps.append(completed)
+        else:
+            pending.append((j, seed))
+    if _control_pause_at_boundary({
+        "boundary": "trackb_replicate",
+        "completed": len(reps),
+        "expected": len(seeds),
+        "endpoint": endpoint,
+        "leg": leg,
+    }):
+        return {
+            "endpoint": endpoint, "leg": leg, "construction": construction,
+            "n_replicates": len(reps), "replicates": reps, "paused": True,
+        }
     rbfe = _load_rbfe()
     driver = _load_driver()
-    reps: List[Dict[str, Any]] = []
-    for j, seed in enumerate(seeds):
+    for j, seed in pending:
         reps.append(run_one_replicate(
             rbfe, driver,
             out_root=out_root, endpoint=endpoint, leg=leg,
@@ -1501,12 +1624,24 @@ def run_leg(
             leg_inputs=leg_inputs, appearing_h_retry_k=appearing_h_retry_k,
             carve_void_waters=carve_void_waters,
             carve_cutoff_nm=carve_cutoff_nm))
+        if _control_pause_at_boundary({
+            "boundary": "trackb_replicate",
+            "completed": len(reps),
+            "expected": len(seeds),
+            "endpoint": endpoint,
+            "leg": leg,
+        }):
+            return {
+                "endpoint": endpoint, "leg": leg, "construction": construction,
+                "n_replicates": len(reps), "replicates": reps, "paused": True,
+            }
     return {
         "endpoint": endpoint,
         "leg": leg,
         "construction": construction,
         "n_replicates": len(reps),
         "replicates": reps,
+        "paused": False,
     }
 
 
@@ -1560,6 +1695,18 @@ def write_pre_registration(out_root: str, args_dict: Dict[str, Any]) -> str:
         "outcomes": PRE_REGISTERED_OUTCOMES,
         "config": args_dict,
     }
+    if _control_context() is not None and os.path.isfile(path):
+        with open(path, encoding="utf-8") as fh:
+            existing = json.load(fh)
+        comparable = dict(existing)
+        comparable.pop("registered_utc", None)
+        candidate = dict(payload)
+        candidate.pop("registered_utc", None)
+        if comparable != candidate:
+            raise RuntimeError(
+                "control resume preregistration differs from the frozen on-disk declaration"
+            )
+        return path
     with open(path, "w") as fh:
         json.dump(payload, fh, indent=2, default=str)
     return path
@@ -1988,7 +2135,24 @@ def run_pool_local(
 
     running: List[Tuple[Dict[str, Any], Any, Any]] = []   # (unit, proc, logfh)
     done: List[Dict[str, Any]] = []
-    queue = list(units)
+    queue: List[Dict[str, Any]] = []
+    for unit in units:
+        completed = _control_completed_replicate(
+            out_root,
+            unit["endpoint"],
+            leg,
+            unit["replicate_index"],
+            unit["seed"],
+            directions,
+            int(ladder_args["n_cycles"]),
+        )
+        if completed is None:
+            queue.append(unit)
+        else:
+            unit.update(exit_code=0, resume_skipped=True, pid=None)
+            done.append(unit)
+            print("  [pool/control] resume-skip %s/%s rep%d seed=%s"
+                  % (unit["endpoint"], leg, unit["replicate_index"], unit["seed"]))
 
     def _launch(unit):
         log_path = os.path.join(
@@ -2096,8 +2260,12 @@ def run_pool_local(
         return (unit, proc, logfh)
 
     import time as _t
+    draining = False
     while queue or running:
-        while queue and len(running) < max_concurrent:
+        if not draining and pause_pending():
+            draining = True
+            print("  [pool/control] pause requested; draining active unit(s)")
+        while queue and len(running) < max_concurrent and not draining:
             running.append(_launch(queue.pop(0)))
         # Poll the running set.
         still: List[Tuple[Dict[str, Any], Any, Any]] = []
@@ -2112,14 +2280,31 @@ def run_pool_local(
                 print("  [pool] finished %s/%s rep%d -> exit %d"
                       % (unit["endpoint"], leg, unit["replicate_index"], rc))
         running = still
+        if draining and not running:
+            _control_pause_at_boundary({
+                "boundary": "trackb_pool_unit",
+                "completed": len(done),
+                "expected": len(units),
+                "leg": leg,
+            })
+            break
         if queue or running:
             _t.sleep(5)
+
+    if not draining and pause_pending():
+        draining = _control_pause_at_boundary({
+            "boundary": "trackb_pool_unit",
+            "completed": len(done),
+            "expected": len(units),
+            "leg": leg,
+        })
 
     return {
         "leg": leg, "device_index": device_index,
         "max_concurrent": max_concurrent,
         "n_units": len(units), "units": done,
-        "all_ok": all(u.get("exit_code") == 0 for u in done),
+        "all_ok": len(done) == len(units) and all(u.get("exit_code") == 0 for u in done),
+        "paused": draining,
     }
 
 
@@ -2730,6 +2915,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             with open(os.path.join(out_root, "pool_manifest_%s.json" % (leg,)),
                       "w") as fh:
                 json.dump(pool_result, fh, indent=2, default=str)
+            if pool_result.get("paused"):
+                return PAUSE_EXIT_CODE
         else:
             for endpoint in endpoints:
                 t0 = time.time()
@@ -2769,6 +2956,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                 print("[%s/%s] done in %.1f s (%d replicates)"
                       % (endpoint, leg, time.time() - t0,
                          leg_result["n_replicates"]))
+                if leg_result.get("paused"):
+                    return PAUSE_EXIT_CODE
 
     # UWHAM analysis — only when BOTH cp4 + wt + both directions ran (the cycle).
     if set(endpoints) == set(ENDPOINTS) and set(directions) == set(DIRECTION_TAGS):

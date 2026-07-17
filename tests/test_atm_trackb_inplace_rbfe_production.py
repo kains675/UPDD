@@ -1061,3 +1061,123 @@ def test_g3_runtime_guard_raises_on_mismatch(prod, tmp_path):
             timestep_fs=1.0, minimize_iters=1, backward_equil_steps=0,
             genuine_decouple_nm=1.2, mtr_ncaa_xml=None, binder_chain="B",
             archive_existing=True)
+
+
+# ---------------------------------------------------------------------------
+# Control-center exact resume and cooperative pool drain (default-off).
+# ---------------------------------------------------------------------------
+def _write_controlled_replicate(prod, root, context, n_cycles=2):
+    rep = prod._rep_dir(str(root), "wt", "bound", 0)
+    out_dir = os.path.join(rep, "dplus", "r0")
+    os.makedirs(out_dir, exist_ok=True)
+    with open(os.path.join(out_dir, "trackb_dplus.out"), "w") as handle:
+        for _ in range(n_cycles):
+            handle.write(" ".join(["0"] * 11) + "\n")
+    manifest = {
+        "endpoint": "wt",
+        "leg": "bound",
+        "replicate_index": 0,
+        "seed": "s7",
+        "directions": ["dplus"],
+        "per_direction": {"dplus": {"nan_any": False}},
+        "control_center": context,
+    }
+    with open(os.path.join(rep, "run_manifest.json"), "w") as handle:
+        json.dump(manifest, handle)
+    return manifest
+
+
+def test_controlled_resume_accepts_only_exact_manifest(prod, tmp_path, monkeypatch):
+    context = {"job_id": "job-1", "spec_hash": "a" * 64, "input_digest": "b" * 64}
+    for key, value in (
+        ("UPDD_JOB_ID", context["job_id"]),
+        ("UPDD_SPEC_HASH", context["spec_hash"]),
+        ("UPDD_INPUT_DIGEST", context["input_digest"]),
+    ):
+        monkeypatch.setenv(key, value)
+    expected = _write_controlled_replicate(prod, tmp_path, context)
+
+    accepted = prod._control_completed_replicate(
+        str(tmp_path), "wt", "bound", 0, "s7", ["dplus"], 2
+    )
+    assert accepted == expected
+
+    monkeypatch.setenv("UPDD_SPEC_HASH", "c" * 64)
+    with pytest.raises(RuntimeError, match="immutable spec"):
+        prod._control_completed_replicate(
+            str(tmp_path), "wt", "bound", 0, "s7", ["dplus"], 2
+        )
+
+
+def test_controlled_resume_is_default_off(prod, tmp_path, monkeypatch):
+    context = {"job_id": "job-1", "spec_hash": "a" * 64, "input_digest": "b" * 64}
+    _write_controlled_replicate(prod, tmp_path, context)
+    for key in ("UPDD_JOB_ID", "UPDD_SPEC_HASH", "UPDD_INPUT_DIGEST", "UPDD_CONTROL_TOKEN"):
+        monkeypatch.delenv(key, raising=False)
+    assert prod._control_completed_replicate(
+        str(tmp_path), "wt", "bound", 0, "s7", ["dplus"], 2
+    ) is None
+
+
+def test_pool_pause_drains_active_unit_without_launching_next(prod, tmp_path, monkeypatch):
+    import subprocess
+
+    launches = []
+    pauses = iter([False, True])
+    acknowledged = []
+
+    class FakeProcess:
+        pid = 4242
+
+        def __init__(self, command, **kwargs):
+            launches.append(command)
+            self.polls = 0
+
+        def poll(self):
+            self.polls += 1
+            return None if self.polls == 1 else 0
+
+    monkeypatch.setattr(prod, "_control_completed_replicate", lambda *args, **kwargs: None)
+    monkeypatch.setattr(prod, "_worker_env", lambda device: {})
+    monkeypatch.setattr(prod, "pause_pending", lambda: next(pauses))
+    monkeypatch.setattr(
+        prod,
+        "_control_pause_at_boundary",
+        lambda progress: acknowledged.append(progress) or True,
+    )
+    monkeypatch.setattr(subprocess, "Popen", FakeProcess)
+    monkeypatch.setattr(prod.time, "sleep", lambda seconds: None)
+    ladder = {
+        "n_windows_half": 6,
+        "softcore_band": 2,
+        "n_apex_bridge": 0,
+        "apex_band": 0.5,
+        "n_cycles": 2,
+        "md_steps_per_cycle": 1,
+        "platform": "Reference",
+        "timestep_fs": 1.0,
+        "minimize_iters": 1,
+        "backward_equil_steps": 0,
+        "genuine_decouple_nm": 1.2,
+        "binder_chain": "B",
+    }
+
+    result = prod.run_pool_local(
+        out_root=str(tmp_path),
+        leg="bound",
+        endpoints=["wt"],
+        seeds=["s7", "s19"],
+        directions=["dplus"],
+        device_index=0,
+        max_concurrent=1,
+        ladder_args=ladder,
+        archive_existing=True,
+    )
+
+    assert len(launches) == 1
+    assert result["paused"] is True
+    assert result["n_units"] == 2
+    assert len(result["units"]) == 1
+    assert acknowledged == [
+        {"boundary": "trackb_pool_unit", "completed": 1, "expected": 2, "leg": "bound"}
+    ]

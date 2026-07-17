@@ -1,0 +1,484 @@
+{
+  "cells": [
+    {
+      "command": [
+        "/home/san/miniconda3/envs/qmmm/bin/python",
+        "/home/san/UPDD_proj/utils/run_restrained_md.py",
+        "--inputdir",
+        "/home/san/UPDD_proj/outputs/1YCR_WT_calib_s83/_md_input",
+        "--outputdir",
+        "/home/san/UPDD_proj/outputs/1YCR_WT_calib_s83/mdresult",
+        "--steps",
+        "2500000",
+        "--topology",
+        "linear",
+        "--ncaa_label",
+        "none",
+        "--seed",
+        "83",
+        "--platform",
+        "CUDA",
+        "--dt_fs",
+        "2.0"
+      ],
+      "elapsed_s": 519.1499598026276,
+      "environment": {
+        "UPDD_MD_CUDA_DEVICE": "0",
+        "UPDD_MD_DCD_INTERVAL": null
+      },
+      "generated": "2026-07-16 18:20:55 +0900",
+      "schema": "1ycr_wt_scaffold_manifest_v1",
+      "seed": 83,
+      "source_inventory_digest": "cf817e0682c7b36af13f4226d0e9d5aaa630b5b1ba7aace9101e2e087cd7e280",
+      "staged_input": {
+        "path": "outputs/1YCR_WT_calib_s83/_md_input/1YCR_WT.pdb",
+        "sha256": "20f87791637e71a189e5e641f3ec5b807a845aca60bca6f1942ac879cda00cf7",
+        "size": 66582
+      },
+      "status": "COMPLETE",
+      "validation": {
+        "artifacts": {
+          "dcd": {
+            "path": "outputs/1YCR_WT_calib_s83/mdresult/1YCR_WT_restrained.dcd",
+            "sha256": "30add9a2cd0d7a92ea3d7584cf5fd66f582f6cf2616ca2d1af415d22bb9ee2ff",
+            "size": 112282276
+          },
+          "final_pdb": {
+            "path": "outputs/1YCR_WT_calib_s83/mdresult/1YCR_WT_final.pdb",
+            "sha256": "b4fbb727178148bae844940064cc10fce287999910d0ef1e06f7b024fadec761",
+            "size": 1515498
+          },
+          "md_log": {
+            "path": "outputs/1YCR_WT_calib_s83/mdresult/1YCR_WT_md.log",
+            "sha256": "20b2e93315268be24a4178ce994f840fcea12415f556843a427447f9e7d11a20",
+            "size": 9443
+          },
+          "stdout_log": {
+            "path": "outputs/1YCR_WT_calib_s83/scaffold_run.log",
+            "sha256": "25190e5d04c69f48243d1f1d51753f950d008a82d734c45ec80c89178d1e07b7",
+            "size": 2921
+          }
+        },
+        "dcd": {
+          "n_atoms": 18707,
+          "n_frames": 500
+        },
+        "md_complete_event": {
+          "design": "1YCR_WT",
+          "event": "md_complete",
+          "status": "SUCCESS_WT",
+          "wall_time_s": 518.86,
+          "warnings_found": false
+        },
+        "md_log": {
+          "final_step": 2525000,
+          "first_step": 50000,
+          "n_rows": 100,
+          "temperature_max_K": 305.8949026920558,
+          "temperature_min_K": 295.3292404371967,
+          "volume_max_nm3": 186.95643468239095,
+          "volume_min_nm3": 184.04921107800413
+        },
+        "pdb": {
+          "chains": [
+            "A",
+            "B",
+            "C",
+            "D"
+          ],
+          "coordinate_max_nm": 18.9797,
+          "coordinate_min_nm": -18.020300000000002,
+          "n_atoms": 18707,
+          "n_residues": 5799
+        }
+      }
+    },
+    {
+      "command": [
+        "/home/san/miniconda3/envs/qmmm/bin/python",
+        "/home/san/UPDD_proj/utils/run_restrained_md.py",
+        "--inputdir",
+        "/home/san/UPDD_proj/outputs/1YCR_WT_calib_s127/_md_input",
+        "--outputdir",
+        "/home/san/UPDD_proj/outputs/1YCR_WT_calib_s127/mdresult",
+        "--steps",
+        "2500000",
+        "--topology",
+        "linear",
+        "--ncaa_label",
+        "none",
+        "--seed",
+        "127",
+        "--platform",
+        "CUDA",
+        "--dt_fs",
+        "2.0"
+      ],
+      "elapsed_s": 513.325525522232,
+      "environment": {
+        "UPDD_MD_CUDA_DEVICE": "0",
+        "UPDD_MD_DCD_INTERVAL": null
+      },
+      "generated": "2026-07-16 18:29:29 +0900",
+      "schema": "1ycr_wt_scaffold_manifest_v1",
+      "seed": 127,
+      "source_inventory_digest": "cf817e0682c7b36af13f4226d0e9d5aaa630b5b1ba7aace9101e2e087cd7e280",
+      "staged_input": {
+        "path": "outputs/1YCR_WT_calib_s127/_md_input/1YCR_WT.pdb",
+        "sha256": "20f87791637e71a189e5e641f3ec5b807a845aca60bca6f1942ac879cda00cf7",
+        "size": 66582
+      },
+      "status": "COMPLETE",
+      "validation": {
+        "artifacts": {
+          "dcd": {
+            "path": "outputs/1YCR_WT_calib_s127/mdresult/1YCR_WT_restrained.dcd",
+            "sha256": "cf517f40a7f006f89c45b0fd7416911c5128387194945b1d8e765d70b8587b78",
+            "size": 111796276
+          },
+          "final_pdb": {
+            "path": "outputs/1YCR_WT_calib_s127/mdresult/1YCR_WT_final.pdb",
+            "sha256": "48d40f2ac86b4c76d6a6f060e5d13959bbc4b6e2876be580ee4eec8534b59b1e",
+            "size": 1508937
+          },
+          "md_log": {
+            "path": "outputs/1YCR_WT_calib_s127/mdresult/1YCR_WT_md.log",
+            "sha256": "e40e84cf38a756ccf599d573e9ecdac451823276a8cbd56c94b93d282d058fa0",
+            "size": 9455
+          },
+          "stdout_log": {
+            "path": "outputs/1YCR_WT_calib_s127/scaffold_run.log",
+            "sha256": "57ec579d037c721b40a97a78816980674a830be0bc54389aaf2cd0aff33ce06f",
+            "size": 2923
+          }
+        },
+        "dcd": {
+          "n_atoms": 18626,
+          "n_frames": 500
+        },
+        "md_complete_event": {
+          "design": "1YCR_WT",
+          "event": "md_complete",
+          "status": "SUCCESS_WT",
+          "wall_time_s": 513.09,
+          "warnings_found": false
+        },
+        "md_log": {
+          "final_step": 2525000,
+          "first_step": 50000,
+          "n_rows": 100,
+          "temperature_max_K": 304.535125981038,
+          "temperature_min_K": 295.7208309708742,
+          "volume_max_nm3": 185.82150221606818,
+          "volume_min_nm3": 182.8469694684201
+        },
+        "pdb": {
+          "chains": [
+            "A",
+            "B",
+            "C",
+            "D"
+          ],
+          "coordinate_max_nm": 19.361500000000003,
+          "coordinate_min_nm": -17.806800000000003,
+          "n_atoms": 18626,
+          "n_residues": 5772
+        }
+      }
+    },
+    {
+      "command": [
+        "/home/san/miniconda3/envs/qmmm/bin/python",
+        "/home/san/UPDD_proj/utils/run_restrained_md.py",
+        "--inputdir",
+        "/home/san/UPDD_proj/outputs/1YCR_WT_calib_s163/_md_input",
+        "--outputdir",
+        "/home/san/UPDD_proj/outputs/1YCR_WT_calib_s163/mdresult",
+        "--steps",
+        "2500000",
+        "--topology",
+        "linear",
+        "--ncaa_label",
+        "none",
+        "--seed",
+        "163",
+        "--platform",
+        "CUDA",
+        "--dt_fs",
+        "2.0"
+      ],
+      "elapsed_s": 515.8182082176208,
+      "environment": {
+        "UPDD_MD_CUDA_DEVICE": "0",
+        "UPDD_MD_DCD_INTERVAL": null
+      },
+      "generated": "2026-07-16 18:38:05 +0900",
+      "schema": "1ycr_wt_scaffold_manifest_v1",
+      "seed": 163,
+      "source_inventory_digest": "cf817e0682c7b36af13f4226d0e9d5aaa630b5b1ba7aace9101e2e087cd7e280",
+      "staged_input": {
+        "path": "outputs/1YCR_WT_calib_s163/_md_input/1YCR_WT.pdb",
+        "sha256": "20f87791637e71a189e5e641f3ec5b807a845aca60bca6f1942ac879cda00cf7",
+        "size": 66582
+      },
+      "status": "COMPLETE",
+      "validation": {
+        "artifacts": {
+          "dcd": {
+            "path": "outputs/1YCR_WT_calib_s163/mdresult/1YCR_WT_restrained.dcd",
+            "sha256": "ee6d5562735c3c13ae007e35be866e59cc8da4f957272bd30ef20f63619e2758",
+            "size": 110914276
+          },
+          "final_pdb": {
+            "path": "outputs/1YCR_WT_calib_s163/mdresult/1YCR_WT_final.pdb",
+            "sha256": "1bdc9d22fc941e05bec31b5bdf0dc690e80b7405e3e6f703c517ca0d4fb71ed5",
+            "size": 1497030
+          },
+          "md_log": {
+            "path": "outputs/1YCR_WT_calib_s163/mdresult/1YCR_WT_md.log",
+            "sha256": "87d2c33f6058da6427ce3a3eceb1013528c20b85babb2452f827a3d5d57f23ea",
+            "size": 9463
+          },
+          "stdout_log": {
+            "path": "outputs/1YCR_WT_calib_s163/scaffold_run.log",
+            "sha256": "fdf36cce7ab2498a4051c3c5772e0cc08fd5a82df585deeeec7e6ba09d333dd3",
+            "size": 2928
+          }
+        },
+        "dcd": {
+          "n_atoms": 18479,
+          "n_frames": 500
+        },
+        "md_complete_event": {
+          "design": "1YCR_WT",
+          "event": "md_complete",
+          "status": "SUCCESS_WT",
+          "wall_time_s": 515.59,
+          "warnings_found": false
+        },
+        "md_log": {
+          "final_step": 2525000,
+          "first_step": 50000,
+          "n_rows": 100,
+          "temperature_max_K": 305.80211453354525,
+          "temperature_min_K": 294.36570658520225,
+          "volume_max_nm3": 184.50721142328146,
+          "volume_min_nm3": 181.84148271333748
+        },
+        "pdb": {
+          "chains": [
+            "A",
+            "B",
+            "C",
+            "D"
+          ],
+          "coordinate_max_nm": 17.854499999999998,
+          "coordinate_min_nm": -17.960900000000002,
+          "n_atoms": 18479,
+          "n_residues": 5723
+        }
+      }
+    },
+    {
+      "command": [
+        "/home/san/miniconda3/envs/qmmm/bin/python",
+        "/home/san/UPDD_proj/utils/run_restrained_md.py",
+        "--inputdir",
+        "/home/san/UPDD_proj/outputs/1YCR_WT_calib_s199/_md_input",
+        "--outputdir",
+        "/home/san/UPDD_proj/outputs/1YCR_WT_calib_s199/mdresult",
+        "--steps",
+        "2500000",
+        "--topology",
+        "linear",
+        "--ncaa_label",
+        "none",
+        "--seed",
+        "199",
+        "--platform",
+        "CUDA",
+        "--dt_fs",
+        "2.0"
+      ],
+      "elapsed_s": 514.623899936676,
+      "environment": {
+        "UPDD_MD_CUDA_DEVICE": "0",
+        "UPDD_MD_DCD_INTERVAL": null
+      },
+      "generated": "2026-07-16 18:46:40 +0900",
+      "schema": "1ycr_wt_scaffold_manifest_v1",
+      "seed": 199,
+      "source_inventory_digest": "cf817e0682c7b36af13f4226d0e9d5aaa630b5b1ba7aace9101e2e087cd7e280",
+      "staged_input": {
+        "path": "outputs/1YCR_WT_calib_s199/_md_input/1YCR_WT.pdb",
+        "sha256": "20f87791637e71a189e5e641f3ec5b807a845aca60bca6f1942ac879cda00cf7",
+        "size": 66582
+      },
+      "status": "COMPLETE",
+      "validation": {
+        "artifacts": {
+          "dcd": {
+            "path": "outputs/1YCR_WT_calib_s199/mdresult/1YCR_WT_restrained.dcd",
+            "sha256": "55ffcc06523a7f013208ff3d803a3f3f2d4097b2f2b764f5dbaf1093d4867b40",
+            "size": 110860276
+          },
+          "final_pdb": {
+            "path": "outputs/1YCR_WT_calib_s199/mdresult/1YCR_WT_final.pdb",
+            "sha256": "9625600f49c82b3a36213f30ca731ee8e68c1877d40e1d28febc2067223be13c",
+            "size": 1496301
+          },
+          "md_log": {
+            "path": "outputs/1YCR_WT_calib_s199/mdresult/1YCR_WT_md.log",
+            "sha256": "75877d587a01eb1d96bb67cad17bc04cb18bccac6a63c790feec13669416d66e",
+            "size": 9443
+          },
+          "stdout_log": {
+            "path": "outputs/1YCR_WT_calib_s199/scaffold_run.log",
+            "sha256": "78e36b3b0c04c2c80a2f007020cd2103e5d65ffc15de5aa978248767b9802782",
+            "size": 2926
+          }
+        },
+        "dcd": {
+          "n_atoms": 18470,
+          "n_frames": 500
+        },
+        "md_complete_event": {
+          "design": "1YCR_WT",
+          "event": "md_complete",
+          "status": "SUCCESS_WT",
+          "wall_time_s": 514.39,
+          "warnings_found": false
+        },
+        "md_log": {
+          "final_step": 2525000,
+          "first_step": 50000,
+          "n_rows": 100,
+          "temperature_max_K": 306.07910279894094,
+          "temperature_min_K": 295.4155554734362,
+          "volume_max_nm3": 184.32500066252038,
+          "volume_min_nm3": 181.5527163995405
+        },
+        "pdb": {
+          "chains": [
+            "A",
+            "B",
+            "C",
+            "D"
+          ],
+          "coordinate_max_nm": 18.138,
+          "coordinate_min_nm": -18.6705,
+          "n_atoms": 18470,
+          "n_residues": 5720
+        }
+      }
+    },
+    {
+      "command": [
+        "/home/san/miniconda3/envs/qmmm/bin/python",
+        "/home/san/UPDD_proj/utils/run_restrained_md.py",
+        "--inputdir",
+        "/home/san/UPDD_proj/outputs/1YCR_WT_calib_s251/_md_input",
+        "--outputdir",
+        "/home/san/UPDD_proj/outputs/1YCR_WT_calib_s251/mdresult",
+        "--steps",
+        "2500000",
+        "--topology",
+        "linear",
+        "--ncaa_label",
+        "none",
+        "--seed",
+        "251",
+        "--platform",
+        "CUDA",
+        "--dt_fs",
+        "2.0"
+      ],
+      "elapsed_s": 516.9368119239807,
+      "environment": {
+        "UPDD_MD_CUDA_DEVICE": "0",
+        "UPDD_MD_DCD_INTERVAL": null
+      },
+      "generated": "2026-07-16 18:55:17 +0900",
+      "schema": "1ycr_wt_scaffold_manifest_v1",
+      "seed": 251,
+      "source_inventory_digest": "cf817e0682c7b36af13f4226d0e9d5aaa630b5b1ba7aace9101e2e087cd7e280",
+      "staged_input": {
+        "path": "outputs/1YCR_WT_calib_s251/_md_input/1YCR_WT.pdb",
+        "sha256": "20f87791637e71a189e5e641f3ec5b807a845aca60bca6f1942ac879cda00cf7",
+        "size": 66582
+      },
+      "status": "COMPLETE",
+      "validation": {
+        "artifacts": {
+          "dcd": {
+            "path": "outputs/1YCR_WT_calib_s251/mdresult/1YCR_WT_restrained.dcd",
+            "sha256": "c020de3931149a8634857593d646fe640d80dce981f9982c16408236bb5f47fb",
+            "size": 111076276
+          },
+          "final_pdb": {
+            "path": "outputs/1YCR_WT_calib_s251/mdresult/1YCR_WT_final.pdb",
+            "sha256": "518c0f7faca5dd23a27c65eb974017bf1bf8d4fa64a8f51d04905c523f6de789",
+            "size": 1499217
+          },
+          "md_log": {
+            "path": "outputs/1YCR_WT_calib_s251/mdresult/1YCR_WT_md.log",
+            "sha256": "ee3cf49b9de76d840ed9e79b7d2ec9635123743fb380695fb60203e61bd4a57e",
+            "size": 9436
+          },
+          "stdout_log": {
+            "path": "outputs/1YCR_WT_calib_s251/scaffold_run.log",
+            "sha256": "c3d6c213d18d8260012994e4173d647f75445dfc5288c3d872c2018cb5e4dbd7",
+            "size": 2921
+          }
+        },
+        "dcd": {
+          "n_atoms": 18506,
+          "n_frames": 500
+        },
+        "md_complete_event": {
+          "design": "1YCR_WT",
+          "event": "md_complete",
+          "status": "SUCCESS_WT",
+          "wall_time_s": 516.7,
+          "warnings_found": false
+        },
+        "md_log": {
+          "final_step": 2525000,
+          "first_step": 50000,
+          "n_rows": 100,
+          "temperature_max_K": 305.81491400095393,
+          "temperature_min_K": 295.25156595860574,
+          "volume_max_nm3": 184.7522585365886,
+          "volume_min_nm3": 181.93914641552487
+        },
+        "pdb": {
+          "chains": [
+            "A",
+            "B",
+            "C",
+            "D"
+          ],
+          "coordinate_max_nm": 19.145,
+          "coordinate_min_nm": -18.985300000000002,
+          "n_atoms": 18506,
+          "n_residues": 5732
+        }
+      }
+    }
+  ],
+  "completed_seeds": [
+    83,
+    127,
+    163,
+    199,
+    251
+  ],
+  "eta_s": 0.0,
+  "generated": "2026-07-16 21:51:32 +0900",
+  "median_elapsed_s": 515.8182082176208,
+  "n_completed": 5,
+  "n_expected": 5,
+  "pending_seeds": [],
+  "schema": "1ycr_wt_seed_expansion_summary_v1",
+  "status": "COMPLETE"
+}

@@ -1,0 +1,17 @@
+[Unit]
+Description=UPDD local control API
+After=default.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/san/UPDD_proj
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/san/miniconda3/envs/md-dashboard/bin/python /home/san/UPDD_proj/utils/updd_control_center.py serve-api --host 127.0.0.1 --port 8765
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=default.target

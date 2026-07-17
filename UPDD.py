@@ -241,7 +241,7 @@ ENV_NAMES = {
 # (~8KB) 으로 전환되어 DFT cycle 로그가 실시간으로 보이지 않는다. 이 환경
 # 변수를 자식에 주입하면 print 호출이 줄 단위로 즉시 flush 되어 tee/리다이렉션
 # 없이도 실시간 로그가 보장된다. 모듈 레벨에서 한 번 생성하여 모든 호출부에서
-# 재사용한다 (CLAUDE.md v0.3 #2).
+# 재사용한다.
 _CHILD_ENV_UNBUFFERED = os.environ.copy()
 _CHILD_ENV_UNBUFFERED["PYTHONUNBUFFERED"] = "1"
 
@@ -2647,6 +2647,25 @@ def main() -> None:
             _st["completed_steps"].append(step_name)
         with open(status_file, "w", encoding="utf-8") as f:
             json.dump(_st, f, indent=4)
+        # Control-center integration is default-off. A request is acknowledged
+        # only after the completed pipeline step has been persisted.
+        if os.environ.get("UPDD_CONTROL_TOKEN"):
+            try:
+                from utils.control_center.control_token import (
+                    PAUSE_EXIT_CODE as _CC_PAUSE_EXIT_CODE,
+                    boundary_pause_requested as _cc_pause_requested,
+                )
+                if _cc_pause_requested({
+                    "boundary": "tracka_step",
+                    "completed_step": step_name,
+                    "completed_steps": list(_st.get("completed_steps", [])),
+                }):
+                    _st["control_status"] = "PAUSED"
+                    with open(status_file, "w", encoding="utf-8") as f:
+                        json.dump(_st, f, indent=4)
+                    raise SystemExit(_CC_PAUSE_EXIT_CODE)
+            except ImportError as exc:
+                raise RuntimeError("control token is set but control-center module is unavailable") from exc
 
     # ── [v0.4.1] step wrapper: completed_steps ∩ outputs_exist → skipped ──
     def _step_really_done(legacy_name: str) -> bool:

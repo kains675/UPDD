@@ -37,6 +37,8 @@ hybrid charge XML are reused unchanged.
 """
 
 import hashlib
+import io
+import math
 import os
 import random
 import sys
@@ -5296,6 +5298,414 @@ class VoidWaterCarveError(RuntimeError):
 _CARVE_WATER_RESNAMES = {"HOH", "WAT", "SOL"}
 
 
+class UnionSolvationError(RuntimeError):
+    """Fail-loud violation of count-preserving union-solvation integrity."""
+
+
+_UNION_PLACEHOLDER_PREFIX = "UPDD-UNION-"
+_UNION_RESIDUE_PREFIX = "U"
+_UNION_ION_NAMES = {
+    "na": {"NA", "Na+"},
+    "cl": {"CL", "Cl-"},
+}
+
+
+def _nonbonded_force(system: Any) -> Any:
+    matches = [
+        system.getForce(i)
+        for i in range(system.getNumForces())
+        if isinstance(system.getForce(i), mm.NonbondedForce)
+    ]
+    if len(matches) != 1:
+        raise UnionSolvationError(
+            "union solvation expected exactly one canonical NonbondedForce, "
+            "found %d" % len(matches)
+        )
+    return matches[0]
+
+
+def _positions_nm(modeller: Any) -> np.ndarray:
+    raw = modeller.positions
+    if unit.is_quantity(raw):
+        raw = raw.value_in_unit(unit.nanometer)
+    rows = []
+    for value in raw:
+        if unit.is_quantity(value):
+            value = value.value_in_unit(unit.nanometer)
+        rows.append([float(value[0]), float(value[1]), float(value[2])])
+    return np.asarray(rows, dtype=float)
+
+
+def _union_placeholder_declarations(
+    merged: Any,
+    n_copy1: int,
+    dvec: Tuple[float, float, float],
+    spec: Any,
+    forcefield: Any,
+    binder_chain: str,
+) -> List[Dict[str, Any]]:
+    """Read source vdW parameters and declare partner-image placeholders."""
+    solute_system = forcefield.createSystem(
+        merged.topology,
+        nonbondedMethod=app.NoCutoff,
+        constraints=None,
+    )
+    nonbonded = _nonbonded_force(solute_system)
+    positions = _positions_nm(merged)
+    d = np.asarray([float(value) for value in dvec], dtype=float)
+    disappearing_heavy = set(spec._heavy_names(spec.stateA_only_atoms))
+    rows: List[Dict[str, Any]] = []
+    for residue in merged.topology.residues():
+        if (
+            residue.chain.id != binder_chain
+            or str(residue.id) != str(spec.resnum)
+            or residue.name != spec.stateA_resname
+        ):
+            continue
+        atom_indices = [atom.index for atom in residue.atoms()]
+        if not atom_indices:
+            continue
+        in_copy1 = min(atom_indices) < int(n_copy1)
+        sign = 1.0 if in_copy1 else -1.0
+        direction = "copy1_to_copy2_site" if in_copy1 else "copy2_to_copy1_site"
+        for atom in residue.atoms():
+            if atom.name not in disappearing_heavy:
+                continue
+            charge, sigma, epsilon = nonbonded.getParticleParameters(atom.index)
+            sigma_nm = float(sigma.value_in_unit(unit.nanometer))
+            epsilon_kj = float(epsilon.value_in_unit(unit.kilojoule_per_mole))
+            if epsilon_kj <= 0.0 or sigma_nm <= 0.0:
+                raise UnionSolvationError(
+                    "union placeholder source %s%d:%s has non-positive vdW "
+                    "parameters sigma=%g epsilon=%g"
+                    % (residue.name, int(spec.resnum), atom.name, sigma_nm, epsilon_kj)
+                )
+            element = atom.element.symbol if atom.element is not None else None
+            if element not in {"C", "N", "O", "S", "P"}:
+                raise UnionSolvationError(
+                    "union placeholder source %s has unsupported element %r"
+                    % (atom.name, element)
+                )
+            mass_da = float(
+                solute_system.getParticleMass(atom.index).value_in_unit(unit.dalton)
+            )
+            rows.append(
+                {
+                    "source_atom_index": int(atom.index),
+                    "source_atom_name": atom.name,
+                    "source_residue_name": residue.name,
+                    "source_residue_id": str(residue.id),
+                    "source_chain_id": residue.chain.id,
+                    "source_copy": 1 if in_copy1 else 2,
+                    "direction": direction,
+                    "element": element,
+                    "mass_da": mass_da,
+                    "source_charge_e": float(
+                        charge.value_in_unit(unit.elementary_charge)
+                    ),
+                    "placeholder_charge_e": 0.0,
+                    "sigma_nm": sigma_nm,
+                    "epsilon_kj_mol": epsilon_kj,
+                    "target_position_nm": (
+                        positions[atom.index] + sign * d
+                    ).tolist(),
+                }
+            )
+    if not rows:
+        raise UnionSolvationError("union solvation found no disappearing heavy atoms")
+    rows.sort(key=lambda row: row["source_atom_index"])
+    for index, row in enumerate(rows):
+        row["placeholder_index"] = index
+        row["placeholder_type"] = "%s%03d" % (_UNION_PLACEHOLDER_PREFIX, index)
+        row["placeholder_residue"] = "%s%02d" % (_UNION_RESIDUE_PREFIX, index)
+    return rows
+
+
+def _union_placeholder_forcefield_xml(rows: List[Dict[str, Any]]) -> str:
+    atom_types = []
+    residues = []
+    nonbonded = []
+    for row in rows:
+        atom_types.append(
+            '    <Type name="{type}" class="{type}" element="{element}" '
+            'mass="{mass:.17g}"/>'.format(
+                type=row["placeholder_type"],
+                element=row["element"],
+                mass=float(row["mass_da"]),
+            )
+        )
+        residues.append(
+            '    <Residue name="{residue}"><Atom name="DU" type="{type}" '
+            'charge="0.0"/></Residue>'.format(
+                residue=row["placeholder_residue"],
+                type=row["placeholder_type"],
+            )
+        )
+        nonbonded.append(
+            '    <Atom type="{type}" sigma="{sigma:.17g}" '
+            'epsilon="{epsilon:.17g}"/>'.format(
+                type=row["placeholder_type"],
+                sigma=float(row["sigma_nm"]),
+                epsilon=float(row["epsilon_kj_mol"]),
+            )
+        )
+    return "\n".join(
+        [
+            "<ForceField>",
+            "  <AtomTypes>",
+            *atom_types,
+            "  </AtomTypes>",
+            "  <Residues>",
+            *residues,
+            "  </Residues>",
+            '  <NonbondedForce coulomb14scale="0.8333333333333334" '
+            'lj14scale="0.5">',
+            '    <UseAttributeFromResidue name="charge"/>',
+            *nonbonded,
+            "  </NonbondedForce>",
+            "</ForceField>",
+            "",
+        ]
+    )
+
+
+def _solvent_counts(topology: Any) -> Dict[str, int]:
+    counts = {"water": 0, "na": 0, "cl": 0, "total": 0}
+    for residue in topology.residues():
+        if residue.name in _CARVE_WATER_RESNAMES:
+            counts["water"] += 1
+            counts["total"] += 1
+        elif residue.name in _UNION_ION_NAMES["na"]:
+            counts["na"] += 1
+            counts["total"] += 1
+        elif residue.name in _UNION_ION_NAMES["cl"]:
+            counts["cl"] += 1
+            counts["total"] += 1
+    return counts
+
+
+def _validate_union_config(config: Dict[str, Any]) -> Dict[str, int]:
+    required = {
+        "num_added",
+        "water",
+        "na",
+        "cl",
+        "rng_seed",
+    }
+    if set(config) != required:
+        raise UnionSolvationError(
+            "union_solvation config keys %s do not match %s"
+            % (sorted(config), sorted(required))
+        )
+    for name in required:
+        value = config[name]
+        if isinstance(value, bool) or not isinstance(value, (int, np.integer)):
+            raise UnionSolvationError(
+                "union_solvation %s must be an integer, got %r" % (name, value)
+            )
+    values = {name: int(config[name]) for name in required}
+    if any(values[name] < 0 for name in ("water", "na", "cl")):
+        raise UnionSolvationError("union solvent component counts must be non-negative")
+    if values["num_added"] <= 0 or values["rng_seed"] <= 0:
+        raise UnionSolvationError("union num_added and rng_seed must be positive")
+    if values["water"] + values["na"] + values["cl"] != values["num_added"]:
+        raise UnionSolvationError("union solvent component counts do not sum to num_added")
+    return values
+
+
+def _count_preserving_union_solvate(
+    merged: Any,
+    n_copy1: int,
+    dvec: Tuple[float, float, float],
+    spec: Any,
+    binder_chain: str,
+    ff_inputs: List[Any],
+    canonical_forcefield: Any,
+    config: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Solvate both coordinate images with temporary vdW placeholders."""
+    values = _validate_union_config(config)
+    declarations = _union_placeholder_declarations(
+        merged,
+        n_copy1,
+        dvec,
+        spec,
+        canonical_forcefield,
+        binder_chain,
+    )
+    placeholder_xml = _union_placeholder_forcefield_xml(declarations)
+    placeholder_xml_sha256 = hashlib.sha256(
+        placeholder_xml.encode("utf-8")
+    ).hexdigest()
+    union_forcefield = ForceField(*ff_inputs, io.StringIO(placeholder_xml))
+
+    dummy_topology = app.Topology()
+    dummy_chain = dummy_topology.addChain("U")
+    dummy_positions = []
+    for row in declarations:
+        residue = dummy_topology.addResidue(
+            row["placeholder_residue"],
+            dummy_chain,
+            str(row["placeholder_index"] + 1),
+        )
+        dummy_topology.addAtom(
+            "DU",
+            app.Element.getBySymbol(row["element"]),
+            residue,
+        )
+        dummy_positions.append(mm.Vec3(*row["target_position_nm"]))
+
+    atoms_before_placeholders = int(merged.topology.getNumAtoms())
+    merged.add(dummy_topology, dummy_positions * unit.nanometer)
+    atoms_with_placeholders = int(merged.topology.getNumAtoms())
+    if atoms_with_placeholders - atoms_before_placeholders != len(declarations):
+        raise UnionSolvationError("union placeholder atom-count delta is invalid")
+    placeholder_names = {row["placeholder_residue"] for row in declarations}
+    placeholder_templates = {
+        residue: residue.name
+        for residue in merged.topology.residues()
+        if residue.name in placeholder_names
+    }
+    if len(placeholder_templates) != len(declarations):
+        raise UnionSolvationError("union placeholder template mapping is incomplete")
+
+    rng_state = random.getstate()
+    rng_consumed = False
+    try:
+        random.seed(values["rng_seed"])
+        seeded_rng_state = random.getstate()
+        merged.addSolvent(
+            union_forcefield,
+            model="tip3p",
+            numAdded=values["num_added"],
+            boxShape="cube",
+            ionicStrength=0.15 * unit.molar,
+            positiveIon="Na+",
+            negativeIon="Cl-",
+            neutralize=True,
+            residueTemplates=placeholder_templates,
+        )
+        rng_consumed = random.getstate() != seeded_rng_state
+    finally:
+        random.setstate(rng_state)
+    if random.getstate() != rng_state:
+        raise UnionSolvationError("union solvation did not restore global RNG state")
+    if not rng_consumed:
+        raise UnionSolvationError(
+            "union addSolvent did not consume the frozen cell RNG stream"
+        )
+
+    dummy_residues = [
+        residue
+        for residue in merged.topology.residues()
+        if residue.name in placeholder_names
+    ]
+    if len(dummy_residues) != len(declarations):
+        raise UnionSolvationError(
+            "union solvent build retained %d/%d declared placeholder residues"
+            % (len(dummy_residues), len(declarations))
+        )
+
+    positions_after_solvation = _positions_nm(merged)
+    source_positions = {
+        int(row["source_atom_index"]): positions_after_solvation[
+            int(row["source_atom_index"])
+        ]
+        for row in declarations
+    }
+    dummy_atoms = [atom for residue in dummy_residues for atom in residue.atoms()]
+    if len(dummy_atoms) != len(declarations):
+        raise UnionSolvationError("union placeholder residues are not one atom each")
+    declaration_by_residue = {
+        row["placeholder_residue"]: row for row in declarations
+    }
+    if len(declaration_by_residue) != len(declarations):
+        raise UnionSolvationError("union placeholder residue names are not unique")
+    d = np.asarray([float(value) for value in dvec], dtype=float)
+    target_deltas = []
+    for atom in dummy_atoms:
+        row = declaration_by_residue.get(atom.residue.name)
+        if row is None:
+            raise UnionSolvationError(
+                "union placeholder atom has no matching declaration"
+            )
+        sign = 1.0 if int(row["source_copy"]) == 1 else -1.0
+        expected = source_positions[int(row["source_atom_index"])] + sign * d
+        observed = positions_after_solvation[int(atom.index)]
+        target_deltas.append(float(np.max(np.abs(observed - expected))))
+        row["solvated_target_position_nm"] = observed.tolist()
+    max_target_delta_nm = max(target_deltas) if target_deltas else math.inf
+    if max_target_delta_nm > 1.0e-6:
+        raise UnionSolvationError(
+            "union placeholder translation drift %.6g nm exceeds 1e-6"
+            % max_target_delta_nm
+        )
+
+    counts_before_delete = _solvent_counts(merged.topology)
+    if counts_before_delete != {
+        "water": values["water"],
+        "na": values["na"],
+        "cl": values["cl"],
+        "total": values["num_added"],
+    }:
+        raise UnionSolvationError(
+            "union solvent counts %r do not match frozen target %r"
+            % (
+                counts_before_delete,
+                {
+                    "water": values["water"],
+                    "na": values["na"],
+                    "cl": values["cl"],
+                    "total": values["num_added"],
+                },
+            )
+        )
+
+    merged.delete(dummy_residues)
+    final_counts = _solvent_counts(merged.topology)
+    if final_counts != counts_before_delete:
+        raise UnionSolvationError("placeholder deletion changed solvent counts")
+    remaining = [
+        residue.name
+        for residue in merged.topology.residues()
+        if residue.name in placeholder_names
+    ]
+    if remaining:
+        raise UnionSolvationError("union placeholders remain after deletion")
+    if merged.topology.getNumAtoms() <= atoms_before_placeholders:
+        raise UnionSolvationError("union solvation did not add solvent particles")
+
+    box = merged.topology.getPeriodicBoxVectors()
+    if box is None:
+        raise UnionSolvationError("union solvation produced no periodic box")
+    box_nm = np.asarray(
+        [value.value_in_unit(unit.nanometer) for value in box], dtype=float
+    )
+    volume_nm3 = float(np.linalg.det(box_nm))
+    if not math.isfinite(volume_nm3) or volume_nm3 <= 0.0:
+        raise UnionSolvationError("union solvation produced an invalid box")
+
+    return {
+        "mode": "temporary_forcefield_placeholders_then_numAdded",
+        "config": values,
+        "placeholder_count": len(declarations),
+        "placeholder_declarations": declarations,
+        "placeholder_forcefield_xml_sha256": placeholder_xml_sha256,
+        "placeholder_forcefield_xml_size": len(placeholder_xml.encode("utf-8")),
+        "max_placeholder_target_delta_nm": max_target_delta_nm,
+        "atoms_before_placeholders": atoms_before_placeholders,
+        "atoms_with_placeholders": atoms_with_placeholders,
+        "final_atom_count": int(merged.topology.getNumAtoms()),
+        "final_solvent_counts": final_counts,
+        "box_vectors_nm": box_nm.tolist(),
+        "box_volume_nm3": volume_nm3,
+        "seeded_rng_state_changed": rng_consumed,
+        "global_rng_state_restored": True,
+        "placeholders_removed": True,
+        "carve_void_waters": False,
+    }
+
+
 def _carve_void_penetrating_waters(
     merged: Any,
     n_copy1: int,
@@ -5475,6 +5885,7 @@ def build_inplace_res4_twocopy_system(
     appearing_h_seed: Optional[int] = None,
     carve_void_waters: bool = False,
     carve_cutoff_nm: float = ATS_CARVE_VOID_CUTOFF_NM,
+    union_solvation: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Top-level orchestrator: build the CANONICAL ATS TWO-COPY box (C2-C8).
 
@@ -5547,11 +5958,24 @@ def build_inplace_res4_twocopy_system(
     (umax/ubcore/acore) and the alchemical partition are untouched. When ``False``
     the water shell is left exactly as ``addSolvent`` produced it (the serialized
     System is byte-identical to every pre-carve build).
+
+    ``union_solvation`` (default ``None`` -> byte-identical legacy path) is an
+    opt-in count-preserving alternative to the static carve. It places temporary
+    force-field-derived vdW placeholders at the disappearing-heavy partner image,
+    calls ``addSolvent(numAdded=...)`` with frozen water/ion counts and an isolated
+    RNG seed, then removes every placeholder before ``createSystem``. It is
+    mutually exclusive with ``carve_void_waters``.
     """
     if leg not in ("free", "bound"):
         raise NotImplementedError(
             "build_inplace_res4_twocopy_system: leg must be 'free' or 'bound', "
             "got %r." % (leg,))
+    if union_solvation is not None and carve_void_waters:
+        raise UnionSolvationError(
+            "union_solvation and carve_void_waters are mutually exclusive"
+        )
+    if union_solvation is not None and not solvate:
+        raise UnionSolvationError("union_solvation requires solvate=True")
 
     ms = resolve_mutation_spec(spec)
     # The sole ncAA in this system is MTR; every other appearing state (Val/Ile)
@@ -5733,16 +6157,29 @@ def build_inplace_res4_twocopy_system(
     # is provably untouched. When OFF the entire block is skipped (no call, no
     # topology mutation, no reordering) => the serialized System is unchanged.
     carve_report: Optional[Dict[str, Any]] = None
+    union_solvation_report: Optional[Dict[str, Any]] = None
     if solvate:
-        merged.addSolvent(
-            ff, model="tip3p", padding=padding_nm * unit.nanometers,
-            ionicStrength=0.15 * unit.molar,
-            positiveIon="Na+", negativeIon="Cl-", neutralize=True,
-        )
-        if carve_void_waters:
-            carve_report = _carve_void_penetrating_waters(
-                merged, n_copy1, dvec, ms, binder_chain=binder_chain,
-                cutoff_nm=carve_cutoff_nm)
+        if union_solvation is not None:
+            union_solvation_report = _count_preserving_union_solvate(
+                merged,
+                n_copy1,
+                dvec,
+                ms,
+                binder_chain,
+                ff_inputs,
+                ff,
+                union_solvation,
+            )
+        else:
+            merged.addSolvent(
+                ff, model="tip3p", padding=padding_nm * unit.nanometers,
+                ionicStrength=0.15 * unit.molar,
+                positiveIon="Na+", negativeIon="Cl-", neutralize=True,
+            )
+            if carve_void_waters:
+                carve_report = _carve_void_penetrating_waters(
+                    merged, n_copy1, dvec, ms, binder_chain=binder_chain,
+                    cutoff_nm=carve_cutoff_nm)
         system = ff.createSystem(
             merged.topology, nonbondedMethod=PME,
             nonbondedCutoff=1.0 * unit.nanometers, constraints=constraints,
@@ -5784,6 +6221,7 @@ def build_inplace_res4_twocopy_system(
         # build produces ONE serialized System shared by dplus/dminus, so this carve
         # is identical for both directions by construction.
         "carve_report": carve_report,
+        "union_solvation_report": union_solvation_report,
     }
 
     # 4) C4: pair common atoms across the two RESIDENT copies (count + order).
@@ -5926,6 +6364,7 @@ def build_inplace_res4_twocopy_system(
         # per-call carve summary (removed count/resids, cutoff, source copy, atom +
         # net-charge deltas). Surfaced so the launcher can log free-vs-bound counts.
         "carve_report": carve_report,
+        "union_solvation_report": union_solvation_report,
         "regime": "ranking_only",
         "note": ("CANONICAL ATS two-copy PREDICTION test (R-18); ranking-only "
                  "(R-11); two-copy correctness NOT yet proven (needs the pilot: "

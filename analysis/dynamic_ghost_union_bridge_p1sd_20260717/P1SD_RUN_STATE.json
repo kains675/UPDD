@@ -1,0 +1,28 @@
+{
+  "active_unit": "w4a_union_s101_free/xi_0p00",
+  "completed_units": [
+    "w4a_union_s101_bound/source_prep",
+    "w4a_union_s101_bound/xi_0p00",
+    "w4a_union_s101_bound/xi_0p25",
+    "w4a_union_s101_bound/xi_0p50",
+    "w4a_union_s101_bound/xi_0p75",
+    "w4a_union_s101_bound/xi_1p00",
+    "w4a_union_s127_bound/source_prep",
+    "w4a_union_s127_bound/xi_0p00",
+    "w4a_union_s127_bound/xi_0p25",
+    "w4a_union_s127_bound/xi_0p50",
+    "w4a_union_s127_bound/xi_0p75",
+    "w4a_union_s127_bound/xi_1p00",
+    "w4a_union_s163_bound/source_prep",
+    "w4a_union_s163_bound/xi_0p00",
+    "w4a_union_s163_bound/xi_0p25",
+    "w4a_union_s163_bound/xi_0p50",
+    "w4a_union_s163_bound/xi_0p75",
+    "w4a_union_s163_bound/xi_1p00",
+    "w4a_union_s101_free/source_prep"
+  ],
+  "inventory_digest": "a794eeb91063c1541d1cf5a593f8f3d039b9951728a10b2acc51c4e39cfb3e69",
+  "schema": "updd_dynamic_ghost_union_bridge_p1sd_run_state_v1",
+  "status": "FAILED",
+  "updated": "2026-07-17 11:47:58 +0900"
+}

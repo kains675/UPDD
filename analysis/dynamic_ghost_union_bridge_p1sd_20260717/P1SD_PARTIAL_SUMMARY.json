@@ -1,0 +1,86 @@
+{
+  "schema": "updd_dynamic_ghost_union_bridge_p1sd_partial_summary_v1",
+  "generated": "2026-07-17 11:52:26 +0900",
+  "status": "P1SD_RUNNER_FAIL_STOPPED",
+  "inventory_digest": "a794eeb91063c1541d1cf5a593f8f3d039b9951728a10b2acc51c4e39cfb3e69",
+  "integrity": {
+    "normalization_status": "PASS",
+    "normalized_summary_digest": "2448671ee154b5392652a6a9d443fffd53bf948b1beb14a242bf1e10e628dacc",
+    "keeper_status": "PASS",
+    "reference_status": "P1SD_REFERENCE_PASS",
+    "reference_cells_completed": 6
+  },
+  "execution": {
+    "expected_windows": 30,
+    "completed_window_results": 16,
+    "passed_windows": 15,
+    "failed_windows": 1,
+    "pending_windows": 14,
+    "completed_source_preps": 4,
+    "pending_source_preps": 2,
+    "sample_rows": 800,
+    "dcd_frames": 800,
+    "sampled_ps": 200.0,
+    "total_md_steps": 232000,
+    "total_md_ps": 232.0,
+    "remaining_windows_launched": false
+  },
+  "runner_failure": {
+    "cell_id": "w4a_union_s101_free",
+    "xi": 0.0,
+    "status": "WINDOW_FAIL",
+    "failed_checks": [
+      "cross_state_last"
+    ],
+    "last_readback_max_abs_delta_kj_mol": 0.0015312392497435212,
+    "last_readback_absolute_ceiling_kj_mol": 0.001,
+    "last_readback_common_mode_kj_mol": -0.0014907051459886133,
+    "last_readback_max_residual_after_common_mode_kj_mol": 0.00004616871010512105,
+    "transformed_ring_water_min_nm": 0.186746626432,
+    "transformed_ring_water_fraction_below_0p26": 0.78,
+    "stored_ring_water_min_nm": 0.279654826518,
+    "window_result_sha256": "0799382c1be10b713ac287c42ae2bac343151745b4c1a86550cbcbe8e7c91531"
+  },
+  "completed_bound_cells": [
+    {
+      "cell_id": "w4a_union_s101_bound",
+      "min_adjacent_overlap": 0.19999999999999984,
+      "exploratory_delta_g_kj_mol": 0.0,
+      "exploratory_sigma_kj_mol": 4.5313868943794045e-10,
+      "nonzero_slope_samples": 0,
+      "sample_count": 250
+    },
+    {
+      "cell_id": "w4a_union_s127_bound",
+      "min_adjacent_overlap": 0.18367346938775436,
+      "exploratory_delta_g_kj_mol": 0.2628048206599017,
+      "exploratory_sigma_kj_mol": 0.11758425798436482,
+      "nonzero_slope_samples": 5,
+      "sample_count": 250
+    },
+    {
+      "cell_id": "w4a_union_s163_bound",
+      "min_adjacent_overlap": 0.19999999999999984,
+      "exploratory_delta_g_kj_mol": 0.0,
+      "exploratory_sigma_kj_mol": 4.5313868943794045e-10,
+      "nonzero_slope_samples": 0,
+      "sample_count": 250
+    }
+  ],
+  "claims": {
+    "schedule_selected": false,
+    "densification_authorized": false,
+    "production_free_energy_estimated": false,
+    "pilot_samples_reusable_in_production": false,
+    "round_trips_measured": false,
+    "mutation_sign_verdict": false,
+    "w23a_launch_authorized": false
+  },
+  "evidence_sha256": {
+    "P1SD_PREBUILD_INVENTORY.json": "546c8dd51d7a62a69d7e35282a692b81ea92c792272bb1a4a0d506073485317b",
+    "P1SD_NORMALIZED_SOURCE_SUMMARY.json": "539952550959a5a98d53b2c05aa7806d10072e2154fc53dda7ef2dcf811929ba",
+    "P1SD_KEEPER_PREFLIGHT.json": "cec980db101622f06b7e3c8b5fa6cc908a62dfdce22d4179f89287d1bfc91390",
+    "P1SD_REFERENCE_SUMMARY.json": "b142023baf8554bd87c4f0ad47ee61f8b57a90f8391cb50e5dc8ca81be916213",
+    "P1SD_RUN_STATE.json": "19edc245d10766072d2413ba7397c79a8a3d8ac1dae30aceb050253ba385b343"
+  }
+}

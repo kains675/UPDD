@@ -1,0 +1,314 @@
+{
+  "cell_checks": [
+    {
+      "cell_id": "w4a_union_s101_bound",
+      "checks": {
+        "bridge_contract_exact": true,
+        "bridge_derivative_declared": true,
+        "fixed_parent_box": true,
+        "normalization_pass": true,
+        "softcore_parameters_exact": true,
+        "system_particles_exact": true,
+        "topology_particles_exact": true,
+        "window_artifacts_valid": true,
+        "windows_exact": true
+      },
+      "passed": true,
+      "softcore": {
+        "acore": 0.0625,
+        "ubcore_kj_mol": 418.40000000000003,
+        "umax_kj_mol": 836.8000000000001,
+        "uoffset_kj_mol": 0.0
+      },
+      "system_particles": 300424,
+      "topology_particles": 300424,
+      "windows": [
+        {
+          "checks": {
+            "converted_dcd_box_exact": true,
+            "dcd_frames_exact": true,
+            "dcd_particles_exact": true,
+            "dcd_unit_exact": true,
+            "final_positions_shape_exact": true,
+            "source_rows_exact": true
+          },
+          "passed": true,
+          "xi": 0.0
+        },
+        {
+          "checks": {
+            "converted_dcd_box_exact": true,
+            "dcd_frames_exact": true,
+            "dcd_particles_exact": true,
+            "dcd_unit_exact": true,
+            "final_positions_shape_exact": true,
+            "source_rows_exact": true
+          },
+          "passed": true,
+          "xi": 0.25
+        },
+        {
+          "checks": {
+            "converted_dcd_box_exact": true,
+            "dcd_frames_exact": true,
+            "dcd_particles_exact": true,
+            "dcd_unit_exact": true,
+            "final_positions_shape_exact": true,
+            "source_rows_exact": true
+          },
+          "passed": true,
+          "xi": 0.5
+        },
+        {
+          "checks": {
+            "converted_dcd_box_exact": true,
+            "dcd_frames_exact": true,
+            "dcd_particles_exact": true,
+            "dcd_unit_exact": true,
+            "final_positions_shape_exact": true,
+            "source_rows_exact": true
+          },
+          "passed": true,
+          "xi": 0.75
+        },
+        {
+          "checks": {
+            "converted_dcd_box_exact": true,
+            "dcd_frames_exact": true,
+            "dcd_particles_exact": true,
+            "dcd_unit_exact": true,
+            "final_positions_shape_exact": true,
+            "source_rows_exact": true
+          },
+          "passed": true,
+          "xi": 1.0
+        }
+      ]
+    },
+    {
+      "cell_id": "w4a_union_s127_bound",
+      "checks": {
+        "bridge_contract_exact": true,
+        "bridge_derivative_declared": true,
+        "fixed_parent_box": true,
+        "normalization_pass": true,
+        "softcore_parameters_exact": true,
+        "system_particles_exact": true,
+        "topology_particles_exact": true,
+        "window_artifacts_valid": true,
+        "windows_exact": true
+      },
+      "passed": true,
+      "softcore": {
+        "acore": 0.0625,
+        "ubcore_kj_mol": 418.40000000000003,
+        "umax_kj_mol": 836.8000000000001,
+        "uoffset_kj_mol": 0.0
+      },
+      "system_particles": 302726,
+      "topology_particles": 302726,
+      "windows": [
+        {
+          "checks": {
+            "converted_dcd_box_exact": true,
+            "dcd_frames_exact": true,
+            "dcd_particles_exact": true,
+            "dcd_unit_exact": true,
+            "final_positions_shape_exact": true,
+            "source_rows_exact": true
+          },
+          "passed": true,
+          "xi": 0.0
+        },
+        {
+          "checks": {
+            "converted_dcd_box_exact": true,
+            "dcd_frames_exact": true,
+            "dcd_particles_exact": true,
+            "dcd_unit_exact": true,
+            "final_positions_shape_exact": true,
+            "source_rows_exact": true
+          },
+          "passed": true,
+          "xi": 0.25
+        },
+        {
+          "checks": {
+            "converted_dcd_box_exact": true,
+            "dcd_frames_exact": true,
+            "dcd_particles_exact": true,
+            "dcd_unit_exact": true,
+            "final_positions_shape_exact": true,
+            "source_rows_exact": true
+          },
+          "passed": true,
+          "xi": 0.5
+        },
+        {
+          "checks": {
+            "converted_dcd_box_exact": true,
+            "dcd_frames_exact": true,
+            "dcd_particles_exact": true,
+            "dcd_unit_exact": true,
+            "final_positions_shape_exact": true,
+            "source_rows_exact": true
+          },
+          "passed": true,
+          "xi": 0.75
+        },
+        {
+          "checks": {
+            "converted_dcd_box_exact": true,
+            "dcd_frames_exact": true,
+            "dcd_particles_exact": true,
+            "dcd_unit_exact": true,
+            "final_positions_shape_exact": true,
+            "source_rows_exact": true
+          },
+          "passed": true,
+          "xi": 1.0
+        }
+      ]
+    },
+    {
+      "cell_id": "w4a_union_s163_bound",
+      "checks": {
+        "bridge_contract_exact": true,
+        "bridge_derivative_declared": true,
+        "fixed_parent_box": true,
+        "normalization_pass": true,
+        "softcore_parameters_exact": true,
+        "system_particles_exact": true,
+        "topology_particles_exact": true,
+        "window_artifacts_valid": true,
+        "windows_exact": true
+      },
+      "passed": true,
+      "softcore": {
+        "acore": 0.0625,
+        "ubcore_kj_mol": 418.40000000000003,
+        "umax_kj_mol": 836.8000000000001,
+        "uoffset_kj_mol": 0.0
+      },
+      "system_particles": 313951,
+      "topology_particles": 313951,
+      "windows": [
+        {
+          "checks": {
+            "converted_dcd_box_exact": true,
+            "dcd_frames_exact": true,
+            "dcd_particles_exact": true,
+            "dcd_unit_exact": true,
+            "final_positions_shape_exact": true,
+            "source_rows_exact": true
+          },
+          "passed": true,
+          "xi": 0.0
+        },
+        {
+          "checks": {
+            "converted_dcd_box_exact": true,
+            "dcd_frames_exact": true,
+            "dcd_particles_exact": true,
+            "dcd_unit_exact": true,
+            "final_positions_shape_exact": true,
+            "source_rows_exact": true
+          },
+          "passed": true,
+          "xi": 0.25
+        },
+        {
+          "checks": {
+            "converted_dcd_box_exact": true,
+            "dcd_frames_exact": true,
+            "dcd_particles_exact": true,
+            "dcd_unit_exact": true,
+            "final_positions_shape_exact": true,
+            "source_rows_exact": true
+          },
+          "passed": true,
+          "xi": 0.5
+        },
+        {
+          "checks": {
+            "converted_dcd_box_exact": true,
+            "dcd_frames_exact": true,
+            "dcd_particles_exact": true,
+            "dcd_unit_exact": true,
+            "final_positions_shape_exact": true,
+            "source_rows_exact": true
+          },
+          "passed": true,
+          "xi": 0.75
+        },
+        {
+          "checks": {
+            "converted_dcd_box_exact": true,
+            "dcd_frames_exact": true,
+            "dcd_particles_exact": true,
+            "dcd_unit_exact": true,
+            "final_positions_shape_exact": true,
+            "source_rows_exact": true
+          },
+          "passed": true,
+          "xi": 1.0
+        }
+      ]
+    },
+    {
+      "cell_id": "w4a_union_s101_free",
+      "checks": {
+        "bridge_contract_exact": true,
+        "bridge_derivative_declared": true,
+        "fixed_parent_box": true,
+        "normalization_pass": true,
+        "softcore_parameters_exact": true,
+        "system_particles_exact": true,
+        "topology_particles_exact": true,
+        "window_artifacts_valid": true,
+        "windows_exact": true
+      },
+      "passed": true,
+      "softcore": {
+        "acore": 0.0625,
+        "ubcore_kj_mol": 418.40000000000003,
+        "umax_kj_mol": 836.8000000000001,
+        "uoffset_kj_mol": 0.0
+      },
+      "system_particles": 29992,
+      "topology_particles": 29992,
+      "windows": [
+        {
+          "checks": {
+            "converted_dcd_box_exact": true,
+            "dcd_frames_exact": true,
+            "dcd_particles_exact": true,
+            "dcd_unit_exact": true,
+            "final_positions_shape_exact": true,
+            "source_rows_exact": true
+          },
+          "passed": true,
+          "xi": 0.0
+        }
+      ]
+    }
+  ],
+  "checks": {
+    "all_cells_pass": true,
+    "cells_exact": true,
+    "context_count_zero": true,
+    "frames_exact": true,
+    "windows_exact": true
+  },
+  "context_count": 0,
+  "counts": {
+    "cells": 4,
+    "frames": 800,
+    "windows": 16
+  },
+  "generated": "2026-07-17 20:44:11 +0900",
+  "inventory_digest": "2768049224403ab431cf40ac684828e3e537ad298e9ed8c450c7ca10491eb667",
+  "keeper_digest": "a435188f9bfcdd8516708a8c54dbfc582cbd6288d1e1558d885c5680f7eb8e9e",
+  "schema": "updd_raw_gap_cap_activation_p1cap_keeper_v1_r1",
+  "status": "PASS"
+}

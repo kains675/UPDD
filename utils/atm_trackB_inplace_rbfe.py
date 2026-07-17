@@ -741,6 +741,7 @@ def _serialize_twocopy_system(
     appearing_h_retry_k: Optional[int] = None,
     carve_void_waters: bool = False,
     carve_cutoff_nm: float = ats.ATS_CARVE_VOID_CUTOFF_NM,
+    union_solvation: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Build + serialize the CANONICAL ATS TWO-COPY box for one leg.
 
@@ -769,6 +770,7 @@ def _serialize_twocopy_system(
         # bulk waters that penetrate the swap-displaced disappearing-heavy volume
         # (backward-endpoint NaN-crash fix). Forwarded verbatim to the builder.
         carve_void_waters=carve_void_waters, carve_cutoff_nm=carve_cutoff_nm,
+        union_solvation=union_solvation,
     )
     # P3-#116 FIX2 (opt-in, default None -> byte-identical legacy build): the bounded
     # R2-retry + deterministic per-unit appearing-H placement. When appearing_h_retry_k
@@ -839,6 +841,7 @@ def _serialize_twocopy_system(
         # Opt-in void-water carve report (None when carve_void_waters=False) —
         # surfaced so the launcher can log per-leg (free vs bound) carve counts.
         "carve_report": fused.get("carve_report"),
+        "union_solvation_report": fused.get("union_solvation_report"),
         "common_charges_harmonized": build.get("common_charges_harmonized"),
         "mtr_ncaa_xml": build.get("mtr_ncaa_xml"),
         # C8 SIGN-critical: for the two-copy box the decouple direction is the
@@ -884,6 +887,7 @@ def serialize_inplace_rbfe_system(
     appearing_h_retry_k: Optional[int] = None,
     carve_void_waters: bool = False,
     carve_cutoff_nm: float = ats.ATS_CARVE_VOID_CUTOFF_NM,
+    union_solvation: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Build + serialize the in-place fused RBFE System for one leg.
 
@@ -960,7 +964,8 @@ def serialize_inplace_rbfe_system(
             auto_search_displacement=auto_search_displacement,
             accept_sep_nm=accept_sep_nm, leg_inputs=leg_inputs,
             appearing_h_retry_k=appearing_h_retry_k,
-            carve_void_waters=carve_void_waters, carve_cutoff_nm=carve_cutoff_nm)
+            carve_void_waters=carve_void_waters, carve_cutoff_nm=carve_cutoff_nm,
+            union_solvation=union_solvation)
 
     # --- SINGLE-CORE (legacy default; byte-identical) ---------------------
     # mutation_spec is two-copy-only (single-core is the MTR<->Trp single-shared-
@@ -998,6 +1003,11 @@ def serialize_inplace_rbfe_system(
             "with construction='twocopy' (the single_core path has no displaced "
             "bulk copy whose disappearing-heavy atoms swap into a water-filled "
             "void).")
+    if union_solvation is not None:
+        raise ValueError(
+            "serialize_inplace_rbfe_system: union_solvation is only supported "
+            "with construction='twocopy'"
+        )
     # appearing_h_retry_k (the P3-#116 FIX2 deterministic + bounded-retry appearing-H
     # placement) is a two-copy-only knob: the single_core MTR<->Trp path reads both
     # endpoints from their own final.pdb and never runs the canonical mutated-copy

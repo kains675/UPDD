@@ -1,0 +1,3288 @@
+{
+  "cells": [
+    {
+      "bridge_contract": {
+        "after": {
+          "atm_force_group": 0,
+          "atm_index": 1,
+          "atm_name": "UPDDApexBridgeATM",
+          "energy_function": "select(BridgeXi,select(1-BridgeXi,(1-BridgeXi)*Hplus+BridgeXi*Hminus,Hminus),Hplus);Hplus=u0+0.5*uscplus;Hminus=u1+0.5*uscminus;uscplus=select(Acore,select(step(upos-Ubcore),(Umax-Ubcore)*fplus+Ubcore,upos),upos);fplus=(zplus^Acore-1)/(zplus^Acore+1);zplus=1+2*(yplus/Acore)+2*(yplus/Acore)^2;yplus=(upos-Ubcore)/(Umax-Ubcore);uscminus=select(Acore,select(step(uneg-Ubcore),(Umax-Ubcore)*fminus+Ubcore,uneg),uneg);fminus=(zneg^Acore-1)/(zneg^Acore+1);zneg=1+2*(yneg/Acore)+2*(yneg/Acore)^2;yneg=(uneg-Ubcore)/(Umax-Ubcore);upos=u1-(u0+UOffset);uneg=-1*(u1-(u0+UOffset))",
+          "energy_parameter_derivatives": [
+            "BridgeXi"
+          ],
+          "global_parameters": [
+            {
+              "default": 0.0,
+              "name": "Lambda1"
+            },
+            {
+              "default": 0.0,
+              "name": "Lambda2"
+            },
+            {
+              "default": 0.0,
+              "name": "Alpha"
+            },
+            {
+              "default": 0.0,
+              "name": "Uh"
+            },
+            {
+              "default": 0.0,
+              "name": "W0"
+            },
+            {
+              "default": 836.8000000000001,
+              "name": "Umax"
+            },
+            {
+              "default": 418.40000000000003,
+              "name": "Ubcore"
+            },
+            {
+              "default": 0.0625,
+              "name": "Acore"
+            },
+            {
+              "default": 1.0,
+              "name": "Direction"
+            },
+            {
+              "default": 0.0,
+              "name": "UOffset"
+            },
+            {
+              "default": 0.0,
+              "name": "BridgeXi"
+            }
+          ],
+          "nested_forces": [
+            {
+              "index": 0,
+              "name": "HarmonicBondForce",
+              "sha256": "72ac438d29985b94edda8e1d5bd8b4d39f149ad5df58184a99d4dff0f434d59c",
+              "type": "Force"
+            },
+            {
+              "index": 1,
+              "name": "NonbondedForce",
+              "sha256": "ff40fed03cfc6e476d084ce0a3ee6471d234b3b1744a9a9f40dd8eeffe319460",
+              "type": "Force"
+            },
+            {
+              "index": 2,
+              "name": "PeriodicTorsionForce",
+              "sha256": "b6702280e3efb8636c42341ba7917ece1057859b103c892136401e8a2b801ead",
+              "type": "Force"
+            },
+            {
+              "index": 3,
+              "name": "HarmonicAngleForce",
+              "sha256": "0418644eb66aa699ab28059b20bf02b2d62e53d02a60b08e26f5129ce389af6a",
+              "type": "Force"
+            }
+          ],
+          "other_top_level_forces": [
+            {
+              "force_group": 0,
+              "index": 0,
+              "name": "CMMotionRemover",
+              "sha256": "bee9799a6975809026ed0e718e9d5187edc62691e7bc4ca26e1968ed07a6d8c2",
+              "type": "CMMotionRemover"
+            },
+            {
+              "force_group": 31,
+              "index": 2,
+              "name": "UPDDDynamicGhostWCA",
+              "sha256": "489bcb7e2f53880e1f31c811d562de1acd8f32be60ae29d8792d60c2de6fb413",
+              "type": "CustomNonbondedForce"
+            }
+          ],
+          "particle_contract": {
+            "count": 300424,
+            "sha256": "010fe3cb1cbc2606c7d3cfc611569f1c2c3568ca48d6f37c3eb30810981e4a9e",
+            "transformation_type_counts": {
+              "FixedDisplacement": 300024,
+              "ParticleOffsetDisplacement": 400
+            }
+          },
+          "system_forces": 3,
+          "system_particles": 300424
+        },
+        "atm_index": 1,
+        "before": {
+          "atm_force_group": 0,
+          "atm_index": 1,
+          "atm_name": "ATMForce",
+          "energy_function": "select(step(Direction), u0, u1) + select(Lambda2-Lambda1 , ((Lambda2-Lambda1)/Alpha)*log(1+exp(-Alpha*(usc-Uh))) + Lambda2*usc + W0, Lambda2*usc + W0);usc = select(Acore, select(step(u-Ubcore), (Umax-Ubcore)*fsc+Ubcore, u), u);fsc = (z^Acore-1)/(z^Acore+1);z = 1 + 2*(y/Acore) + 2*(y/Acore)^2;y = (u-Ubcore)/(Umax-Ubcore);u = select(step(Direction), 1, -1)*(u1-(u0 + UOffset))",
+          "energy_parameter_derivatives": [],
+          "global_parameters": [
+            {
+              "default": 0.0,
+              "name": "Lambda1"
+            },
+            {
+              "default": 0.0,
+              "name": "Lambda2"
+            },
+            {
+              "default": 0.0,
+              "name": "Alpha"
+            },
+            {
+              "default": 0.0,
+              "name": "Uh"
+            },
+            {
+              "default": 0.0,
+              "name": "W0"
+            },
+            {
+              "default": 836.8000000000001,
+              "name": "Umax"
+            },
+            {
+              "default": 418.40000000000003,
+              "name": "Ubcore"
+            },
+            {
+              "default": 0.0625,
+              "name": "Acore"
+            },
+            {
+              "default": 1.0,
+              "name": "Direction"
+            },
+            {
+              "default": 0.0,
+              "name": "UOffset"
+            }
+          ],
+          "nested_forces": [
+            {
+              "index": 0,
+              "name": "HarmonicBondForce",
+              "sha256": "72ac438d29985b94edda8e1d5bd8b4d39f149ad5df58184a99d4dff0f434d59c",
+              "type": "Force"
+            },
+            {
+              "index": 1,
+              "name": "NonbondedForce",
+              "sha256": "ff40fed03cfc6e476d084ce0a3ee6471d234b3b1744a9a9f40dd8eeffe319460",
+              "type": "Force"
+            },
+            {
+              "index": 2,
+              "name": "PeriodicTorsionForce",
+              "sha256": "b6702280e3efb8636c42341ba7917ece1057859b103c892136401e8a2b801ead",
+              "type": "Force"
+            },
+            {
+              "index": 3,
+              "name": "HarmonicAngleForce",
+              "sha256": "0418644eb66aa699ab28059b20bf02b2d62e53d02a60b08e26f5129ce389af6a",
+              "type": "Force"
+            }
+          ],
+          "other_top_level_forces": [
+            {
+              "force_group": 0,
+              "index": 0,
+              "name": "CMMotionRemover",
+              "sha256": "bee9799a6975809026ed0e718e9d5187edc62691e7bc4ca26e1968ed07a6d8c2",
+              "type": "CMMotionRemover"
+            },
+            {
+              "force_group": 31,
+              "index": 2,
+              "name": "UPDDDynamicGhostWCA",
+              "sha256": "489bcb7e2f53880e1f31c811d562de1acd8f32be60ae29d8792d60c2de6fb413",
+              "type": "CustomNonbondedForce"
+            }
+          ],
+          "particle_contract": {
+            "count": 300424,
+            "sha256": "010fe3cb1cbc2606c7d3cfc611569f1c2c3568ca48d6f37c3eb30810981e4a9e",
+            "transformation_type_counts": {
+              "FixedDisplacement": 300024,
+              "ParticleOffsetDisplacement": 400
+            }
+          },
+          "system_forces": 3,
+          "system_particles": 300424
+        },
+        "checks": {
+          "atm_force_group_invariant": true,
+          "atm_index_invariant": true,
+          "bridge_derivative_only": true,
+          "bridge_expression_exact": true,
+          "bridge_name_exact": true,
+          "globals_append_only": true,
+          "nested_forces_invariant": true,
+          "other_top_level_forces_invariant": true,
+          "particle_transformations_invariant": true,
+          "source_expression_exact": true,
+          "system_forces_invariant": true,
+          "system_particles_invariant": true
+        }
+      },
+      "cell_id": "w4a_uncarved_s101_bound",
+      "checks": {
+        "all_water_oxygens": true,
+        "atom_count_invariant": true,
+        "bridge_mutation_scope_exact": true,
+        "bridge_parameter_consumed": true,
+        "charge_invariant": true,
+        "exact_nine_ring_atoms": true,
+        "ghost_after_atm": true,
+        "ghost_group_31": true
+      },
+      "ghost_contract": {
+        "atm_force_index": 1,
+        "cutoff_nm": 0.4,
+        "energy_expression": "g*step(rc-rsc)*(4*epsilon*((sigma/rsc)^12-(sigma/rsc)^6)+epsilon);rsc=(r^6+alpha_sc*(1-g)*sigma^6)^(1.0/6.0);rc=2^(1.0/6.0)*sigma;sigma=0.5*(sigma1+sigma2);epsilon=sqrt(epsilon1*epsilon2)",
+        "energy_parameter_derivatives": [
+          "g"
+        ],
+        "force_group": 31,
+        "force_index": 2,
+        "force_name": "UPDDDynamicGhostWCA",
+        "global_parameters": {
+          "alpha_sc": 0.5,
+          "g": 0.0
+        },
+        "interaction_groups": [
+          {
+            "first": [
+              10145,
+              10146,
+              10148,
+              10149,
+              10151,
+              10152,
+              10154,
+              10156,
+              10158
+            ],
+            "second_count": 96534,
+            "second_sha256": "0c8ad0e7b60c025912ada95a313fb1150da9ae6cd340d9f619e31451d267585e"
+          }
+        ],
+        "long_range_correction": false,
+        "n_forces_after": 3,
+        "n_forces_before": 2,
+        "n_particles": 300424,
+        "n_particles_after": 300424,
+        "n_particles_before": 300424,
+        "nested_nonbonded_index": 1,
+        "net_charge_after_e": -1.7053025658242404e-13,
+        "net_charge_before_e": -1.7053025658242404e-13,
+        "net_charge_delta_e": 0.0,
+        "nonbonded_method": "CutoffPeriodic",
+        "per_particle_parameters": [
+          "sigma",
+          "epsilon"
+        ],
+        "selection": {
+          "n_ring_atoms": 9,
+          "n_water_oxygens": 96534,
+          "n_water_residues": 96534,
+          "ring_atoms": [
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10145,
+              "name": "CG",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10146,
+              "name": "CD1",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10148,
+              "name": "CD2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "N",
+              "index": 10149,
+              "name": "NE1",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10151,
+              "name": "CE2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10152,
+              "name": "CE3",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10154,
+              "name": "CZ2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10156,
+              "name": "CZ3",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10158,
+              "name": "CH2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            }
+          ],
+          "ring_indices": [
+            10145,
+            10146,
+            10148,
+            10149,
+            10151,
+            10152,
+            10154,
+            10156,
+            10158
+          ],
+          "water_name_pairs": [
+            [
+              "HOH",
+              "O"
+            ]
+          ],
+          "water_oxygen_index_first": 10296,
+          "water_oxygen_index_last": 299895,
+          "water_oxygen_indices_sha256": "0c8ad0e7b60c025912ada95a313fb1150da9ae6cd340d9f619e31451d267585e"
+        },
+        "source_parameters": {
+          "pair_classes": {
+            "NE1_water_O": {
+              "epsilon_kj_mol": 0.6810702230092086,
+              "sigma_nm": 0.32139815436629793,
+              "wca_cutoff_nm": 0.3607572306728468
+            },
+            "aromatic_C_water_O": {
+              "epsilon_kj_mol": 0.4844139684778853,
+              "sigma_nm": 0.32888170359867674,
+              "wca_cutoff_nm": 0.3691572306728468
+            }
+          },
+          "ring_atoms": [
+            {
+              "chain_id": "B",
+              "charge_e": -0.1415,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10145,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CG",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.1638,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10146,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CD1",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": 0.1243,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10148,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CD2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.3418,
+              "element": "N",
+              "epsilon_kj_mol": 0.7112800000000001,
+              "index": 10149,
+              "mixed_epsilon_kj_mol": 0.6810702230092086,
+              "mixed_sigma_nm": 0.32139815436629793,
+              "name": "NE1",
+              "pair_class": "NE1_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3249998523775958,
+              "wca_cutoff_nm": 0.3607572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": 0.138,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10151,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CE2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.2387,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10152,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CE3",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.2601,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10154,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CZ2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.1972,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10156,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CZ3",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.1134,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10158,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CH2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            }
+          ],
+          "source_parameter_tolerance": 1e-12,
+          "water_oxygen": {
+            "charge_e": -0.848448690103,
+            "epsilon_kj_mol": 0.652143528104,
+            "n_atoms": 96534,
+            "sigma_nm": 0.317796456355
+          }
+        },
+        "switching_function": false
+      },
+      "leg": "bound",
+      "seed": "s101",
+      "source_cell_digest": "913474dd7ef5f031c59333bbb009bce32797dedeef0a4569fb6b07cf9e059323"
+    },
+    {
+      "bridge_contract": {
+        "after": {
+          "atm_force_group": 0,
+          "atm_index": 1,
+          "atm_name": "UPDDApexBridgeATM",
+          "energy_function": "select(BridgeXi,select(1-BridgeXi,(1-BridgeXi)*Hplus+BridgeXi*Hminus,Hminus),Hplus);Hplus=u0+0.5*uscplus;Hminus=u1+0.5*uscminus;uscplus=select(Acore,select(step(upos-Ubcore),(Umax-Ubcore)*fplus+Ubcore,upos),upos);fplus=(zplus^Acore-1)/(zplus^Acore+1);zplus=1+2*(yplus/Acore)+2*(yplus/Acore)^2;yplus=(upos-Ubcore)/(Umax-Ubcore);uscminus=select(Acore,select(step(uneg-Ubcore),(Umax-Ubcore)*fminus+Ubcore,uneg),uneg);fminus=(zneg^Acore-1)/(zneg^Acore+1);zneg=1+2*(yneg/Acore)+2*(yneg/Acore)^2;yneg=(uneg-Ubcore)/(Umax-Ubcore);upos=u1-(u0+UOffset);uneg=-1*(u1-(u0+UOffset))",
+          "energy_parameter_derivatives": [
+            "BridgeXi"
+          ],
+          "global_parameters": [
+            {
+              "default": 0.0,
+              "name": "Lambda1"
+            },
+            {
+              "default": 0.0,
+              "name": "Lambda2"
+            },
+            {
+              "default": 0.0,
+              "name": "Alpha"
+            },
+            {
+              "default": 0.0,
+              "name": "Uh"
+            },
+            {
+              "default": 0.0,
+              "name": "W0"
+            },
+            {
+              "default": 836.8000000000001,
+              "name": "Umax"
+            },
+            {
+              "default": 418.40000000000003,
+              "name": "Ubcore"
+            },
+            {
+              "default": 0.0625,
+              "name": "Acore"
+            },
+            {
+              "default": 1.0,
+              "name": "Direction"
+            },
+            {
+              "default": 0.0,
+              "name": "UOffset"
+            },
+            {
+              "default": 0.0,
+              "name": "BridgeXi"
+            }
+          ],
+          "nested_forces": [
+            {
+              "index": 0,
+              "name": "HarmonicBondForce",
+              "sha256": "72ac438d29985b94edda8e1d5bd8b4d39f149ad5df58184a99d4dff0f434d59c",
+              "type": "Force"
+            },
+            {
+              "index": 1,
+              "name": "NonbondedForce",
+              "sha256": "f56f26a4a3b9c52798bc672b1e4dc33fb403677f3550f812e0179549137209c4",
+              "type": "Force"
+            },
+            {
+              "index": 2,
+              "name": "PeriodicTorsionForce",
+              "sha256": "b6702280e3efb8636c42341ba7917ece1057859b103c892136401e8a2b801ead",
+              "type": "Force"
+            },
+            {
+              "index": 3,
+              "name": "HarmonicAngleForce",
+              "sha256": "0418644eb66aa699ab28059b20bf02b2d62e53d02a60b08e26f5129ce389af6a",
+              "type": "Force"
+            }
+          ],
+          "other_top_level_forces": [
+            {
+              "force_group": 0,
+              "index": 0,
+              "name": "CMMotionRemover",
+              "sha256": "bee9799a6975809026ed0e718e9d5187edc62691e7bc4ca26e1968ed07a6d8c2",
+              "type": "CMMotionRemover"
+            },
+            {
+              "force_group": 31,
+              "index": 2,
+              "name": "UPDDDynamicGhostWCA",
+              "sha256": "dcc8dbcd10bc2f0b45ce215fe9a879d1120f4289a7ddd9b682c1bb966347375b",
+              "type": "CustomNonbondedForce"
+            }
+          ],
+          "particle_contract": {
+            "count": 302726,
+            "sha256": "c5123ba07de5fe9bd7607ce36680314f366ff1034afba9d6768fdb2f5f903712",
+            "transformation_type_counts": {
+              "FixedDisplacement": 302326,
+              "ParticleOffsetDisplacement": 400
+            }
+          },
+          "system_forces": 3,
+          "system_particles": 302726
+        },
+        "atm_index": 1,
+        "before": {
+          "atm_force_group": 0,
+          "atm_index": 1,
+          "atm_name": "ATMForce",
+          "energy_function": "select(step(Direction), u0, u1) + select(Lambda2-Lambda1 , ((Lambda2-Lambda1)/Alpha)*log(1+exp(-Alpha*(usc-Uh))) + Lambda2*usc + W0, Lambda2*usc + W0);usc = select(Acore, select(step(u-Ubcore), (Umax-Ubcore)*fsc+Ubcore, u), u);fsc = (z^Acore-1)/(z^Acore+1);z = 1 + 2*(y/Acore) + 2*(y/Acore)^2;y = (u-Ubcore)/(Umax-Ubcore);u = select(step(Direction), 1, -1)*(u1-(u0 + UOffset))",
+          "energy_parameter_derivatives": [],
+          "global_parameters": [
+            {
+              "default": 0.0,
+              "name": "Lambda1"
+            },
+            {
+              "default": 0.0,
+              "name": "Lambda2"
+            },
+            {
+              "default": 0.0,
+              "name": "Alpha"
+            },
+            {
+              "default": 0.0,
+              "name": "Uh"
+            },
+            {
+              "default": 0.0,
+              "name": "W0"
+            },
+            {
+              "default": 836.8000000000001,
+              "name": "Umax"
+            },
+            {
+              "default": 418.40000000000003,
+              "name": "Ubcore"
+            },
+            {
+              "default": 0.0625,
+              "name": "Acore"
+            },
+            {
+              "default": 1.0,
+              "name": "Direction"
+            },
+            {
+              "default": 0.0,
+              "name": "UOffset"
+            }
+          ],
+          "nested_forces": [
+            {
+              "index": 0,
+              "name": "HarmonicBondForce",
+              "sha256": "72ac438d29985b94edda8e1d5bd8b4d39f149ad5df58184a99d4dff0f434d59c",
+              "type": "Force"
+            },
+            {
+              "index": 1,
+              "name": "NonbondedForce",
+              "sha256": "f56f26a4a3b9c52798bc672b1e4dc33fb403677f3550f812e0179549137209c4",
+              "type": "Force"
+            },
+            {
+              "index": 2,
+              "name": "PeriodicTorsionForce",
+              "sha256": "b6702280e3efb8636c42341ba7917ece1057859b103c892136401e8a2b801ead",
+              "type": "Force"
+            },
+            {
+              "index": 3,
+              "name": "HarmonicAngleForce",
+              "sha256": "0418644eb66aa699ab28059b20bf02b2d62e53d02a60b08e26f5129ce389af6a",
+              "type": "Force"
+            }
+          ],
+          "other_top_level_forces": [
+            {
+              "force_group": 0,
+              "index": 0,
+              "name": "CMMotionRemover",
+              "sha256": "bee9799a6975809026ed0e718e9d5187edc62691e7bc4ca26e1968ed07a6d8c2",
+              "type": "CMMotionRemover"
+            },
+            {
+              "force_group": 31,
+              "index": 2,
+              "name": "UPDDDynamicGhostWCA",
+              "sha256": "dcc8dbcd10bc2f0b45ce215fe9a879d1120f4289a7ddd9b682c1bb966347375b",
+              "type": "CustomNonbondedForce"
+            }
+          ],
+          "particle_contract": {
+            "count": 302726,
+            "sha256": "c5123ba07de5fe9bd7607ce36680314f366ff1034afba9d6768fdb2f5f903712",
+            "transformation_type_counts": {
+              "FixedDisplacement": 302326,
+              "ParticleOffsetDisplacement": 400
+            }
+          },
+          "system_forces": 3,
+          "system_particles": 302726
+        },
+        "checks": {
+          "atm_force_group_invariant": true,
+          "atm_index_invariant": true,
+          "bridge_derivative_only": true,
+          "bridge_expression_exact": true,
+          "bridge_name_exact": true,
+          "globals_append_only": true,
+          "nested_forces_invariant": true,
+          "other_top_level_forces_invariant": true,
+          "particle_transformations_invariant": true,
+          "source_expression_exact": true,
+          "system_forces_invariant": true,
+          "system_particles_invariant": true
+        }
+      },
+      "cell_id": "w4a_uncarved_s127_bound",
+      "checks": {
+        "all_water_oxygens": true,
+        "atom_count_invariant": true,
+        "bridge_mutation_scope_exact": true,
+        "bridge_parameter_consumed": true,
+        "charge_invariant": true,
+        "exact_nine_ring_atoms": true,
+        "ghost_after_atm": true,
+        "ghost_group_31": true
+      },
+      "ghost_contract": {
+        "atm_force_index": 1,
+        "cutoff_nm": 0.4,
+        "energy_expression": "g*step(rc-rsc)*(4*epsilon*((sigma/rsc)^12-(sigma/rsc)^6)+epsilon);rsc=(r^6+alpha_sc*(1-g)*sigma^6)^(1.0/6.0);rc=2^(1.0/6.0)*sigma;sigma=0.5*(sigma1+sigma2);epsilon=sqrt(epsilon1*epsilon2)",
+        "energy_parameter_derivatives": [
+          "g"
+        ],
+        "force_group": 31,
+        "force_index": 2,
+        "force_name": "UPDDDynamicGhostWCA",
+        "global_parameters": {
+          "alpha_sc": 0.5,
+          "g": 0.0
+        },
+        "interaction_groups": [
+          {
+            "first": [
+              10145,
+              10146,
+              10148,
+              10149,
+              10151,
+              10152,
+              10154,
+              10156,
+              10158
+            ],
+            "second_count": 97300,
+            "second_sha256": "ff98e780538879397917d39e2aaeb21b0e5b3652823f2f79709a6f776588ebfb"
+          }
+        ],
+        "long_range_correction": false,
+        "n_forces_after": 3,
+        "n_forces_before": 2,
+        "n_particles": 302726,
+        "n_particles_after": 302726,
+        "n_particles_before": 302726,
+        "nested_nonbonded_index": 1,
+        "net_charge_after_e": -1.7053025658242404e-13,
+        "net_charge_before_e": -1.7053025658242404e-13,
+        "net_charge_delta_e": 0.0,
+        "nonbonded_method": "CutoffPeriodic",
+        "per_particle_parameters": [
+          "sigma",
+          "epsilon"
+        ],
+        "selection": {
+          "n_ring_atoms": 9,
+          "n_water_oxygens": 97300,
+          "n_water_residues": 97300,
+          "ring_atoms": [
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10145,
+              "name": "CG",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10146,
+              "name": "CD1",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10148,
+              "name": "CD2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "N",
+              "index": 10149,
+              "name": "NE1",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10151,
+              "name": "CE2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10152,
+              "name": "CE3",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10154,
+              "name": "CZ2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10156,
+              "name": "CZ3",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10158,
+              "name": "CH2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            }
+          ],
+          "ring_indices": [
+            10145,
+            10146,
+            10148,
+            10149,
+            10151,
+            10152,
+            10154,
+            10156,
+            10158
+          ],
+          "water_name_pairs": [
+            [
+              "HOH",
+              "O"
+            ]
+          ],
+          "water_oxygen_index_first": 10296,
+          "water_oxygen_index_last": 302193,
+          "water_oxygen_indices_sha256": "ff98e780538879397917d39e2aaeb21b0e5b3652823f2f79709a6f776588ebfb"
+        },
+        "source_parameters": {
+          "pair_classes": {
+            "NE1_water_O": {
+              "epsilon_kj_mol": 0.6810702230092086,
+              "sigma_nm": 0.32139815436629793,
+              "wca_cutoff_nm": 0.3607572306728468
+            },
+            "aromatic_C_water_O": {
+              "epsilon_kj_mol": 0.4844139684778853,
+              "sigma_nm": 0.32888170359867674,
+              "wca_cutoff_nm": 0.3691572306728468
+            }
+          },
+          "ring_atoms": [
+            {
+              "chain_id": "B",
+              "charge_e": -0.1415,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10145,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CG",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.1638,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10146,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CD1",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": 0.1243,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10148,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CD2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.3418,
+              "element": "N",
+              "epsilon_kj_mol": 0.7112800000000001,
+              "index": 10149,
+              "mixed_epsilon_kj_mol": 0.6810702230092086,
+              "mixed_sigma_nm": 0.32139815436629793,
+              "name": "NE1",
+              "pair_class": "NE1_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3249998523775958,
+              "wca_cutoff_nm": 0.3607572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": 0.138,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10151,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CE2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.2387,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10152,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CE3",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.2601,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10154,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CZ2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.1972,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10156,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CZ3",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.1134,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10158,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CH2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            }
+          ],
+          "source_parameter_tolerance": 1e-12,
+          "water_oxygen": {
+            "charge_e": -0.848448690103,
+            "epsilon_kj_mol": 0.652143528104,
+            "n_atoms": 97300,
+            "sigma_nm": 0.317796456355
+          }
+        },
+        "switching_function": false
+      },
+      "leg": "bound",
+      "seed": "s127",
+      "source_cell_digest": "71f06dfe9e08622c7960214a41fa54b73a5a4698e627c747df09621111ee68b9"
+    },
+    {
+      "bridge_contract": {
+        "after": {
+          "atm_force_group": 0,
+          "atm_index": 1,
+          "atm_name": "UPDDApexBridgeATM",
+          "energy_function": "select(BridgeXi,select(1-BridgeXi,(1-BridgeXi)*Hplus+BridgeXi*Hminus,Hminus),Hplus);Hplus=u0+0.5*uscplus;Hminus=u1+0.5*uscminus;uscplus=select(Acore,select(step(upos-Ubcore),(Umax-Ubcore)*fplus+Ubcore,upos),upos);fplus=(zplus^Acore-1)/(zplus^Acore+1);zplus=1+2*(yplus/Acore)+2*(yplus/Acore)^2;yplus=(upos-Ubcore)/(Umax-Ubcore);uscminus=select(Acore,select(step(uneg-Ubcore),(Umax-Ubcore)*fminus+Ubcore,uneg),uneg);fminus=(zneg^Acore-1)/(zneg^Acore+1);zneg=1+2*(yneg/Acore)+2*(yneg/Acore)^2;yneg=(uneg-Ubcore)/(Umax-Ubcore);upos=u1-(u0+UOffset);uneg=-1*(u1-(u0+UOffset))",
+          "energy_parameter_derivatives": [
+            "BridgeXi"
+          ],
+          "global_parameters": [
+            {
+              "default": 0.0,
+              "name": "Lambda1"
+            },
+            {
+              "default": 0.0,
+              "name": "Lambda2"
+            },
+            {
+              "default": 0.0,
+              "name": "Alpha"
+            },
+            {
+              "default": 0.0,
+              "name": "Uh"
+            },
+            {
+              "default": 0.0,
+              "name": "W0"
+            },
+            {
+              "default": 836.8000000000001,
+              "name": "Umax"
+            },
+            {
+              "default": 418.40000000000003,
+              "name": "Ubcore"
+            },
+            {
+              "default": 0.0625,
+              "name": "Acore"
+            },
+            {
+              "default": 1.0,
+              "name": "Direction"
+            },
+            {
+              "default": 0.0,
+              "name": "UOffset"
+            },
+            {
+              "default": 0.0,
+              "name": "BridgeXi"
+            }
+          ],
+          "nested_forces": [
+            {
+              "index": 0,
+              "name": "HarmonicBondForce",
+              "sha256": "72ac438d29985b94edda8e1d5bd8b4d39f149ad5df58184a99d4dff0f434d59c",
+              "type": "Force"
+            },
+            {
+              "index": 1,
+              "name": "NonbondedForce",
+              "sha256": "57ef44a3480da8f921fa15f79dcd8eb090f36343d3547c87ba25c56b4e701d00",
+              "type": "Force"
+            },
+            {
+              "index": 2,
+              "name": "PeriodicTorsionForce",
+              "sha256": "b6702280e3efb8636c42341ba7917ece1057859b103c892136401e8a2b801ead",
+              "type": "Force"
+            },
+            {
+              "index": 3,
+              "name": "HarmonicAngleForce",
+              "sha256": "0418644eb66aa699ab28059b20bf02b2d62e53d02a60b08e26f5129ce389af6a",
+              "type": "Force"
+            }
+          ],
+          "other_top_level_forces": [
+            {
+              "force_group": 0,
+              "index": 0,
+              "name": "CMMotionRemover",
+              "sha256": "bee9799a6975809026ed0e718e9d5187edc62691e7bc4ca26e1968ed07a6d8c2",
+              "type": "CMMotionRemover"
+            },
+            {
+              "force_group": 31,
+              "index": 2,
+              "name": "UPDDDynamicGhostWCA",
+              "sha256": "bc75cbea8331fd425149fc63c179b4bfd210e88542cea649ad137b9e72f2d7e4",
+              "type": "CustomNonbondedForce"
+            }
+          ],
+          "particle_contract": {
+            "count": 313951,
+            "sha256": "0377a6a6b5be5d793ec23e938ec23122aa92f6501ad20c0dd34fb5784042585b",
+            "transformation_type_counts": {
+              "FixedDisplacement": 313551,
+              "ParticleOffsetDisplacement": 400
+            }
+          },
+          "system_forces": 3,
+          "system_particles": 313951
+        },
+        "atm_index": 1,
+        "before": {
+          "atm_force_group": 0,
+          "atm_index": 1,
+          "atm_name": "ATMForce",
+          "energy_function": "select(step(Direction), u0, u1) + select(Lambda2-Lambda1 , ((Lambda2-Lambda1)/Alpha)*log(1+exp(-Alpha*(usc-Uh))) + Lambda2*usc + W0, Lambda2*usc + W0);usc = select(Acore, select(step(u-Ubcore), (Umax-Ubcore)*fsc+Ubcore, u), u);fsc = (z^Acore-1)/(z^Acore+1);z = 1 + 2*(y/Acore) + 2*(y/Acore)^2;y = (u-Ubcore)/(Umax-Ubcore);u = select(step(Direction), 1, -1)*(u1-(u0 + UOffset))",
+          "energy_parameter_derivatives": [],
+          "global_parameters": [
+            {
+              "default": 0.0,
+              "name": "Lambda1"
+            },
+            {
+              "default": 0.0,
+              "name": "Lambda2"
+            },
+            {
+              "default": 0.0,
+              "name": "Alpha"
+            },
+            {
+              "default": 0.0,
+              "name": "Uh"
+            },
+            {
+              "default": 0.0,
+              "name": "W0"
+            },
+            {
+              "default": 836.8000000000001,
+              "name": "Umax"
+            },
+            {
+              "default": 418.40000000000003,
+              "name": "Ubcore"
+            },
+            {
+              "default": 0.0625,
+              "name": "Acore"
+            },
+            {
+              "default": 1.0,
+              "name": "Direction"
+            },
+            {
+              "default": 0.0,
+              "name": "UOffset"
+            }
+          ],
+          "nested_forces": [
+            {
+              "index": 0,
+              "name": "HarmonicBondForce",
+              "sha256": "72ac438d29985b94edda8e1d5bd8b4d39f149ad5df58184a99d4dff0f434d59c",
+              "type": "Force"
+            },
+            {
+              "index": 1,
+              "name": "NonbondedForce",
+              "sha256": "57ef44a3480da8f921fa15f79dcd8eb090f36343d3547c87ba25c56b4e701d00",
+              "type": "Force"
+            },
+            {
+              "index": 2,
+              "name": "PeriodicTorsionForce",
+              "sha256": "b6702280e3efb8636c42341ba7917ece1057859b103c892136401e8a2b801ead",
+              "type": "Force"
+            },
+            {
+              "index": 3,
+              "name": "HarmonicAngleForce",
+              "sha256": "0418644eb66aa699ab28059b20bf02b2d62e53d02a60b08e26f5129ce389af6a",
+              "type": "Force"
+            }
+          ],
+          "other_top_level_forces": [
+            {
+              "force_group": 0,
+              "index": 0,
+              "name": "CMMotionRemover",
+              "sha256": "bee9799a6975809026ed0e718e9d5187edc62691e7bc4ca26e1968ed07a6d8c2",
+              "type": "CMMotionRemover"
+            },
+            {
+              "force_group": 31,
+              "index": 2,
+              "name": "UPDDDynamicGhostWCA",
+              "sha256": "bc75cbea8331fd425149fc63c179b4bfd210e88542cea649ad137b9e72f2d7e4",
+              "type": "CustomNonbondedForce"
+            }
+          ],
+          "particle_contract": {
+            "count": 313951,
+            "sha256": "0377a6a6b5be5d793ec23e938ec23122aa92f6501ad20c0dd34fb5784042585b",
+            "transformation_type_counts": {
+              "FixedDisplacement": 313551,
+              "ParticleOffsetDisplacement": 400
+            }
+          },
+          "system_forces": 3,
+          "system_particles": 313951
+        },
+        "checks": {
+          "atm_force_group_invariant": true,
+          "atm_index_invariant": true,
+          "bridge_derivative_only": true,
+          "bridge_expression_exact": true,
+          "bridge_name_exact": true,
+          "globals_append_only": true,
+          "nested_forces_invariant": true,
+          "other_top_level_forces_invariant": true,
+          "particle_transformations_invariant": true,
+          "source_expression_exact": true,
+          "system_forces_invariant": true,
+          "system_particles_invariant": true
+        }
+      },
+      "cell_id": "w4a_uncarved_s163_bound",
+      "checks": {
+        "all_water_oxygens": true,
+        "atom_count_invariant": true,
+        "bridge_mutation_scope_exact": true,
+        "bridge_parameter_consumed": true,
+        "charge_invariant": true,
+        "exact_nine_ring_atoms": true,
+        "ghost_after_atm": true,
+        "ghost_group_31": true
+      },
+      "ghost_contract": {
+        "atm_force_index": 1,
+        "cutoff_nm": 0.4,
+        "energy_expression": "g*step(rc-rsc)*(4*epsilon*((sigma/rsc)^12-(sigma/rsc)^6)+epsilon);rsc=(r^6+alpha_sc*(1-g)*sigma^6)^(1.0/6.0);rc=2^(1.0/6.0)*sigma;sigma=0.5*(sigma1+sigma2);epsilon=sqrt(epsilon1*epsilon2)",
+        "energy_parameter_derivatives": [
+          "g"
+        ],
+        "force_group": 31,
+        "force_index": 2,
+        "force_name": "UPDDDynamicGhostWCA",
+        "global_parameters": {
+          "alpha_sc": 0.5,
+          "g": 0.0
+        },
+        "interaction_groups": [
+          {
+            "first": [
+              10145,
+              10146,
+              10148,
+              10149,
+              10151,
+              10152,
+              10154,
+              10156,
+              10158
+            ],
+            "second_count": 101035,
+            "second_sha256": "ab46c5b8922e412ed4c4cb03dbe1b178587cbb6098062ae57bb6e7dbcfbd2e30"
+          }
+        ],
+        "long_range_correction": false,
+        "n_forces_after": 3,
+        "n_forces_before": 2,
+        "n_particles": 313951,
+        "n_particles_after": 313951,
+        "n_particles_before": 313951,
+        "nested_nonbonded_index": 1,
+        "net_charge_after_e": -1.7053025658242404e-13,
+        "net_charge_before_e": -1.7053025658242404e-13,
+        "net_charge_delta_e": 0.0,
+        "nonbonded_method": "CutoffPeriodic",
+        "per_particle_parameters": [
+          "sigma",
+          "epsilon"
+        ],
+        "selection": {
+          "n_ring_atoms": 9,
+          "n_water_oxygens": 101035,
+          "n_water_residues": 101035,
+          "ring_atoms": [
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10145,
+              "name": "CG",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10146,
+              "name": "CD1",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10148,
+              "name": "CD2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "N",
+              "index": 10149,
+              "name": "NE1",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10151,
+              "name": "CE2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10152,
+              "name": "CE3",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10154,
+              "name": "CZ2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10156,
+              "name": "CZ3",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10158,
+              "name": "CH2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            }
+          ],
+          "ring_indices": [
+            10145,
+            10146,
+            10148,
+            10149,
+            10151,
+            10152,
+            10154,
+            10156,
+            10158
+          ],
+          "water_name_pairs": [
+            [
+              "HOH",
+              "O"
+            ]
+          ],
+          "water_oxygen_index_first": 10296,
+          "water_oxygen_index_last": 313398,
+          "water_oxygen_indices_sha256": "ab46c5b8922e412ed4c4cb03dbe1b178587cbb6098062ae57bb6e7dbcfbd2e30"
+        },
+        "source_parameters": {
+          "pair_classes": {
+            "NE1_water_O": {
+              "epsilon_kj_mol": 0.6810702230092086,
+              "sigma_nm": 0.32139815436629793,
+              "wca_cutoff_nm": 0.3607572306728468
+            },
+            "aromatic_C_water_O": {
+              "epsilon_kj_mol": 0.4844139684778853,
+              "sigma_nm": 0.32888170359867674,
+              "wca_cutoff_nm": 0.3691572306728468
+            }
+          },
+          "ring_atoms": [
+            {
+              "chain_id": "B",
+              "charge_e": -0.1415,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10145,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CG",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.1638,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10146,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CD1",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": 0.1243,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10148,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CD2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.3418,
+              "element": "N",
+              "epsilon_kj_mol": 0.7112800000000001,
+              "index": 10149,
+              "mixed_epsilon_kj_mol": 0.6810702230092086,
+              "mixed_sigma_nm": 0.32139815436629793,
+              "name": "NE1",
+              "pair_class": "NE1_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3249998523775958,
+              "wca_cutoff_nm": 0.3607572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": 0.138,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10151,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CE2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.2387,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10152,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CE3",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.2601,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10154,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CZ2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.1972,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10156,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CZ3",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.1134,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10158,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CH2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            }
+          ],
+          "source_parameter_tolerance": 1e-12,
+          "water_oxygen": {
+            "charge_e": -0.848448690103,
+            "epsilon_kj_mol": 0.652143528104,
+            "n_atoms": 101035,
+            "sigma_nm": 0.317796456355
+          }
+        },
+        "switching_function": false
+      },
+      "leg": "bound",
+      "seed": "s163",
+      "source_cell_digest": "62d458f66e0056fdb3fc576a13b0b5258fadb94e9eab3983d49a49c379b734c0"
+    },
+    {
+      "bridge_contract": {
+        "after": {
+          "atm_force_group": 0,
+          "atm_index": 1,
+          "atm_name": "UPDDApexBridgeATM",
+          "energy_function": "select(BridgeXi,select(1-BridgeXi,(1-BridgeXi)*Hplus+BridgeXi*Hminus,Hminus),Hplus);Hplus=u0+0.5*uscplus;Hminus=u1+0.5*uscminus;uscplus=select(Acore,select(step(upos-Ubcore),(Umax-Ubcore)*fplus+Ubcore,upos),upos);fplus=(zplus^Acore-1)/(zplus^Acore+1);zplus=1+2*(yplus/Acore)+2*(yplus/Acore)^2;yplus=(upos-Ubcore)/(Umax-Ubcore);uscminus=select(Acore,select(step(uneg-Ubcore),(Umax-Ubcore)*fminus+Ubcore,uneg),uneg);fminus=(zneg^Acore-1)/(zneg^Acore+1);zneg=1+2*(yneg/Acore)+2*(yneg/Acore)^2;yneg=(uneg-Ubcore)/(Umax-Ubcore);upos=u1-(u0+UOffset);uneg=-1*(u1-(u0+UOffset))",
+          "energy_parameter_derivatives": [
+            "BridgeXi"
+          ],
+          "global_parameters": [
+            {
+              "default": 0.0,
+              "name": "Lambda1"
+            },
+            {
+              "default": 0.0,
+              "name": "Lambda2"
+            },
+            {
+              "default": 0.0,
+              "name": "Alpha"
+            },
+            {
+              "default": 0.0,
+              "name": "Uh"
+            },
+            {
+              "default": 0.0,
+              "name": "W0"
+            },
+            {
+              "default": 836.8000000000001,
+              "name": "Umax"
+            },
+            {
+              "default": 418.40000000000003,
+              "name": "Ubcore"
+            },
+            {
+              "default": 0.0625,
+              "name": "Acore"
+            },
+            {
+              "default": 1.0,
+              "name": "Direction"
+            },
+            {
+              "default": 0.0,
+              "name": "UOffset"
+            },
+            {
+              "default": 0.0,
+              "name": "BridgeXi"
+            }
+          ],
+          "nested_forces": [
+            {
+              "index": 0,
+              "name": "HarmonicBondForce",
+              "sha256": "7f7a447cfecc78f68e20aa8c997c1df5ea5f40c45f3b2ed81f6570303b17d533",
+              "type": "Force"
+            },
+            {
+              "index": 1,
+              "name": "NonbondedForce",
+              "sha256": "9215e8f57074313bc78b86a065b2c0fa55df9d86464bab78b1ed6ed2ee6ad802",
+              "type": "Force"
+            },
+            {
+              "index": 2,
+              "name": "PeriodicTorsionForce",
+              "sha256": "3dabe321b6b834ec863c48e35f2f5b834fef4be787d640a34eb54e19d6d206e4",
+              "type": "Force"
+            },
+            {
+              "index": 3,
+              "name": "HarmonicAngleForce",
+              "sha256": "8340f162deba5a5282393664f5dcd43473dc3b981cf061689c73fd1f01cef8ee",
+              "type": "Force"
+            }
+          ],
+          "other_top_level_forces": [
+            {
+              "force_group": 0,
+              "index": 0,
+              "name": "CMMotionRemover",
+              "sha256": "bee9799a6975809026ed0e718e9d5187edc62691e7bc4ca26e1968ed07a6d8c2",
+              "type": "CMMotionRemover"
+            },
+            {
+              "force_group": 31,
+              "index": 2,
+              "name": "UPDDDynamicGhostWCA",
+              "sha256": "0865ca68c26dd5c582213c8fdecb90c81a292d4f027fd26a13cf45c9e0773105",
+              "type": "CustomNonbondedForce"
+            }
+          ],
+          "particle_contract": {
+            "count": 29992,
+            "sha256": "c70b9d3c67d8564b1c35236fb0de7c99cf9f16bab1476c365716aca434e46c8a",
+            "transformation_type_counts": {
+              "FixedDisplacement": 29592,
+              "ParticleOffsetDisplacement": 400
+            }
+          },
+          "system_forces": 3,
+          "system_particles": 29992
+        },
+        "atm_index": 1,
+        "before": {
+          "atm_force_group": 0,
+          "atm_index": 1,
+          "atm_name": "ATMForce",
+          "energy_function": "select(step(Direction), u0, u1) + select(Lambda2-Lambda1 , ((Lambda2-Lambda1)/Alpha)*log(1+exp(-Alpha*(usc-Uh))) + Lambda2*usc + W0, Lambda2*usc + W0);usc = select(Acore, select(step(u-Ubcore), (Umax-Ubcore)*fsc+Ubcore, u), u);fsc = (z^Acore-1)/(z^Acore+1);z = 1 + 2*(y/Acore) + 2*(y/Acore)^2;y = (u-Ubcore)/(Umax-Ubcore);u = select(step(Direction), 1, -1)*(u1-(u0 + UOffset))",
+          "energy_parameter_derivatives": [],
+          "global_parameters": [
+            {
+              "default": 0.0,
+              "name": "Lambda1"
+            },
+            {
+              "default": 0.0,
+              "name": "Lambda2"
+            },
+            {
+              "default": 0.0,
+              "name": "Alpha"
+            },
+            {
+              "default": 0.0,
+              "name": "Uh"
+            },
+            {
+              "default": 0.0,
+              "name": "W0"
+            },
+            {
+              "default": 836.8000000000001,
+              "name": "Umax"
+            },
+            {
+              "default": 418.40000000000003,
+              "name": "Ubcore"
+            },
+            {
+              "default": 0.0625,
+              "name": "Acore"
+            },
+            {
+              "default": 1.0,
+              "name": "Direction"
+            },
+            {
+              "default": 0.0,
+              "name": "UOffset"
+            }
+          ],
+          "nested_forces": [
+            {
+              "index": 0,
+              "name": "HarmonicBondForce",
+              "sha256": "7f7a447cfecc78f68e20aa8c997c1df5ea5f40c45f3b2ed81f6570303b17d533",
+              "type": "Force"
+            },
+            {
+              "index": 1,
+              "name": "NonbondedForce",
+              "sha256": "9215e8f57074313bc78b86a065b2c0fa55df9d86464bab78b1ed6ed2ee6ad802",
+              "type": "Force"
+            },
+            {
+              "index": 2,
+              "name": "PeriodicTorsionForce",
+              "sha256": "3dabe321b6b834ec863c48e35f2f5b834fef4be787d640a34eb54e19d6d206e4",
+              "type": "Force"
+            },
+            {
+              "index": 3,
+              "name": "HarmonicAngleForce",
+              "sha256": "8340f162deba5a5282393664f5dcd43473dc3b981cf061689c73fd1f01cef8ee",
+              "type": "Force"
+            }
+          ],
+          "other_top_level_forces": [
+            {
+              "force_group": 0,
+              "index": 0,
+              "name": "CMMotionRemover",
+              "sha256": "bee9799a6975809026ed0e718e9d5187edc62691e7bc4ca26e1968ed07a6d8c2",
+              "type": "CMMotionRemover"
+            },
+            {
+              "force_group": 31,
+              "index": 2,
+              "name": "UPDDDynamicGhostWCA",
+              "sha256": "0865ca68c26dd5c582213c8fdecb90c81a292d4f027fd26a13cf45c9e0773105",
+              "type": "CustomNonbondedForce"
+            }
+          ],
+          "particle_contract": {
+            "count": 29992,
+            "sha256": "c70b9d3c67d8564b1c35236fb0de7c99cf9f16bab1476c365716aca434e46c8a",
+            "transformation_type_counts": {
+              "FixedDisplacement": 29592,
+              "ParticleOffsetDisplacement": 400
+            }
+          },
+          "system_forces": 3,
+          "system_particles": 29992
+        },
+        "checks": {
+          "atm_force_group_invariant": true,
+          "atm_index_invariant": true,
+          "bridge_derivative_only": true,
+          "bridge_expression_exact": true,
+          "bridge_name_exact": true,
+          "globals_append_only": true,
+          "nested_forces_invariant": true,
+          "other_top_level_forces_invariant": true,
+          "particle_transformations_invariant": true,
+          "source_expression_exact": true,
+          "system_forces_invariant": true,
+          "system_particles_invariant": true
+        }
+      },
+      "cell_id": "w4a_uncarved_s101_free",
+      "checks": {
+        "all_water_oxygens": true,
+        "atom_count_invariant": true,
+        "bridge_mutation_scope_exact": true,
+        "bridge_parameter_consumed": true,
+        "charge_invariant": true,
+        "exact_nine_ring_atoms": true,
+        "ghost_after_atm": true,
+        "ghost_group_31": true
+      },
+      "ghost_contract": {
+        "atm_force_index": 1,
+        "cutoff_nm": 0.4,
+        "energy_expression": "g*step(rc-rsc)*(4*epsilon*((sigma/rsc)^12-(sigma/rsc)^6)+epsilon);rsc=(r^6+alpha_sc*(1-g)*sigma^6)^(1.0/6.0);rc=2^(1.0/6.0)*sigma;sigma=0.5*(sigma1+sigma2);epsilon=sqrt(epsilon1*epsilon2)",
+        "energy_parameter_derivatives": [
+          "g"
+        ],
+        "force_group": 31,
+        "force_index": 2,
+        "force_name": "UPDDDynamicGhostWCA",
+        "global_parameters": {
+          "alpha_sc": 0.5,
+          "g": 0.0
+        },
+        "interaction_groups": [
+          {
+            "first": [
+              249,
+              250,
+              252,
+              253,
+              255,
+              256,
+              258,
+              260,
+              262
+            ],
+            "second_count": 9846,
+            "second_sha256": "e65bf6d6d80e025e65a731a1e9901ca0a760414d9177b6f7534bcdbe344f298c"
+          }
+        ],
+        "long_range_correction": false,
+        "n_forces_after": 3,
+        "n_forces_before": 2,
+        "n_particles": 29992,
+        "n_particles_after": 29992,
+        "n_particles_before": 29992,
+        "nested_nonbonded_index": 1,
+        "net_charge_after_e": 0.0,
+        "net_charge_before_e": 0.0,
+        "net_charge_delta_e": 0.0,
+        "nonbonded_method": "CutoffPeriodic",
+        "per_particle_parameters": [
+          "sigma",
+          "epsilon"
+        ],
+        "selection": {
+          "n_ring_atoms": 9,
+          "n_water_oxygens": 9846,
+          "n_water_residues": 9846,
+          "ring_atoms": [
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 249,
+              "name": "CG",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 250,
+              "name": "CD1",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 252,
+              "name": "CD2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "N",
+              "index": 253,
+              "name": "NE1",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 255,
+              "name": "CE2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 256,
+              "name": "CE3",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 258,
+              "name": "CZ2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 260,
+              "name": "CZ3",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 262,
+              "name": "CH2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            }
+          ],
+          "ring_indices": [
+            249,
+            250,
+            252,
+            253,
+            255,
+            256,
+            258,
+            260,
+            262
+          ],
+          "water_name_pairs": [
+            [
+              "HOH",
+              "O"
+            ]
+          ],
+          "water_oxygen_index_first": 400,
+          "water_oxygen_index_last": 29935,
+          "water_oxygen_indices_sha256": "e65bf6d6d80e025e65a731a1e9901ca0a760414d9177b6f7534bcdbe344f298c"
+        },
+        "source_parameters": {
+          "pair_classes": {
+            "NE1_water_O": {
+              "epsilon_kj_mol": 0.6810702230092086,
+              "sigma_nm": 0.32139815436629793,
+              "wca_cutoff_nm": 0.3607572306728468
+            },
+            "aromatic_C_water_O": {
+              "epsilon_kj_mol": 0.4844139684778853,
+              "sigma_nm": 0.32888170359867674,
+              "wca_cutoff_nm": 0.3691572306728468
+            }
+          },
+          "ring_atoms": [
+            {
+              "chain_id": "B",
+              "charge_e": -0.1415,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 249,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CG",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.1638,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 250,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CD1",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": 0.1243,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 252,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CD2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.3418,
+              "element": "N",
+              "epsilon_kj_mol": 0.7112800000000001,
+              "index": 253,
+              "mixed_epsilon_kj_mol": 0.6810702230092086,
+              "mixed_sigma_nm": 0.32139815436629793,
+              "name": "NE1",
+              "pair_class": "NE1_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3249998523775958,
+              "wca_cutoff_nm": 0.3607572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": 0.138,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 255,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CE2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.2387,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 256,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CE3",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.2601,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 258,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CZ2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.1972,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 260,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CZ3",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.1134,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 262,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CH2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            }
+          ],
+          "source_parameter_tolerance": 1e-12,
+          "water_oxygen": {
+            "charge_e": -0.848448690103,
+            "epsilon_kj_mol": 0.652143528104,
+            "n_atoms": 9846,
+            "sigma_nm": 0.317796456355
+          }
+        },
+        "switching_function": false
+      },
+      "leg": "free",
+      "seed": "s101",
+      "source_cell_digest": "f5a58a8f79e6cd9c498bf0deec113582d83459371c65fe4ce7f93f0f1805a5ea"
+    },
+    {
+      "bridge_contract": {
+        "after": {
+          "atm_force_group": 0,
+          "atm_index": 1,
+          "atm_name": "UPDDApexBridgeATM",
+          "energy_function": "select(BridgeXi,select(1-BridgeXi,(1-BridgeXi)*Hplus+BridgeXi*Hminus,Hminus),Hplus);Hplus=u0+0.5*uscplus;Hminus=u1+0.5*uscminus;uscplus=select(Acore,select(step(upos-Ubcore),(Umax-Ubcore)*fplus+Ubcore,upos),upos);fplus=(zplus^Acore-1)/(zplus^Acore+1);zplus=1+2*(yplus/Acore)+2*(yplus/Acore)^2;yplus=(upos-Ubcore)/(Umax-Ubcore);uscminus=select(Acore,select(step(uneg-Ubcore),(Umax-Ubcore)*fminus+Ubcore,uneg),uneg);fminus=(zneg^Acore-1)/(zneg^Acore+1);zneg=1+2*(yneg/Acore)+2*(yneg/Acore)^2;yneg=(uneg-Ubcore)/(Umax-Ubcore);upos=u1-(u0+UOffset);uneg=-1*(u1-(u0+UOffset))",
+          "energy_parameter_derivatives": [
+            "BridgeXi"
+          ],
+          "global_parameters": [
+            {
+              "default": 0.0,
+              "name": "Lambda1"
+            },
+            {
+              "default": 0.0,
+              "name": "Lambda2"
+            },
+            {
+              "default": 0.0,
+              "name": "Alpha"
+            },
+            {
+              "default": 0.0,
+              "name": "Uh"
+            },
+            {
+              "default": 0.0,
+              "name": "W0"
+            },
+            {
+              "default": 836.8000000000001,
+              "name": "Umax"
+            },
+            {
+              "default": 418.40000000000003,
+              "name": "Ubcore"
+            },
+            {
+              "default": 0.0625,
+              "name": "Acore"
+            },
+            {
+              "default": 1.0,
+              "name": "Direction"
+            },
+            {
+              "default": 0.0,
+              "name": "UOffset"
+            },
+            {
+              "default": 0.0,
+              "name": "BridgeXi"
+            }
+          ],
+          "nested_forces": [
+            {
+              "index": 0,
+              "name": "HarmonicBondForce",
+              "sha256": "7f7a447cfecc78f68e20aa8c997c1df5ea5f40c45f3b2ed81f6570303b17d533",
+              "type": "Force"
+            },
+            {
+              "index": 1,
+              "name": "NonbondedForce",
+              "sha256": "e9f99b04bda8c46b96cb14db54d5a1ea191884d81e51a8451de9fc59c25643b9",
+              "type": "Force"
+            },
+            {
+              "index": 2,
+              "name": "PeriodicTorsionForce",
+              "sha256": "3dabe321b6b834ec863c48e35f2f5b834fef4be787d640a34eb54e19d6d206e4",
+              "type": "Force"
+            },
+            {
+              "index": 3,
+              "name": "HarmonicAngleForce",
+              "sha256": "8340f162deba5a5282393664f5dcd43473dc3b981cf061689c73fd1f01cef8ee",
+              "type": "Force"
+            }
+          ],
+          "other_top_level_forces": [
+            {
+              "force_group": 0,
+              "index": 0,
+              "name": "CMMotionRemover",
+              "sha256": "bee9799a6975809026ed0e718e9d5187edc62691e7bc4ca26e1968ed07a6d8c2",
+              "type": "CMMotionRemover"
+            },
+            {
+              "force_group": 31,
+              "index": 2,
+              "name": "UPDDDynamicGhostWCA",
+              "sha256": "ee790ad3ef9c022e7988e900fc5be8744d1551580b5ebce2eb6d0d5c98f5604a",
+              "type": "CustomNonbondedForce"
+            }
+          ],
+          "particle_contract": {
+            "count": 30490,
+            "sha256": "f25838aeacba1a6dc68c4168c0e39a1cf7345a6a979b265147710d65da609f76",
+            "transformation_type_counts": {
+              "FixedDisplacement": 30090,
+              "ParticleOffsetDisplacement": 400
+            }
+          },
+          "system_forces": 3,
+          "system_particles": 30490
+        },
+        "atm_index": 1,
+        "before": {
+          "atm_force_group": 0,
+          "atm_index": 1,
+          "atm_name": "ATMForce",
+          "energy_function": "select(step(Direction), u0, u1) + select(Lambda2-Lambda1 , ((Lambda2-Lambda1)/Alpha)*log(1+exp(-Alpha*(usc-Uh))) + Lambda2*usc + W0, Lambda2*usc + W0);usc = select(Acore, select(step(u-Ubcore), (Umax-Ubcore)*fsc+Ubcore, u), u);fsc = (z^Acore-1)/(z^Acore+1);z = 1 + 2*(y/Acore) + 2*(y/Acore)^2;y = (u-Ubcore)/(Umax-Ubcore);u = select(step(Direction), 1, -1)*(u1-(u0 + UOffset))",
+          "energy_parameter_derivatives": [],
+          "global_parameters": [
+            {
+              "default": 0.0,
+              "name": "Lambda1"
+            },
+            {
+              "default": 0.0,
+              "name": "Lambda2"
+            },
+            {
+              "default": 0.0,
+              "name": "Alpha"
+            },
+            {
+              "default": 0.0,
+              "name": "Uh"
+            },
+            {
+              "default": 0.0,
+              "name": "W0"
+            },
+            {
+              "default": 836.8000000000001,
+              "name": "Umax"
+            },
+            {
+              "default": 418.40000000000003,
+              "name": "Ubcore"
+            },
+            {
+              "default": 0.0625,
+              "name": "Acore"
+            },
+            {
+              "default": 1.0,
+              "name": "Direction"
+            },
+            {
+              "default": 0.0,
+              "name": "UOffset"
+            }
+          ],
+          "nested_forces": [
+            {
+              "index": 0,
+              "name": "HarmonicBondForce",
+              "sha256": "7f7a447cfecc78f68e20aa8c997c1df5ea5f40c45f3b2ed81f6570303b17d533",
+              "type": "Force"
+            },
+            {
+              "index": 1,
+              "name": "NonbondedForce",
+              "sha256": "e9f99b04bda8c46b96cb14db54d5a1ea191884d81e51a8451de9fc59c25643b9",
+              "type": "Force"
+            },
+            {
+              "index": 2,
+              "name": "PeriodicTorsionForce",
+              "sha256": "3dabe321b6b834ec863c48e35f2f5b834fef4be787d640a34eb54e19d6d206e4",
+              "type": "Force"
+            },
+            {
+              "index": 3,
+              "name": "HarmonicAngleForce",
+              "sha256": "8340f162deba5a5282393664f5dcd43473dc3b981cf061689c73fd1f01cef8ee",
+              "type": "Force"
+            }
+          ],
+          "other_top_level_forces": [
+            {
+              "force_group": 0,
+              "index": 0,
+              "name": "CMMotionRemover",
+              "sha256": "bee9799a6975809026ed0e718e9d5187edc62691e7bc4ca26e1968ed07a6d8c2",
+              "type": "CMMotionRemover"
+            },
+            {
+              "force_group": 31,
+              "index": 2,
+              "name": "UPDDDynamicGhostWCA",
+              "sha256": "ee790ad3ef9c022e7988e900fc5be8744d1551580b5ebce2eb6d0d5c98f5604a",
+              "type": "CustomNonbondedForce"
+            }
+          ],
+          "particle_contract": {
+            "count": 30490,
+            "sha256": "f25838aeacba1a6dc68c4168c0e39a1cf7345a6a979b265147710d65da609f76",
+            "transformation_type_counts": {
+              "FixedDisplacement": 30090,
+              "ParticleOffsetDisplacement": 400
+            }
+          },
+          "system_forces": 3,
+          "system_particles": 30490
+        },
+        "checks": {
+          "atm_force_group_invariant": true,
+          "atm_index_invariant": true,
+          "bridge_derivative_only": true,
+          "bridge_expression_exact": true,
+          "bridge_name_exact": true,
+          "globals_append_only": true,
+          "nested_forces_invariant": true,
+          "other_top_level_forces_invariant": true,
+          "particle_transformations_invariant": true,
+          "source_expression_exact": true,
+          "system_forces_invariant": true,
+          "system_particles_invariant": true
+        }
+      },
+      "cell_id": "w4a_uncarved_s127_free",
+      "checks": {
+        "all_water_oxygens": true,
+        "atom_count_invariant": true,
+        "bridge_mutation_scope_exact": true,
+        "bridge_parameter_consumed": true,
+        "charge_invariant": true,
+        "exact_nine_ring_atoms": true,
+        "ghost_after_atm": true,
+        "ghost_group_31": true
+      },
+      "ghost_contract": {
+        "atm_force_index": 1,
+        "cutoff_nm": 0.4,
+        "energy_expression": "g*step(rc-rsc)*(4*epsilon*((sigma/rsc)^12-(sigma/rsc)^6)+epsilon);rsc=(r^6+alpha_sc*(1-g)*sigma^6)^(1.0/6.0);rc=2^(1.0/6.0)*sigma;sigma=0.5*(sigma1+sigma2);epsilon=sqrt(epsilon1*epsilon2)",
+        "energy_parameter_derivatives": [
+          "g"
+        ],
+        "force_group": 31,
+        "force_index": 2,
+        "force_name": "UPDDDynamicGhostWCA",
+        "global_parameters": {
+          "alpha_sc": 0.5,
+          "g": 0.0
+        },
+        "interaction_groups": [
+          {
+            "first": [
+              249,
+              250,
+              252,
+              253,
+              255,
+              256,
+              258,
+              260,
+              262
+            ],
+            "second_count": 10012,
+            "second_sha256": "522491f737c10e1b9148425c7ddc6edf3b5fde9e6ace0f0be9b15843b8ffcf41"
+          }
+        ],
+        "long_range_correction": false,
+        "n_forces_after": 3,
+        "n_forces_before": 2,
+        "n_particles": 30490,
+        "n_particles_after": 30490,
+        "n_particles_before": 30490,
+        "nested_nonbonded_index": 1,
+        "net_charge_after_e": 0.0,
+        "net_charge_before_e": 0.0,
+        "net_charge_delta_e": 0.0,
+        "nonbonded_method": "CutoffPeriodic",
+        "per_particle_parameters": [
+          "sigma",
+          "epsilon"
+        ],
+        "selection": {
+          "n_ring_atoms": 9,
+          "n_water_oxygens": 10012,
+          "n_water_residues": 10012,
+          "ring_atoms": [
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 249,
+              "name": "CG",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 250,
+              "name": "CD1",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 252,
+              "name": "CD2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "N",
+              "index": 253,
+              "name": "NE1",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 255,
+              "name": "CE2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 256,
+              "name": "CE3",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 258,
+              "name": "CZ2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 260,
+              "name": "CZ3",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 262,
+              "name": "CH2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            }
+          ],
+          "ring_indices": [
+            249,
+            250,
+            252,
+            253,
+            255,
+            256,
+            258,
+            260,
+            262
+          ],
+          "water_name_pairs": [
+            [
+              "HOH",
+              "O"
+            ]
+          ],
+          "water_oxygen_index_first": 400,
+          "water_oxygen_index_last": 30433,
+          "water_oxygen_indices_sha256": "522491f737c10e1b9148425c7ddc6edf3b5fde9e6ace0f0be9b15843b8ffcf41"
+        },
+        "source_parameters": {
+          "pair_classes": {
+            "NE1_water_O": {
+              "epsilon_kj_mol": 0.6810702230092086,
+              "sigma_nm": 0.32139815436629793,
+              "wca_cutoff_nm": 0.3607572306728468
+            },
+            "aromatic_C_water_O": {
+              "epsilon_kj_mol": 0.4844139684778853,
+              "sigma_nm": 0.32888170359867674,
+              "wca_cutoff_nm": 0.3691572306728468
+            }
+          },
+          "ring_atoms": [
+            {
+              "chain_id": "B",
+              "charge_e": -0.1415,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 249,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CG",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.1638,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 250,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CD1",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": 0.1243,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 252,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CD2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.3418,
+              "element": "N",
+              "epsilon_kj_mol": 0.7112800000000001,
+              "index": 253,
+              "mixed_epsilon_kj_mol": 0.6810702230092086,
+              "mixed_sigma_nm": 0.32139815436629793,
+              "name": "NE1",
+              "pair_class": "NE1_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3249998523775958,
+              "wca_cutoff_nm": 0.3607572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": 0.138,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 255,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CE2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.2387,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 256,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CE3",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.2601,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 258,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CZ2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.1972,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 260,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CZ3",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.1134,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 262,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CH2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            }
+          ],
+          "source_parameter_tolerance": 1e-12,
+          "water_oxygen": {
+            "charge_e": -0.848448690103,
+            "epsilon_kj_mol": 0.652143528104,
+            "n_atoms": 10012,
+            "sigma_nm": 0.317796456355
+          }
+        },
+        "switching_function": false
+      },
+      "leg": "free",
+      "seed": "s127",
+      "source_cell_digest": "571174a9e3deda4e25e37c699c645859dbbc832cd05ad4a92e83a7db498d3252"
+    },
+    {
+      "bridge_contract": {
+        "after": {
+          "atm_force_group": 0,
+          "atm_index": 1,
+          "atm_name": "UPDDApexBridgeATM",
+          "energy_function": "select(BridgeXi,select(1-BridgeXi,(1-BridgeXi)*Hplus+BridgeXi*Hminus,Hminus),Hplus);Hplus=u0+0.5*uscplus;Hminus=u1+0.5*uscminus;uscplus=select(Acore,select(step(upos-Ubcore),(Umax-Ubcore)*fplus+Ubcore,upos),upos);fplus=(zplus^Acore-1)/(zplus^Acore+1);zplus=1+2*(yplus/Acore)+2*(yplus/Acore)^2;yplus=(upos-Ubcore)/(Umax-Ubcore);uscminus=select(Acore,select(step(uneg-Ubcore),(Umax-Ubcore)*fminus+Ubcore,uneg),uneg);fminus=(zneg^Acore-1)/(zneg^Acore+1);zneg=1+2*(yneg/Acore)+2*(yneg/Acore)^2;yneg=(uneg-Ubcore)/(Umax-Ubcore);upos=u1-(u0+UOffset);uneg=-1*(u1-(u0+UOffset))",
+          "energy_parameter_derivatives": [
+            "BridgeXi"
+          ],
+          "global_parameters": [
+            {
+              "default": 0.0,
+              "name": "Lambda1"
+            },
+            {
+              "default": 0.0,
+              "name": "Lambda2"
+            },
+            {
+              "default": 0.0,
+              "name": "Alpha"
+            },
+            {
+              "default": 0.0,
+              "name": "Uh"
+            },
+            {
+              "default": 0.0,
+              "name": "W0"
+            },
+            {
+              "default": 836.8000000000001,
+              "name": "Umax"
+            },
+            {
+              "default": 418.40000000000003,
+              "name": "Ubcore"
+            },
+            {
+              "default": 0.0625,
+              "name": "Acore"
+            },
+            {
+              "default": 1.0,
+              "name": "Direction"
+            },
+            {
+              "default": 0.0,
+              "name": "UOffset"
+            },
+            {
+              "default": 0.0,
+              "name": "BridgeXi"
+            }
+          ],
+          "nested_forces": [
+            {
+              "index": 0,
+              "name": "HarmonicBondForce",
+              "sha256": "7f7a447cfecc78f68e20aa8c997c1df5ea5f40c45f3b2ed81f6570303b17d533",
+              "type": "Force"
+            },
+            {
+              "index": 1,
+              "name": "NonbondedForce",
+              "sha256": "1e6f273aaae79a8aeed22012c81c9c83502994a345f08fd8e25c01d37f4402bd",
+              "type": "Force"
+            },
+            {
+              "index": 2,
+              "name": "PeriodicTorsionForce",
+              "sha256": "3dabe321b6b834ec863c48e35f2f5b834fef4be787d640a34eb54e19d6d206e4",
+              "type": "Force"
+            },
+            {
+              "index": 3,
+              "name": "HarmonicAngleForce",
+              "sha256": "8340f162deba5a5282393664f5dcd43473dc3b981cf061689c73fd1f01cef8ee",
+              "type": "Force"
+            }
+          ],
+          "other_top_level_forces": [
+            {
+              "force_group": 0,
+              "index": 0,
+              "name": "CMMotionRemover",
+              "sha256": "bee9799a6975809026ed0e718e9d5187edc62691e7bc4ca26e1968ed07a6d8c2",
+              "type": "CMMotionRemover"
+            },
+            {
+              "force_group": 31,
+              "index": 2,
+              "name": "UPDDDynamicGhostWCA",
+              "sha256": "c7257700d849cc0b482b8bab2c6dfb769c830c78808dde364df41090fd795588",
+              "type": "CustomNonbondedForce"
+            }
+          ],
+          "particle_contract": {
+            "count": 32084,
+            "sha256": "941e9519f4ea8a3682a93aee5f96bf8b60fdc3b47298bab352802f765a34ca1e",
+            "transformation_type_counts": {
+              "FixedDisplacement": 31684,
+              "ParticleOffsetDisplacement": 400
+            }
+          },
+          "system_forces": 3,
+          "system_particles": 32084
+        },
+        "atm_index": 1,
+        "before": {
+          "atm_force_group": 0,
+          "atm_index": 1,
+          "atm_name": "ATMForce",
+          "energy_function": "select(step(Direction), u0, u1) + select(Lambda2-Lambda1 , ((Lambda2-Lambda1)/Alpha)*log(1+exp(-Alpha*(usc-Uh))) + Lambda2*usc + W0, Lambda2*usc + W0);usc = select(Acore, select(step(u-Ubcore), (Umax-Ubcore)*fsc+Ubcore, u), u);fsc = (z^Acore-1)/(z^Acore+1);z = 1 + 2*(y/Acore) + 2*(y/Acore)^2;y = (u-Ubcore)/(Umax-Ubcore);u = select(step(Direction), 1, -1)*(u1-(u0 + UOffset))",
+          "energy_parameter_derivatives": [],
+          "global_parameters": [
+            {
+              "default": 0.0,
+              "name": "Lambda1"
+            },
+            {
+              "default": 0.0,
+              "name": "Lambda2"
+            },
+            {
+              "default": 0.0,
+              "name": "Alpha"
+            },
+            {
+              "default": 0.0,
+              "name": "Uh"
+            },
+            {
+              "default": 0.0,
+              "name": "W0"
+            },
+            {
+              "default": 836.8000000000001,
+              "name": "Umax"
+            },
+            {
+              "default": 418.40000000000003,
+              "name": "Ubcore"
+            },
+            {
+              "default": 0.0625,
+              "name": "Acore"
+            },
+            {
+              "default": 1.0,
+              "name": "Direction"
+            },
+            {
+              "default": 0.0,
+              "name": "UOffset"
+            }
+          ],
+          "nested_forces": [
+            {
+              "index": 0,
+              "name": "HarmonicBondForce",
+              "sha256": "7f7a447cfecc78f68e20aa8c997c1df5ea5f40c45f3b2ed81f6570303b17d533",
+              "type": "Force"
+            },
+            {
+              "index": 1,
+              "name": "NonbondedForce",
+              "sha256": "1e6f273aaae79a8aeed22012c81c9c83502994a345f08fd8e25c01d37f4402bd",
+              "type": "Force"
+            },
+            {
+              "index": 2,
+              "name": "PeriodicTorsionForce",
+              "sha256": "3dabe321b6b834ec863c48e35f2f5b834fef4be787d640a34eb54e19d6d206e4",
+              "type": "Force"
+            },
+            {
+              "index": 3,
+              "name": "HarmonicAngleForce",
+              "sha256": "8340f162deba5a5282393664f5dcd43473dc3b981cf061689c73fd1f01cef8ee",
+              "type": "Force"
+            }
+          ],
+          "other_top_level_forces": [
+            {
+              "force_group": 0,
+              "index": 0,
+              "name": "CMMotionRemover",
+              "sha256": "bee9799a6975809026ed0e718e9d5187edc62691e7bc4ca26e1968ed07a6d8c2",
+              "type": "CMMotionRemover"
+            },
+            {
+              "force_group": 31,
+              "index": 2,
+              "name": "UPDDDynamicGhostWCA",
+              "sha256": "c7257700d849cc0b482b8bab2c6dfb769c830c78808dde364df41090fd795588",
+              "type": "CustomNonbondedForce"
+            }
+          ],
+          "particle_contract": {
+            "count": 32084,
+            "sha256": "941e9519f4ea8a3682a93aee5f96bf8b60fdc3b47298bab352802f765a34ca1e",
+            "transformation_type_counts": {
+              "FixedDisplacement": 31684,
+              "ParticleOffsetDisplacement": 400
+            }
+          },
+          "system_forces": 3,
+          "system_particles": 32084
+        },
+        "checks": {
+          "atm_force_group_invariant": true,
+          "atm_index_invariant": true,
+          "bridge_derivative_only": true,
+          "bridge_expression_exact": true,
+          "bridge_name_exact": true,
+          "globals_append_only": true,
+          "nested_forces_invariant": true,
+          "other_top_level_forces_invariant": true,
+          "particle_transformations_invariant": true,
+          "source_expression_exact": true,
+          "system_forces_invariant": true,
+          "system_particles_invariant": true
+        }
+      },
+      "cell_id": "w4a_uncarved_s163_free",
+      "checks": {
+        "all_water_oxygens": true,
+        "atom_count_invariant": true,
+        "bridge_mutation_scope_exact": true,
+        "bridge_parameter_consumed": true,
+        "charge_invariant": true,
+        "exact_nine_ring_atoms": true,
+        "ghost_after_atm": true,
+        "ghost_group_31": true
+      },
+      "ghost_contract": {
+        "atm_force_index": 1,
+        "cutoff_nm": 0.4,
+        "energy_expression": "g*step(rc-rsc)*(4*epsilon*((sigma/rsc)^12-(sigma/rsc)^6)+epsilon);rsc=(r^6+alpha_sc*(1-g)*sigma^6)^(1.0/6.0);rc=2^(1.0/6.0)*sigma;sigma=0.5*(sigma1+sigma2);epsilon=sqrt(epsilon1*epsilon2)",
+        "energy_parameter_derivatives": [
+          "g"
+        ],
+        "force_group": 31,
+        "force_index": 2,
+        "force_name": "UPDDDynamicGhostWCA",
+        "global_parameters": {
+          "alpha_sc": 0.5,
+          "g": 0.0
+        },
+        "interaction_groups": [
+          {
+            "first": [
+              249,
+              250,
+              252,
+              253,
+              255,
+              256,
+              258,
+              260,
+              262
+            ],
+            "second_count": 10542,
+            "second_sha256": "60eb93549bb107c3508c355f7f5fbab649c678fdf538cb41ce6ba1f82ab97e93"
+          }
+        ],
+        "long_range_correction": false,
+        "n_forces_after": 3,
+        "n_forces_before": 2,
+        "n_particles": 32084,
+        "n_particles_after": 32084,
+        "n_particles_before": 32084,
+        "nested_nonbonded_index": 1,
+        "net_charge_after_e": 0.0,
+        "net_charge_before_e": 0.0,
+        "net_charge_delta_e": 0.0,
+        "nonbonded_method": "CutoffPeriodic",
+        "per_particle_parameters": [
+          "sigma",
+          "epsilon"
+        ],
+        "selection": {
+          "n_ring_atoms": 9,
+          "n_water_oxygens": 10542,
+          "n_water_residues": 10542,
+          "ring_atoms": [
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 249,
+              "name": "CG",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 250,
+              "name": "CD1",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 252,
+              "name": "CD2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "N",
+              "index": 253,
+              "name": "NE1",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 255,
+              "name": "CE2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 256,
+              "name": "CE3",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 258,
+              "name": "CZ2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 260,
+              "name": "CZ3",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 262,
+              "name": "CH2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            }
+          ],
+          "ring_indices": [
+            249,
+            250,
+            252,
+            253,
+            255,
+            256,
+            258,
+            260,
+            262
+          ],
+          "water_name_pairs": [
+            [
+              "HOH",
+              "O"
+            ]
+          ],
+          "water_oxygen_index_first": 400,
+          "water_oxygen_index_last": 32023,
+          "water_oxygen_indices_sha256": "60eb93549bb107c3508c355f7f5fbab649c678fdf538cb41ce6ba1f82ab97e93"
+        },
+        "source_parameters": {
+          "pair_classes": {
+            "NE1_water_O": {
+              "epsilon_kj_mol": 0.6810702230092086,
+              "sigma_nm": 0.32139815436629793,
+              "wca_cutoff_nm": 0.3607572306728468
+            },
+            "aromatic_C_water_O": {
+              "epsilon_kj_mol": 0.4844139684778853,
+              "sigma_nm": 0.32888170359867674,
+              "wca_cutoff_nm": 0.3691572306728468
+            }
+          },
+          "ring_atoms": [
+            {
+              "chain_id": "B",
+              "charge_e": -0.1415,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 249,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CG",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.1638,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 250,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CD1",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": 0.1243,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 252,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CD2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.3418,
+              "element": "N",
+              "epsilon_kj_mol": 0.7112800000000001,
+              "index": 253,
+              "mixed_epsilon_kj_mol": 0.6810702230092086,
+              "mixed_sigma_nm": 0.32139815436629793,
+              "name": "NE1",
+              "pair_class": "NE1_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3249998523775958,
+              "wca_cutoff_nm": 0.3607572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": 0.138,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 255,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CE2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.2387,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 256,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CE3",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.2601,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 258,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CZ2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.1972,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 260,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CZ3",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.1134,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 262,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CH2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            }
+          ],
+          "source_parameter_tolerance": 1e-12,
+          "water_oxygen": {
+            "charge_e": -0.848448690103,
+            "epsilon_kj_mol": 0.652143528104,
+            "n_atoms": 10542,
+            "sigma_nm": 0.317796456355
+          }
+        },
+        "switching_function": false
+      },
+      "leg": "free",
+      "seed": "s163",
+      "source_cell_digest": "46a2e4e6711c2b01bc96e9b6fe511314f58d9fe5220ee27823b476d5769d6e4f"
+    }
+  ],
+  "context_count": 0,
+  "generated": "2026-07-17 08:03:15 +0900",
+  "gpu_used": false,
+  "inventory_digest": "8a5c2eabd6125bf70a8dbf6b334d29ded9d00091c6aab597e0c4af1c22cd3615",
+  "md_steps": 0,
+  "n_cells": 6,
+  "schema": "updd_dynamic_ghost_apex_bridge_keeper_v1",
+  "status": "PASS"
+}

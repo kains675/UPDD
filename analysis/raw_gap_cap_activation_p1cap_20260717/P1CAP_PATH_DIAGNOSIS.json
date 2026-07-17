@@ -1,0 +1,84 @@
+{
+  "schema": "updd_raw_gap_cap_activation_p1cap_path_v1",
+  "generated": "2026-07-17 20:46:30 +0900",
+  "path_verdict": "CAP_TAIL_PRESENT_DIAGNOSTIC_ONLY",
+  "runner_verdict": "P1CAP_RUNNER_PASS",
+  "inventory_digest": "2768049224403ab431cf40ac684828e3e537ad298e9ed8c450c7ca10491eb667",
+  "findings": {
+    "bound_apex_degeneracy": {
+      "frames": 750,
+      "linear_frames": 745,
+      "linear_fraction": 0.9933333333333333,
+      "cap_active_frames": 5,
+      "cap_active_fraction": 0.006666666666666667,
+      "ambiguous_frames": 0,
+      "localization": "w4a_union_s127_bound xi=0.00 cycles 1-5 only",
+      "active_direction": "dplus",
+      "active_delta_raw_range_kj_mol": [1178.8102616481483, 1769.3752296864986],
+      "post_transient": "cycle 6 delta_raw=21.48169818520546 kJ/mol and all remaining s127 xi=0 frames linear",
+      "interpretation": "The bound directional apex labels are identical for nearly all sampled configurations; the five-frame startup tail is not a persistent bridge coordinate."
+    },
+    "free_persistent_cap_tail": {
+      "cell_id": "w4a_union_s101_free",
+      "xi": 0.0,
+      "frames": 50,
+      "cap_active_frames": 50,
+      "cap_active_fraction": 1.0,
+      "ambiguous_frames": 0,
+      "active_direction": "dplus",
+      "delta_raw_min_kj_mol": 906.1077156902757,
+      "delta_raw_median_kj_mol": 2065.526411734405,
+      "delta_raw_max_kj_mol": 5211.05377353006,
+      "interpretation": "The free trajectory persistently occupies a positive soft-core tail rather than the algebraically flat branch."
+    },
+    "leg_heterogeneity": {
+      "bound_cap_active_fraction": 0.006666666666666667,
+      "free_cap_active_fraction": 1.0,
+      "interpretation": "Bound and free samples occupy different algebraic branches, so directional apex disagreement is a leg-specific pathology diagnostic and not a common physical free-energy coordinate."
+    },
+    "transformed_water_association_exploratory": {
+      "cell_id": "w4a_union_s101_free",
+      "frames": 50,
+      "pearson_delta_vs_transformed_min_distance": -0.79274098840285,
+      "spearman_rho_delta_vs_transformed_min_distance": -0.7752701080432172,
+      "frames_below_0p26_nm": 39,
+      "mean_delta_below_0p26_kj_mol": 2331.084773286544,
+      "frames_at_or_above_0p26_nm": 11,
+      "mean_delta_at_or_above_0p26_kj_mol": 1556.12100897668,
+      "interpretation": "Closer transformed-site water contact is associated with a larger positive raw gap. This temporally autocorrelated single-window association supports, but does not prove, the penetration mechanism."
+    }
+  },
+  "numerical_integrity": {
+    "frames": 800,
+    "ambiguous_frames": 0,
+    "same_context_class_mismatches": 0,
+    "original_slope_class_mismatches": 0,
+    "max_analytic_context_slope_error_kj_mol": 0.0013752418849435344,
+    "frozen_slope_error_floor_kj_mol": 0.05,
+    "max_original_replay_slope_delta_kj_mol": 0.03130171038401386,
+    "max_final_dcd_float64_raw_gap_delta_kj_mol": 0.023250635713338852,
+    "final_dcd_float64_class_mismatches": 0
+  },
+  "decision": {
+    "resume_p1sd": false,
+    "densify_apex_bridge": false,
+    "estimate_free_energy": false,
+    "reuse_p1sd_samples_in_production": false,
+    "promote_transformed_site_excluded_volume_redesign": true,
+    "next_ranked_step": "Preregister a zero-MD P0 audit that moves the ghost WCA term inside ATMForce so it is evaluated at stored and ATM-transformed ring coordinates, then require endpoint force/energy, serialization, declaration, and probe-water exclusion gates before any short dynamics."
+  },
+  "evidence_sha256": {
+    "P1CAP_PREBUILD_INVENTORY_R1.json": "0ce85214b9ce60e639a824aac377f53751a1ed04a598be1cc4108e9a7a670d7d",
+    "P1CAP_KEEPER_PREFLIGHT_R1.json": "be7299801ec86bddb4b7ef75e01f4889b19e8977c686177b3aaba3952aae5541",
+    "P1CAP_RUNNER_SUMMARY_R1.json": "a6e4082fd60d7084d18aa956001980b05dcb0ced21e6a1096abdb7199771ec75",
+    "P1CAP_RUN_STATE_R1.json": "c07dd73a9c1f3dde6233b1318df597f55fae48d3f10c2b12863c19d705e03c47",
+    "P1CAP_R0_FAILURE.json": "c31f7477016e6e0ead20104d1145aad0bad9657b74d70ff0199e28c449dda005"
+  },
+  "claims": {
+    "free_energy_estimated": false,
+    "schedule_selected": false,
+    "production_sampling_authorized": false,
+    "mutation_sign_claim": false,
+    "causal_water_mechanism_proven": false
+  }
+}

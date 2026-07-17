@@ -1,0 +1,44 @@
+{
+  "cells": [
+    {
+      "cell_id": "w4a_uncarved_s101_bound",
+      "elapsed_s": 3711.924379945005,
+      "ghost_system": {
+        "path": "analysis/dynamic_ghost_excluded_volume_20260716/p0_reference_audit/w4a_uncarved_s101_bound/dynamic_ghost_system.xml",
+        "sha256": "c6d3ba3d0db2dc89587d71ae30527b431e00ccb58ab6de00337a4805bb8d3246",
+        "size": 125816742
+      },
+      "leg": "bound",
+      "max_energy_delta_kj_mol": 1599.9153046575375,
+      "max_force_delta_kj_mol_nm": 84923.01350708821,
+      "result": {
+        "path": "analysis/dynamic_ghost_excluded_volume_20260716/p0_reference_audit/w4a_uncarved_s101_bound/cell_result.json",
+        "sha256": "e1f6fd0ec0b39b0b70b6332f1a149c02c7647404cf9652c87d56629a627a2cb8",
+        "size": 17327
+      },
+      "seed": "s101",
+      "status": "REJECT_GHOST"
+    }
+  ],
+  "eta_s": null,
+  "generated": "2026-07-17 02:43:53 +0900",
+  "gpu_used": false,
+  "inventory_digest": "e6f17322677d097e1b4c39af2e9f8ca19aaba3006a8866e37936e5653212a181",
+  "md_steps": 0,
+  "median_elapsed_s": 3711.924379945005,
+  "n_completed": 1,
+  "n_expected": 6,
+  "pending_cell_ids": [
+    "w4a_uncarved_s127_bound",
+    "w4a_uncarved_s163_bound",
+    "w4a_uncarved_s101_free",
+    "w4a_uncarved_s127_free",
+    "w4a_uncarved_s163_free"
+  ],
+  "platform": "Reference",
+  "rejected_cell_ids": [
+    "w4a_uncarved_s101_bound"
+  ],
+  "schema": "updd_dynamic_ghost_p0_summary_v1",
+  "status": "REJECT_GHOST"
+}

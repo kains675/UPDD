@@ -1,0 +1,19 @@
+{
+  "schema": "updd_dynamic_ghost_apex_bridge_freeze_v1",
+  "frozen_local": "2026-07-17",
+  "status": "FROZEN_BEFORE_BRIDGE_IMPLEMENTATION_OR_P0V2_OUTPUT",
+  "files": {
+    "PREREGISTRATION.md": "1278f8e0631485c325978d54dfd3d5d93f226a00d0e1c5eb071aa7ce5aaff43d",
+    "protocol.json": "e90f3a2ee5a70a6057799e19f715bae366c2431b884ce8014df716f87bddeb28"
+  },
+  "trigger_evidence": {
+    "analysis/dynamic_ghost_excluded_volume_20260716/PREREGISTRATION.md": "a0c9abcae1d23b6715a9ddf4ad8892b2e6066298940d5e45ccbb7b2e999d8743",
+    "analysis/dynamic_ghost_excluded_volume_20260716/protocol.json": "14e126a568b97852f4974113de1a2173ab34b644e0b15ab8c5b707e34715e884",
+    "analysis/dynamic_ghost_excluded_volume_20260716/FROZEN_MANIFEST.json": "ff9eb054147ae1ec2185389aca3b14d4032dce5b13c2250855f57ae934ad9224",
+    "analysis/dynamic_ghost_excluded_volume_20260716/P0_SOURCE_INVENTORY.json": "1b24c7650c733979758a3dce1edeac087b4a8e93a335fa649c6993883c98f2e1",
+    "analysis/dynamic_ghost_excluded_volume_20260716/P0_REFERENCE_SUMMARY.json": "7ae250d6a58e347f7e435050c31d562ad94c7539289dd53f10aad2acedbe27a9",
+    "analysis/dynamic_ghost_excluded_volume_20260716/P0_PATH_DIAGNOSIS.md": "f854742acc75b8ac670a9d5dc6e2929fb37bcefdc68f7eb1c431f5f5c50a19a2",
+    "analysis/dynamic_ghost_excluded_volume_20260716/p0_reference_audit/w4a_uncarved_s101_bound/cell_result.json": "e1f6fd0ec0b39b0b70b6332f1a149c02c7647404cf9652c87d56629a627a2cb8",
+    "analysis/w4a_postdensify_dcd_20260716/source_inventory.json": "aeb5b696366454b0e54e4630d29cce0a650ca27765020668e320c571a56817d0"
+  }
+}

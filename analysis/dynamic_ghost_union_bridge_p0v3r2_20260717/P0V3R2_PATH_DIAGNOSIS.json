@@ -1,0 +1,58 @@
+{
+  "schema": "updd_dynamic_ghost_union_bridge_p0v3r2_path_v1",
+  "generated": "2026-07-17 KST",
+  "formal_status": "P0V3R2_PASS",
+  "path_verdict": "PASS_P0_CONSTRUCTION_ONLY",
+  "classification": "INITIAL_SOURCE_PATHOLOGY_RESOLVED_EQUILIBRIUM_AND_SAMPLED_FE_UNKNOWN",
+  "inventory_digest": "0457824c66c54961d2d65fe110817b61b32e828285be5a7e2ff15fb55ba4f702",
+  "source_summary_digest": "d7257f100a2e90657d8f2590bf3ec461060e8822c6ece21032ee44f7d5875e08",
+  "n_cells": 6,
+  "n_passed": 6,
+  "source_rejected_cell_ids": [],
+  "bridge_rejected_cell_ids": [],
+  "execution": {
+    "platform": "Reference",
+    "gpu_used": false,
+    "md_steps": 0,
+    "minimization_steps": 0,
+    "free_energy_estimated": false
+  },
+  "aggregate": {
+    "minimum_stored_or_transformed_ring_water_distance_nm": 0.3677897028604253,
+    "pairs_below_0p26_nm": 0,
+    "maximum_placeholder_target_delta_nm": 1.3322676295501878e-15,
+    "density_diagnostic_relative_delta_pct_min": -3.4384287340533337,
+    "density_diagnostic_relative_delta_pct_max": -1.1410329776365469,
+    "maximum_abs_raw_endpoint_kj_mol": 3590201.6513454886,
+    "maximum_source_force_component_kj_mol_nm": 2946794.4887310313,
+    "maximum_bridge_endpoint_gap_kj_mol": 1420.142669083085,
+    "maximum_bridge_force_gap_kj_mol_nm": 90799.17708657662,
+    "maximum_endpoint_identity_error_kj_mol": 0.0,
+    "maximum_interior_force_identity_error_kj_mol_nm": 9.313225746154785e-10,
+    "maximum_serialization_energy_error_kj_mol": 0.0,
+    "maximum_serialization_force_error_kj_mol_nm": 0.0,
+    "maximum_ghost_energy_delta_kj_mol": 0.0,
+    "maximum_dvdg_delta_kj_mol": 0.0
+  },
+  "critical_s163_bound": {
+    "p0v2_transformed_min_distance_nm": 0.05695665018239689,
+    "p0v3r2_transformed_min_distance_nm": 0.41746486451232295,
+    "p0v2_raw_u1_kj_mol": 2659781997.345677,
+    "p0v3r2_raw_u1_kj_mol": -252777.5256854212,
+    "p0v2_apex_force_gap_kj_mol_nm": 276209950501.09717,
+    "p0v3r2_apex_force_gap_kj_mol_nm": 0.0
+  },
+  "residual_unknowns": [
+    "equilibrium_npt_density",
+    "post_minimization_md_stability",
+    "dynamic_water_reentry",
+    "adjacent_bridge_overlap",
+    "boundary_visits_and_round_trips",
+    "bridge_mbar_convergence_and_uncertainty",
+    "bound_minus_free_bridge_correction"
+  ],
+  "next_gate": "PREREGISTER_NPT_RELAXATION_AND_NONPRODUCTION_BRIDGE_SCHEDULE_DISCOVERY",
+  "sampled_launch_authorized": false,
+  "w23a_authorized": false,
+  "mutation_sign_verdict_authorized": false
+}

@@ -1,0 +1,144 @@
+{
+  "schema": "updd_dynamic_ghost_union_bridge_p1sd_v1",
+  "status": "FROZEN_BEFORE_P1SD_IMPLEMENTATION_OR_OUTPUT",
+  "regime": "trackb_mechanism_schedule_discovery_no_production_fe_claim",
+  "parent": {
+    "analysis_dir": "analysis/dynamic_ghost_union_bridge_p0v3r2_20260717",
+    "inventory_digest": "0457824c66c54961d2d65fe110817b61b32e828285be5a7e2ff15fb55ba4f702",
+    "source_summary_digest": "d7257f100a2e90657d8f2590bf3ec461060e8822c6ece21032ee44f7d5875e08",
+    "reference_status": "P0V3R2_PASS",
+    "path_verdict": "PASS_P0_CONSTRUCTION_ONLY"
+  },
+  "cohort": [
+    "w4a_union_s101_bound",
+    "w4a_union_s127_bound",
+    "w4a_union_s163_bound",
+    "w4a_union_s101_free",
+    "w4a_union_s127_free",
+    "w4a_union_s163_free"
+  ],
+  "parent_box_normalization": {
+    "target": "p0v3r2_frozen_parent_contract_box_vectors",
+    "mapped_residue_classes": [
+      "water",
+      "monatomic_ion"
+    ],
+    "anchor": {
+      "water": "oxygen",
+      "monatomic_ion": "sole_atom"
+    },
+    "mapping": "wrapped_fractional_anchor_union_box_to_parent_box_rigid_residue_translation",
+    "solute_scaled": false,
+    "solvent_internal_coordinates_scaled": false,
+    "authoritative_positions": "float64_npy",
+    "inspection_positions": "pdb",
+    "tolerances": {
+      "solute_position_max_abs_nm": 0.0,
+      "solvent_internal_vector_max_abs_nm": 1e-12,
+      "box_vector_max_abs_nm": 1e-10,
+      "ring_water_min_nm": 0.26,
+      "all_solute_heavy_water_o_min_nm": 0.24
+    }
+  },
+  "reference_preflight": {
+    "platform": "Reference",
+    "xi": [
+      0.0,
+      0.5,
+      1.0
+    ],
+    "raw_energy_abs_max_kj_mol": 100000000.0,
+    "force_component_abs_max_kj_mol_nm": 100000000.0,
+    "identity_tolerance_kj_mol": 1e-5,
+    "identity_force_tolerance_kj_mol_nm": 1e-5,
+    "md_steps": 0,
+    "minimization_steps": 0,
+    "gpu": false
+  },
+  "sampling": {
+    "xi": [
+      0.0,
+      0.25,
+      0.5,
+      0.75,
+      1.0
+    ],
+    "ghost_g": 0.5,
+    "platform": "CUDA",
+    "device_index": "0",
+    "precision": "mixed",
+    "one_live_context": true,
+    "barostat": false,
+    "temperature_K": 300.0,
+    "friction_per_ps": 1.0,
+    "timestep_fs": 1.0,
+    "constraints": null,
+    "source_minimization": {
+      "state": "physical_u0",
+      "tolerance_kj_mol_nm": 10.0,
+      "max_iterations": 5000
+    },
+    "window_minimization": {
+      "tolerance_kj_mol_nm": 10.0,
+      "max_iterations": 1000
+    },
+    "warmup_steps": 2000,
+    "cycles": 50,
+    "steps_per_cycle": 250,
+    "sample_rows": 50,
+    "dcd_frames": 50,
+    "final_step": 14500,
+    "seed_namespace": "P1SD",
+    "seed_roles": [
+      "integrator",
+      "velocity"
+    ],
+    "seed_derivation": "int(SHA256('P1SD|{cell_id}|xi={xi:.2f}|{role}')[0:8],16)&0x7fffffff; zero_to_one"
+  },
+  "cross_state_matrix": {
+    "identity": "U_j=U_i+(xi_j-xi_i)*dV_dBridgeXi",
+    "explicit_readback_samples_per_window": [
+      "first",
+      "last"
+    ],
+    "explicit_readback_tolerance_kj_mol": 1e-5,
+    "beta_temperature_K": 300.0
+  },
+  "mbar": {
+    "package": "pymbar",
+    "required_version": "4.2.0",
+    "maximum_iterations": 20000,
+    "relative_tolerance": 1e-8,
+    "solver_protocol": "robust",
+    "overlap_row_sum_tolerance": 0.001,
+    "overlap_diagonal_max": 1.001,
+    "production_estimate": false,
+    "pilot_samples_reusable_in_production": false
+  },
+  "execution_gates": {
+    "temperature_mean_min_K": 270.0,
+    "temperature_mean_max_K": 330.0,
+    "temperature_sample_max_K": 600.0,
+    "ring_water_gross_min_nm": 0.1,
+    "final_force_component_abs_max_kj_mol_nm": 100000000.0,
+    "fixed_parent_box": true,
+    "finite_only": true,
+    "stop_on_first_failure": true
+  },
+  "overlap_decision": {
+    "adjacent_overlap_target": 0.1,
+    "severe_bottleneck_below": 0.03,
+    "aggregation": "minimum_per_interval_over_all_six_cells",
+    "densification": "insert_exact_midpoint_for_each_interval_with_min_overlap_below_0.10",
+    "automatic_densified_launch": false
+  },
+  "prohibitions": {
+    "replica_exchange": true,
+    "round_trip_claim": true,
+    "npt_with_atmforce": true,
+    "production_free_energy_claim": true,
+    "w23a_launch": true,
+    "mutation_sign_verdict": true,
+    "git_push": true
+  }
+}

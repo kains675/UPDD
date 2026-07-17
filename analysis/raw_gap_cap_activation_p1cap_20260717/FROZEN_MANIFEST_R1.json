@@ -1,0 +1,26 @@
+{
+  "schema": "updd_raw_gap_cap_activation_p1cap_freeze_v1_r1",
+  "frozen_local": "2026-07-17",
+  "status": "FROZEN_AFTER_R0_DCD_UNIT_FAILURE_BEFORE_R1_OUTPUT",
+  "files": {
+    "PREREGISTRATION.md": "98812e28d341a141e1ebda2630193bf56c505a441c49f6ff10de9a225f34a2fa",
+    "protocol.json": "6999042715357cfd302fcc06588efe03b7e2993c07ba61ec4c6bb7335e6399db",
+    "FROZEN_MANIFEST.json": "75bbfef0254fd42c037bee40ecd93aad88d476fa05b694b1c95682dbcfcc37e2",
+    "P1CAP_R0_FAILURE.json": "c31f7477016e6e0ead20104d1145aad0bad9657b74d70ff0199e28c449dda005",
+    "PREREGISTRATION_AMENDMENT_R1.md": "489716a7ab7fe3e4e12c1cde2aec50959afc5ab5854d20734fc4eccd13741da8",
+    "protocol_r1.json": "f83d28d7da8ab970f5f1a93b4e61fa3a78d01b4a5f24f1d8df83dd0f7420daa4"
+  },
+  "parent_evidence": {
+    "analysis/dynamic_ghost_union_bridge_p1sd_20260717/FROZEN_MANIFEST_R2.json": "6c54354e8db230ed1695eff8f3f37890a7d4d08c84cc91cfb8bb281cda48d244",
+    "analysis/dynamic_ghost_union_bridge_p1sd_20260717/P1SD_PREBUILD_INVENTORY.json": "546c8dd51d7a62a69d7e35282a692b81ea92c792272bb1a4a0d506073485317b",
+    "analysis/dynamic_ghost_union_bridge_p1sd_20260717/P1SD_NORMALIZED_SOURCE_SUMMARY.json": "539952550959a5a98d53b2c05aa7806d10072e2154fc53dda7ef2dcf811929ba",
+    "analysis/dynamic_ghost_union_bridge_p1sd_20260717/P1SD_PARTIAL_SUMMARY.json": "2ec4bfb726dbf01e3965ece4a4834200367ec072bb3d501034b7d83185dc5e2a",
+    "analysis/dynamic_ghost_union_bridge_p1sd_20260717/P1SD_PATH_DIAGNOSIS.json": "cd780f0fb822f5f656f9ec1dad9dedc07b29ee714e2ab0692aa775b966e884a8"
+  },
+  "trigger_evidence": {
+    "analysis/raw_gap_cap_activation_p1cap_20260717/P1CAP_PREBUILD_INVENTORY_R0.json": "cc886bb26e8f302c1765abdd8f54d7310533fd1623dfd8aaea4292a0f787b88b",
+    "analysis/raw_gap_cap_activation_p1cap_20260717/P1CAP_KEEPER_PREFLIGHT_R0.json": "b124938ef320b4483ea8b1afd6641cc91c0500303dcc7a367ace7a4f47322bdb",
+    "analysis/raw_gap_cap_activation_p1cap_20260717/_archive/20260717_2037_r0_dcd_angstrom_unit_fail/P1CAP_RUN_STATE.json": "b726d44f8d47c589670bf6a26ac10ca2d2120df4dc3df11366af8a298aef685e",
+    "analysis/raw_gap_cap_activation_p1cap_20260717/_archive/20260717_2037_r0_dcd_angstrom_unit_fail/raw_gap_replay/w4a_union_s101_bound/cell_result.json": "2e991356f2c1644c62dc1478994237ff15339dfdf6ee52e8f817de95a58e3f4e"
+  }
+}

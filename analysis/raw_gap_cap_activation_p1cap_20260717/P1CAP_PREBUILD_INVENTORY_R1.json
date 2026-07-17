@@ -1,0 +1,961 @@
+{
+  "cells": [
+    {
+      "cell_id": "w4a_union_s101_bound",
+      "leg": "bound",
+      "parent_box": {
+        "cubic": true,
+        "finite": true,
+        "lengths_nm": [
+          14.5795,
+          14.5795,
+          14.5795
+        ],
+        "orthogonal": true,
+        "passed": true,
+        "right_handed": true,
+        "vectors_nm": [
+          [
+            14.5795,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            14.5795,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            14.5795
+          ]
+        ],
+        "volume_nm3": 3099.0450583348747
+      },
+      "particle_count": 300424,
+      "seed": "s101",
+      "source": {
+        "bridge_system": {
+          "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s101_bound/normalized_bridge_system.xml",
+          "sha256": "77611947083169009a75c64f7b1545a68a13b0998124990cd09af2d1696e2b51",
+          "size": 125817024
+        },
+        "normalization_result": {
+          "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s101_bound/normalization_result.json",
+          "sha256": "fc71bfcd7668a344329ff378a03ee634d50993da12831315de638db5203a1ef8",
+          "size": 20375
+        },
+        "topology_pdb": {
+          "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s101_bound/normalized_source.pdb",
+          "sha256": "c8063a08bf4383fb950a6047d3b842cbee85902ed4cf6832301e584950cf4486",
+          "size": 24334706
+        }
+      },
+      "state": {
+        "acore": 0.0625,
+        "alpha_kcal_inv": 0.1,
+        "direction": 1,
+        "intermediate": 0,
+        "label": "apex_dplus",
+        "lambda1": 0.5,
+        "lambda2": 0.5,
+        "ubcore_kcal_mol": 100.0,
+        "uh_kcal_mol": 110.0,
+        "umax_kcal_mol": 200.0,
+        "w0_kcal_mol": 0.0
+      },
+      "windows": [
+        {
+          "artifacts": {
+            "final_positions": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s101_bound/xi_0p00/final_positions.npy",
+              "sha256": "9c7984ff17d74245fc4fd97961c24abb45b1f84e71e69bde8be52189b845152c",
+              "size": 7210304
+            },
+            "samples": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s101_bound/xi_0p00/samples.csv",
+              "sha256": "de715570b31927620f811927eff69985d1f47406ffd77f6703413caee4cfedc2",
+              "size": 5470
+            },
+            "trajectory": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s101_bound/xi_0p00/trajectory.dcd",
+              "sha256": "563671a5c98c82fe3d4ac6a5afa055a0e70b7720699edecfc36b2ff405f449a4",
+              "size": 180258676
+            },
+            "window_result": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s101_bound/xi_0p00/window_result.json",
+              "sha256": "153faf05de79555f40449e738513d2e03d339c716c06c3194fece2739f760ada",
+              "size": 7645
+            }
+          },
+          "dcd_distance_unit": "angstroms",
+          "dcd_first_angles_deg": [
+            90.0,
+            90.0,
+            90.0
+          ],
+          "dcd_first_lengths_raw": [
+            145.7949981689453,
+            145.7949981689453,
+            145.7949981689453
+          ],
+          "dcd_frames": 50,
+          "dcd_particles": 300424,
+          "expected_status": "WINDOW_PASS",
+          "source_rows": 50,
+          "xi": 0.0
+        },
+        {
+          "artifacts": {
+            "final_positions": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s101_bound/xi_0p25/final_positions.npy",
+              "sha256": "a181051d2b42a87b8ca7bdc3f699cb4eea8bb38f357591bd5162aa110c257d24",
+              "size": 7210304
+            },
+            "samples": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s101_bound/xi_0p25/samples.csv",
+              "sha256": "e9e7fbaefa4c11c736425e5e2864c7bb3aa362f6c1b7d47b95d7ba2b8be79a55",
+              "size": 5469
+            },
+            "trajectory": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s101_bound/xi_0p25/trajectory.dcd",
+              "sha256": "f09747a58c1fb5e7c16a4258959113f1f30e1d8054cc609f0369a3c5942ca00c",
+              "size": 180258676
+            },
+            "window_result": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s101_bound/xi_0p25/window_result.json",
+              "sha256": "c5d83a6b63df20cc0718095a277a990e999483f8034c4ff392ead94a5267ebd9",
+              "size": 7693
+            }
+          },
+          "dcd_distance_unit": "angstroms",
+          "dcd_first_angles_deg": [
+            90.0,
+            90.0,
+            90.0
+          ],
+          "dcd_first_lengths_raw": [
+            145.7949981689453,
+            145.7949981689453,
+            145.7949981689453
+          ],
+          "dcd_frames": 50,
+          "dcd_particles": 300424,
+          "expected_status": "WINDOW_PASS",
+          "source_rows": 50,
+          "xi": 0.25
+        },
+        {
+          "artifacts": {
+            "final_positions": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s101_bound/xi_0p50/final_positions.npy",
+              "sha256": "cf6c58a013b68176ce107bad5482ab5ec9b30f9bd335def6328fea2288278c8c",
+              "size": 7210304
+            },
+            "samples": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s101_bound/xi_0p50/samples.csv",
+              "sha256": "e0412901baf7ffc4053bd729fb6beffee084a37e2dcd03cb30e218c6496e2250",
+              "size": 5469
+            },
+            "trajectory": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s101_bound/xi_0p50/trajectory.dcd",
+              "sha256": "7c0336f89bed4bfc10382fd2d4c55255e750708a0798684cc13e8d51e0c8d7f8",
+              "size": 180258676
+            },
+            "window_result": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s101_bound/xi_0p50/window_result.json",
+              "sha256": "602d7f2946095ba06f43df7e2394aeb813e1563b9a344114f2586fce08562331",
+              "size": 7690
+            }
+          },
+          "dcd_distance_unit": "angstroms",
+          "dcd_first_angles_deg": [
+            90.0,
+            90.0,
+            90.0
+          ],
+          "dcd_first_lengths_raw": [
+            145.7949981689453,
+            145.7949981689453,
+            145.7949981689453
+          ],
+          "dcd_frames": 50,
+          "dcd_particles": 300424,
+          "expected_status": "WINDOW_PASS",
+          "source_rows": 50,
+          "xi": 0.5
+        },
+        {
+          "artifacts": {
+            "final_positions": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s101_bound/xi_0p75/final_positions.npy",
+              "sha256": "088e140d35d0b9cad8808c7a2882df8abdf5655977ad5688c2aa40c4d374350f",
+              "size": 7210304
+            },
+            "samples": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s101_bound/xi_0p75/samples.csv",
+              "sha256": "4364b517be8b382abe69af30650d4afaa938a91faad8e7aaa60ae41e2e780cd9",
+              "size": 5476
+            },
+            "trajectory": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s101_bound/xi_0p75/trajectory.dcd",
+              "sha256": "9219bf214b9ddd7b73801d6b4bb91f8f73cd2bbe9c2660eb9705842cc594d4c3",
+              "size": 180258676
+            },
+            "window_result": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s101_bound/xi_0p75/window_result.json",
+              "sha256": "811aa0a434077470f4e6e54e98449a91f61c6f216a97505537cd3b5b35fc3adb",
+              "size": 7686
+            }
+          },
+          "dcd_distance_unit": "angstroms",
+          "dcd_first_angles_deg": [
+            90.0,
+            90.0,
+            90.0
+          ],
+          "dcd_first_lengths_raw": [
+            145.7949981689453,
+            145.7949981689453,
+            145.7949981689453
+          ],
+          "dcd_frames": 50,
+          "dcd_particles": 300424,
+          "expected_status": "WINDOW_PASS",
+          "source_rows": 50,
+          "xi": 0.75
+        },
+        {
+          "artifacts": {
+            "final_positions": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s101_bound/xi_1p00/final_positions.npy",
+              "sha256": "dba4f359a4d9d89c063526bbd1c895aa38b749d85a17696fd7b338bae99b63b6",
+              "size": 7210304
+            },
+            "samples": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s101_bound/xi_1p00/samples.csv",
+              "sha256": "2195145233120ef49ba0bb1f21a8b2d07e5b91967070c5db5f687d61bd46dab5",
+              "size": 5461
+            },
+            "trajectory": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s101_bound/xi_1p00/trajectory.dcd",
+              "sha256": "d36b1b9375bc63bb5e53bf8c81972e68cfaf3453db5e9da2fef2f61fe045fc7a",
+              "size": 180258676
+            },
+            "window_result": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s101_bound/xi_1p00/window_result.json",
+              "sha256": "3735bd9583277d75f9ef9a9261fe2c777f8e547b060bbab7df816371c23d9249",
+              "size": 7663
+            }
+          },
+          "dcd_distance_unit": "angstroms",
+          "dcd_first_angles_deg": [
+            90.0,
+            90.0,
+            90.0
+          ],
+          "dcd_first_lengths_raw": [
+            145.7949981689453,
+            145.7949981689453,
+            145.7949981689453
+          ],
+          "dcd_frames": 50,
+          "dcd_particles": 300424,
+          "expected_status": "WINDOW_PASS",
+          "source_rows": 50,
+          "xi": 1.0
+        }
+      ]
+    },
+    {
+      "cell_id": "w4a_union_s127_bound",
+      "leg": "bound",
+      "parent_box": {
+        "cubic": true,
+        "finite": true,
+        "lengths_nm": [
+          14.6143,
+          14.6143,
+          14.6143
+        ],
+        "orthogonal": true,
+        "passed": true,
+        "right_handed": true,
+        "vectors_nm": [
+          [
+            14.6143,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            14.6143,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            14.6143
+          ]
+        ],
+        "volume_nm3": 3121.2895235862056
+      },
+      "particle_count": 302726,
+      "seed": "s127",
+      "source": {
+        "bridge_system": {
+          "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s127_bound/normalized_bridge_system.xml",
+          "sha256": "16e45b047ab83b45559ba517af8f837d3cdde460ea5212f243e75ee7ebe788d7",
+          "size": 126708996
+        },
+        "normalization_result": {
+          "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s127_bound/normalization_result.json",
+          "sha256": "9ccc27b9bb840c12859b6dce056d6b803d3bd8aea9de047fda192683fca3e996",
+          "size": 20374
+        },
+        "topology_pdb": {
+          "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s127_bound/normalized_source.pdb",
+          "sha256": "05afde1991fa98cbd637daf5aa8416d329f8507c0f1b641b19811149dec0259d",
+          "size": 24521168
+        }
+      },
+      "state": {
+        "acore": 0.0625,
+        "alpha_kcal_inv": 0.1,
+        "direction": 1,
+        "intermediate": 0,
+        "label": "apex_dplus",
+        "lambda1": 0.5,
+        "lambda2": 0.5,
+        "ubcore_kcal_mol": 100.0,
+        "uh_kcal_mol": 110.0,
+        "umax_kcal_mol": 200.0,
+        "w0_kcal_mol": 0.0
+      },
+      "windows": [
+        {
+          "artifacts": {
+            "final_positions": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s127_bound/xi_0p00/final_positions.npy",
+              "sha256": "d275c27ff3f5755c1de5f47150545b0c86dee6639227e79e155a073885d9b472",
+              "size": 7265552
+            },
+            "samples": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s127_bound/xi_0p00/samples.csv",
+              "sha256": "142b11ffd9f01e54cde4fdf474ac103931a8f3e72f66a9a3fac33a1703bed8c2",
+              "size": 5536
+            },
+            "trajectory": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s127_bound/xi_0p00/trajectory.dcd",
+              "sha256": "80e0b3e1ddc93ceec34ad66393a68613a9729b8b2aa03a01047efbaa3db019a4",
+              "size": 181639876
+            },
+            "window_result": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s127_bound/xi_0p00/window_result.json",
+              "sha256": "b42349c0d0c44fe5737e0f0c751a538928a2128dae268097c7d7f2724ddaf40f",
+              "size": 7663
+            }
+          },
+          "dcd_distance_unit": "angstroms",
+          "dcd_first_angles_deg": [
+            90.0,
+            90.0,
+            90.0
+          ],
+          "dcd_first_lengths_raw": [
+            146.14300537109375,
+            146.14300537109375,
+            146.14300537109375
+          ],
+          "dcd_frames": 50,
+          "dcd_particles": 302726,
+          "expected_status": "WINDOW_PASS",
+          "source_rows": 50,
+          "xi": 0.0
+        },
+        {
+          "artifacts": {
+            "final_positions": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s127_bound/xi_0p25/final_positions.npy",
+              "sha256": "3d83322270be381577475d05ddc5da33c504c65fa5b6602848764ead5da58f0d",
+              "size": 7265552
+            },
+            "samples": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s127_bound/xi_0p25/samples.csv",
+              "sha256": "b8858c496f4ebc1dd37130ce67b9e4420e0bb5814aae278e16c30c2795bff1ad",
+              "size": 5466
+            },
+            "trajectory": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s127_bound/xi_0p25/trajectory.dcd",
+              "sha256": "fa45fa5365d1b1c697bc86f1af0946b9b6da6f7f04decfc02bb56841538af02c",
+              "size": 181639876
+            },
+            "window_result": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s127_bound/xi_0p25/window_result.json",
+              "sha256": "55babd4f94d57cf82b6b239cb709c5bd6f8e897f570886a9d92e248ad8927908",
+              "size": 7692
+            }
+          },
+          "dcd_distance_unit": "angstroms",
+          "dcd_first_angles_deg": [
+            90.0,
+            90.0,
+            90.0
+          ],
+          "dcd_first_lengths_raw": [
+            146.14300537109375,
+            146.14300537109375,
+            146.14300537109375
+          ],
+          "dcd_frames": 50,
+          "dcd_particles": 302726,
+          "expected_status": "WINDOW_PASS",
+          "source_rows": 50,
+          "xi": 0.25
+        },
+        {
+          "artifacts": {
+            "final_positions": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s127_bound/xi_0p50/final_positions.npy",
+              "sha256": "2f85601affbd418a7e1eb8ea4eaf1217dffe127efb1a2ef36ad105e778782366",
+              "size": 7265552
+            },
+            "samples": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s127_bound/xi_0p50/samples.csv",
+              "sha256": "5471c400f4320bffedc460fb5cbf1f7018d6cec09531acf8f577e09fdefd47af",
+              "size": 5477
+            },
+            "trajectory": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s127_bound/xi_0p50/trajectory.dcd",
+              "sha256": "b6246f9b3931d05fbd3a3c2b043f01a6e9967f2ae7e3af0b905e25ce7ca50fdd",
+              "size": 181639876
+            },
+            "window_result": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s127_bound/xi_0p50/window_result.json",
+              "sha256": "d7e630e68f987c8a631ec2772688e38d277e84b65afd92aee1e22a5185bcfc53",
+              "size": 7705
+            }
+          },
+          "dcd_distance_unit": "angstroms",
+          "dcd_first_angles_deg": [
+            90.0,
+            90.0,
+            90.0
+          ],
+          "dcd_first_lengths_raw": [
+            146.14300537109375,
+            146.14300537109375,
+            146.14300537109375
+          ],
+          "dcd_frames": 50,
+          "dcd_particles": 302726,
+          "expected_status": "WINDOW_PASS",
+          "source_rows": 50,
+          "xi": 0.5
+        },
+        {
+          "artifacts": {
+            "final_positions": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s127_bound/xi_0p75/final_positions.npy",
+              "sha256": "2309e97534084dc718c2dd7cefe608106f5ad672bdc554fed67a3506a77f178e",
+              "size": 7265552
+            },
+            "samples": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s127_bound/xi_0p75/samples.csv",
+              "sha256": "5fbce618aed18b424c656528a2a40de98c394249190536cba9b68fb84d8df4a5",
+              "size": 5468
+            },
+            "trajectory": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s127_bound/xi_0p75/trajectory.dcd",
+              "sha256": "897d9a65d9ebb78bedfc03a930c5db1f0ae125f5b5e3e8275cfebfefcfd2cd9a",
+              "size": 181639876
+            },
+            "window_result": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s127_bound/xi_0p75/window_result.json",
+              "sha256": "ee815049aac07ae74c8e7c392feb8820fafb1af34b92c6bb539df7867aca25bd",
+              "size": 7686
+            }
+          },
+          "dcd_distance_unit": "angstroms",
+          "dcd_first_angles_deg": [
+            90.0,
+            90.0,
+            90.0
+          ],
+          "dcd_first_lengths_raw": [
+            146.14300537109375,
+            146.14300537109375,
+            146.14300537109375
+          ],
+          "dcd_frames": 50,
+          "dcd_particles": 302726,
+          "expected_status": "WINDOW_PASS",
+          "source_rows": 50,
+          "xi": 0.75
+        },
+        {
+          "artifacts": {
+            "final_positions": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s127_bound/xi_1p00/final_positions.npy",
+              "sha256": "d6dbd81d089e343785553347893a8edf5ec4ee6bc4bbc350f8f25a08a4966aa0",
+              "size": 7265552
+            },
+            "samples": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s127_bound/xi_1p00/samples.csv",
+              "sha256": "3bfa48d38dfb7956aadb1f6c3692711a6f3dd0f0d83053b70727c19d616dd985",
+              "size": 5461
+            },
+            "trajectory": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s127_bound/xi_1p00/trajectory.dcd",
+              "sha256": "80fefbc51db1eb62ac8453d61c23189b7552e2b87d72ff7bec67e40534a9b5b8",
+              "size": 181639876
+            },
+            "window_result": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s127_bound/xi_1p00/window_result.json",
+              "sha256": "4fba79bfba8ce84b8e974c26c9fab79e3947b18a0f6ce0ead4c388bacbaf3070",
+              "size": 7660
+            }
+          },
+          "dcd_distance_unit": "angstroms",
+          "dcd_first_angles_deg": [
+            90.0,
+            90.0,
+            90.0
+          ],
+          "dcd_first_lengths_raw": [
+            146.14300537109375,
+            146.14300537109375,
+            146.14300537109375
+          ],
+          "dcd_frames": 50,
+          "dcd_particles": 302726,
+          "expected_status": "WINDOW_PASS",
+          "source_rows": 50,
+          "xi": 1.0
+        }
+      ]
+    },
+    {
+      "cell_id": "w4a_union_s163_bound",
+      "leg": "bound",
+      "parent_box": {
+        "cubic": true,
+        "finite": true,
+        "lengths_nm": [
+          14.794,
+          14.794,
+          14.794
+        ],
+        "orthogonal": true,
+        "passed": true,
+        "right_handed": true,
+        "vectors_nm": [
+          [
+            14.794,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            14.794,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            14.794
+          ]
+        ],
+        "volume_nm3": 3237.850878184001
+      },
+      "particle_count": 313951,
+      "seed": "s163",
+      "source": {
+        "bridge_system": {
+          "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s163_bound/normalized_bridge_system.xml",
+          "sha256": "d9602a0e86ca1304b5d3c08ad0230b8b6055d930713c7da4943a3bf22233e947",
+          "size": 131058368
+        },
+        "normalization_result": {
+          "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s163_bound/normalization_result.json",
+          "sha256": "6c83e305bd9b18d4665ffa0d4a8334127af41672aaf19fe58871d2e9fa960eac",
+          "size": 20380
+        },
+        "topology_pdb": {
+          "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s163_bound/normalized_source.pdb",
+          "sha256": "a286c5dbbf420cb02e3eedaf64e72e8f3a895043bec52b7cc99b43bc2792cdd7",
+          "size": 25430393
+        }
+      },
+      "state": {
+        "acore": 0.0625,
+        "alpha_kcal_inv": 0.1,
+        "direction": 1,
+        "intermediate": 0,
+        "label": "apex_dplus",
+        "lambda1": 0.5,
+        "lambda2": 0.5,
+        "ubcore_kcal_mol": 100.0,
+        "uh_kcal_mol": 110.0,
+        "umax_kcal_mol": 200.0,
+        "w0_kcal_mol": 0.0
+      },
+      "windows": [
+        {
+          "artifacts": {
+            "final_positions": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s163_bound/xi_0p00/final_positions.npy",
+              "sha256": "27825bb355bf6b1512b662dadb8ccef03c711d0e5a784ac0c15197d11dce64fc",
+              "size": 7534952
+            },
+            "samples": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s163_bound/xi_0p00/samples.csv",
+              "sha256": "7d27a0e81366cbc567ae0e7b3168117a09c3245c2d1949e440d6e084fecd17bf",
+              "size": 5472
+            },
+            "trajectory": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s163_bound/xi_0p00/trajectory.dcd",
+              "sha256": "b730b63134b4edeae91d8e39b0bcaf5e230ff3f41b39ed0aa27bef9a4c93be7e",
+              "size": 188374876
+            },
+            "window_result": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s163_bound/xi_0p00/window_result.json",
+              "sha256": "97a06d3b7557fbccb230fb98788ab6c8afeaf7ce56ec5ca155b6c0c6107849a6",
+              "size": 7665
+            }
+          },
+          "dcd_distance_unit": "angstroms",
+          "dcd_first_angles_deg": [
+            90.0,
+            90.0,
+            90.0
+          ],
+          "dcd_first_lengths_raw": [
+            147.94000244140625,
+            147.94000244140625,
+            147.94000244140625
+          ],
+          "dcd_frames": 50,
+          "dcd_particles": 313951,
+          "expected_status": "WINDOW_PASS",
+          "source_rows": 50,
+          "xi": 0.0
+        },
+        {
+          "artifacts": {
+            "final_positions": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s163_bound/xi_0p25/final_positions.npy",
+              "sha256": "a391cf8c498a95ee6ab3ab02a125045708ee54a2c749306e23ef661e5c351543",
+              "size": 7534952
+            },
+            "samples": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s163_bound/xi_0p25/samples.csv",
+              "sha256": "e389c4c21aa227c672b78f7880f8a78a37cd0996040b520a6dc32d3e80bfd93b",
+              "size": 5464
+            },
+            "trajectory": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s163_bound/xi_0p25/trajectory.dcd",
+              "sha256": "91efaa24f8e6eff8da45b528df50682ce14d4151801c3e9d4f4efc211eba24e7",
+              "size": 188374876
+            },
+            "window_result": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s163_bound/xi_0p25/window_result.json",
+              "sha256": "4f76830b62c7efb9b00c0475d61fef1c95dd2bc200d1ecdc2e182320c21199bc",
+              "size": 7660
+            }
+          },
+          "dcd_distance_unit": "angstroms",
+          "dcd_first_angles_deg": [
+            90.0,
+            90.0,
+            90.0
+          ],
+          "dcd_first_lengths_raw": [
+            147.94000244140625,
+            147.94000244140625,
+            147.94000244140625
+          ],
+          "dcd_frames": 50,
+          "dcd_particles": 313951,
+          "expected_status": "WINDOW_PASS",
+          "source_rows": 50,
+          "xi": 0.25
+        },
+        {
+          "artifacts": {
+            "final_positions": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s163_bound/xi_0p50/final_positions.npy",
+              "sha256": "322ddd9f376736cf5319c79eb4e8b83dac468722d3bd435ce18f7a30b51b002f",
+              "size": 7534952
+            },
+            "samples": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s163_bound/xi_0p50/samples.csv",
+              "sha256": "e7defe0a91996a10a35076ebf1ea5f4e2ad4d2570d650ae858a6c0b245aa3415",
+              "size": 5469
+            },
+            "trajectory": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s163_bound/xi_0p50/trajectory.dcd",
+              "sha256": "83d732dde49085d3c18dde490e16832e91aa1a61253d46b38bdace5a12d9382b",
+              "size": 188374876
+            },
+            "window_result": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s163_bound/xi_0p50/window_result.json",
+              "sha256": "1f51eff5eb540167992c97e37aee6cbfa774f2d2c56aaf2b6fd68063165e9914",
+              "size": 7660
+            }
+          },
+          "dcd_distance_unit": "angstroms",
+          "dcd_first_angles_deg": [
+            90.0,
+            90.0,
+            90.0
+          ],
+          "dcd_first_lengths_raw": [
+            147.94000244140625,
+            147.94000244140625,
+            147.94000244140625
+          ],
+          "dcd_frames": 50,
+          "dcd_particles": 313951,
+          "expected_status": "WINDOW_PASS",
+          "source_rows": 50,
+          "xi": 0.5
+        },
+        {
+          "artifacts": {
+            "final_positions": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s163_bound/xi_0p75/final_positions.npy",
+              "sha256": "1018b1cc7def0468463aaf00c7de45bb1298099eb70146aa4fb0f0d5cda1ca3b",
+              "size": 7534952
+            },
+            "samples": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s163_bound/xi_0p75/samples.csv",
+              "sha256": "66dc2ef1b5a2a8d4d08d4777db1c3ba0d1c5224decbe5194bc7db4ce3f6f6900",
+              "size": 5475
+            },
+            "trajectory": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s163_bound/xi_0p75/trajectory.dcd",
+              "sha256": "c2d5493bf764a2363558c0bba1c436a49f0f3eb7f87fb14cd4f27918926e4f7d",
+              "size": 188374876
+            },
+            "window_result": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s163_bound/xi_0p75/window_result.json",
+              "sha256": "6154de6af6b4609ef641123da5cd64c371425edfcd48e1e96152a4a2f07ff11a",
+              "size": 7661
+            }
+          },
+          "dcd_distance_unit": "angstroms",
+          "dcd_first_angles_deg": [
+            90.0,
+            90.0,
+            90.0
+          ],
+          "dcd_first_lengths_raw": [
+            147.94000244140625,
+            147.94000244140625,
+            147.94000244140625
+          ],
+          "dcd_frames": 50,
+          "dcd_particles": 313951,
+          "expected_status": "WINDOW_PASS",
+          "source_rows": 50,
+          "xi": 0.75
+        },
+        {
+          "artifacts": {
+            "final_positions": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s163_bound/xi_1p00/final_positions.npy",
+              "sha256": "18accc858d9b6a391cece6345fa4f566029ec12a04d562d3bac03a2d75676c9d",
+              "size": 7534952
+            },
+            "samples": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s163_bound/xi_1p00/samples.csv",
+              "sha256": "07f915e9ac334eaaf1856729529edee5a38ae41065ffc53ca63c2ea07f560f9d",
+              "size": 5474
+            },
+            "trajectory": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s163_bound/xi_1p00/trajectory.dcd",
+              "sha256": "91eb2dc62c5459e9f776d9677cee6f71b06eb1d113386e6d9220cec96cab783e",
+              "size": 188374876
+            },
+            "window_result": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s163_bound/xi_1p00/window_result.json",
+              "sha256": "8ff7e37d22d3c2d3206e6887b6832df642745f09cee01c71f29a677301df8210",
+              "size": 7651
+            }
+          },
+          "dcd_distance_unit": "angstroms",
+          "dcd_first_angles_deg": [
+            90.0,
+            90.0,
+            90.0
+          ],
+          "dcd_first_lengths_raw": [
+            147.94000244140625,
+            147.94000244140625,
+            147.94000244140625
+          ],
+          "dcd_frames": 50,
+          "dcd_particles": 313951,
+          "expected_status": "WINDOW_PASS",
+          "source_rows": 50,
+          "xi": 1.0
+        }
+      ]
+    },
+    {
+      "cell_id": "w4a_union_s101_free",
+      "leg": "free",
+      "parent_box": {
+        "cubic": true,
+        "finite": true,
+        "lengths_nm": [
+          6.789000000000001,
+          6.789000000000001,
+          6.789000000000001
+        ],
+        "orthogonal": true,
+        "passed": true,
+        "right_handed": true,
+        "vectors_nm": [
+          [
+            6.789000000000001,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            6.789000000000001,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            6.789000000000001
+          ]
+        ],
+        "volume_nm3": 312.9085470690001
+      },
+      "particle_count": 29992,
+      "seed": "s101",
+      "source": {
+        "bridge_system": {
+          "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s101_free/normalized_bridge_system.xml",
+          "sha256": "774ddefc0e9cee2f71383508b6e8c8c2838a344ace6c9c14f166a03bb373f34b",
+          "size": 11812681
+        },
+        "normalization_result": {
+          "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s101_free/normalization_result.json",
+          "sha256": "c4839c0bae65b72a12f32e97e19251645cb0eff5f11e089fb0c9839f9f6bedc8",
+          "size": 20226
+        },
+        "topology_pdb": {
+          "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s101_free/normalized_source.pdb",
+          "sha256": "8de664092555bd9a27874ea23ac84705cd718d48248fb802052fa63613efc2eb",
+          "size": 2429653
+        }
+      },
+      "state": {
+        "acore": 0.0625,
+        "alpha_kcal_inv": 0.1,
+        "direction": 1,
+        "intermediate": 0,
+        "label": "apex_dplus",
+        "lambda1": 0.5,
+        "lambda2": 0.5,
+        "ubcore_kcal_mol": 100.0,
+        "uh_kcal_mol": 110.0,
+        "umax_kcal_mol": 200.0,
+        "w0_kcal_mol": 0.0
+      },
+      "windows": [
+        {
+          "artifacts": {
+            "final_positions": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s101_free/xi_0p00/final_positions.npy",
+              "sha256": "33b3e11ead4accf3feb2d1143ce75655fb2668918f1799d2c8b868f77cf858f8",
+              "size": 719936
+            },
+            "samples": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s101_free/xi_0p00/samples.csv",
+              "sha256": "f2ae8bc4e2c164235726d7827de641b3617f61974f00617c7d1334b95ef2f57b",
+              "size": 6063
+            },
+            "trajectory": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s101_free/xi_0p00/trajectory.dcd",
+              "sha256": "5ce852ba8476631852b0c9e2c0272eb30af076ee6d1411cf7fafaa6fee8b9b81",
+              "size": 17999476
+            },
+            "window_result": {
+              "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/sampled_schedule_discovery/w4a_union_s101_free/xi_0p00/window_result.json",
+              "sha256": "0799382c1be10b713ac287c42ae2bac343151745b4c1a86550cbcbe8e7c91531",
+              "size": 7844
+            }
+          },
+          "dcd_distance_unit": "angstroms",
+          "dcd_first_angles_deg": [
+            90.0,
+            90.0,
+            90.0
+          ],
+          "dcd_first_lengths_raw": [
+            67.88999938964844,
+            67.88999938964844,
+            67.88999938964844
+          ],
+          "dcd_frames": 50,
+          "dcd_particles": 29992,
+          "expected_status": "WINDOW_FAIL",
+          "source_rows": 50,
+          "xi": 0.0
+        }
+      ]
+    }
+  ],
+  "counts": {
+    "cells": 4,
+    "frames": 800,
+    "windows": 16
+  },
+  "frozen_manifest_sha256": "ae5dc9ef35b67d4777922c55119df5be822a1927df5e4d5fa26ba20ad1c66434",
+  "generated": "2026-07-17 20:43:21 +0900",
+  "implementation": {
+    "apex_bridge": {
+      "path": "utils/trackb_apex_bridge.py",
+      "sha256": "db3b42a9913edf80dade0933b66571bfe22e628e741f2dc431d1d71b64fa3f0b",
+      "size": 13473
+    },
+    "dynamic_ghost": {
+      "path": "utils/trackb_dynamic_ghost.py",
+      "sha256": "86d888f21fbed6d17a3a55b6ff16ed84c5aa00e366808b485514eaab9a911212",
+      "size": 19864
+    },
+    "p0v2_runner": {
+      "path": "analysis/dynamic_ghost_apex_bridge_p0v2_20260717/run_p0v2_reference_audit.py",
+      "sha256": "f25a1840adec0c033daf93225a9778b92ff5ee676662e96177ba4c3b8d200cf2",
+      "size": 40693
+    },
+    "p1sd_runner": {
+      "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/run_p1sd.py",
+      "sha256": "fddb79a189bf52179651eb52f21becce856241edcacda4a8b2bbc28be7e330a3",
+      "size": 87033
+    },
+    "runner": {
+      "path": "analysis/raw_gap_cap_activation_p1cap_20260717/run_p1cap.py",
+      "sha256": "3c4b33226cdb583aac9664a8213cec0d96fdf7244b8821ac7b3811097ded9f44",
+      "size": 55882
+    }
+  },
+  "inventory_digest": "2768049224403ab431cf40ac684828e3e537ad298e9ed8c450c7ca10491eb667",
+  "parent_inventory_digest": "a794eeb91063c1541d1cf5a593f8f3d039b9951728a10b2acc51c4e39cfb3e69",
+  "protocol_sha256": "f83d28d7da8ab970f5f1a93b4e61fa3a78d01b4a5f24f1d8df83dd0f7420daa4",
+  "python": "/home/san/miniconda3/envs/atm/bin/python",
+  "runtime": {
+    "mdtraj": "1.11.1",
+    "numpy": "2.4.6",
+    "openmm": "8.5.1"
+  },
+  "schema": "updd_raw_gap_cap_activation_p1cap_inventory_v1_r1",
+  "status": "FROZEN_BEFORE_P1CAP_R1_OUTPUT"
+}

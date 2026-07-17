@@ -1,0 +1,20 @@
+{
+  "schema": "updd_dynamic_ghost_union_bridge_p0v3r1_freeze_v1",
+  "frozen_local": "2026-07-17",
+  "status": "FROZEN_BEFORE_OFFICIAL_SOURCE_OR_P0V3R1_OUTPUT",
+  "files": {
+    "PREREGISTRATION.md": "d9e9b66f855773d8030cb314c44d572b897c86be76625f7ed0d828fa3cf53b6d",
+    "protocol.json": "96664e0dda3dc155168c384fd9276192f9dd524c845bfd20d2ee2e2b0bde1870"
+  },
+  "inherited_design": {
+    "analysis/dynamic_ghost_union_bridge_p0v3_20260717/PREREGISTRATION.md": "b768479b1c007cc8794349c39f6ed209c39ae742a58fd4ce7556f4ea2985a4bc",
+    "analysis/dynamic_ghost_union_bridge_p0v3_20260717/protocol.json": "d171f096473d331f26894b15c2de34b0f561a378c5588a5842dae1e89ed199fa",
+    "analysis/dynamic_ghost_union_bridge_p0v3_20260717/FROZEN_MANIFEST.json": "2fd77d759d4255fa34c5095f7d5d74f9b124bdbe4f6f216fd6d1d9cc61b5fb2b",
+    "analysis/dynamic_ghost_union_bridge_p0v3_20260717/DESIGN_PREFLIGHT_STOP.md": "b1e5df1190e265b62585c4eefe60c411b7410000eaff7a26df7de60e42b3afbc"
+  },
+  "trigger_evidence": {
+    "analysis/dynamic_ghost_apex_bridge_p0v2_20260717/P0V2_REFERENCE_SUMMARY.json": "33486bfaf645df71db7d08f46eb921e55757a5eacc9b924872796c6316deeb46",
+    "analysis/dynamic_ghost_apex_bridge_p0v2_20260717/P0V2_PATH_DIAGNOSIS.md": "08259ef6638f555f45d06a794f8bd502dbdb252e7951056bf2eee012495e17a8",
+    "analysis/dynamic_ghost_apex_bridge_p0v2_20260717/P0V2_SOURCE_GEOMETRY_DIAGNOSIS.json": "d903bc1e9ab0c4c7f32d17969223b3bf99980a8251cfd7d9416e12dd9c151384"
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "schema": "updd_raw_gap_cap_activation_p1cap_r0_failure_v1",
+  "generated": "2026-07-17 20:37:20 +0900",
+  "status": "P1CAP_R0_RUNNER_FAIL_DCD_ANGSTROM_AS_NM",
+  "formal_verdict": "RUNNER_FAIL_STOPPED",
+  "failed_cell": "w4a_union_s101_bound",
+  "completed_cells": 0,
+  "remaining_cells_launched": false,
+  "md_steps": 0,
+  "root_cause": {
+    "type": "implementation_unit_error",
+    "reader": "mdtraj.formats.DCDTrajectoryFile",
+    "declared_distance_unit": "angstroms",
+    "incorrect_interpretation": "raw low-level xyz and unit-cell lengths were passed to OpenMM as nanometers",
+    "required_conversion_to_nm": 0.1
+  },
+  "observations": {
+    "source_dcd_box_length_angstrom": 145.795,
+    "expected_box_length_nm": 14.5795,
+    "all_five_first_cell_windows_failed_fixed_box": true,
+    "all_five_first_cell_windows_failed_algebra": true,
+    "results_are_scientifically_interpretable": false
+  },
+  "disposition": {
+    "r0_output_reusable": false,
+    "r0_output_archived": true,
+    "archive": "analysis/raw_gap_cap_activation_p1cap_20260717/_archive/20260717_2037_r0_dcd_angstrom_unit_fail",
+    "r1_requires_amendment_and_new_inventory": true
+  },
+  "evidence_sha256": {
+    "P1CAP_PREBUILD_INVENTORY_R0.json": "cc886bb26e8f302c1765abdd8f54d7310533fd1623dfd8aaea4292a0f787b88b",
+    "P1CAP_KEEPER_PREFLIGHT_R0.json": "b124938ef320b4483ea8b1afd6641cc91c0500303dcc7a367ace7a4f47322bdb",
+    "_archive/20260717_2037_r0_dcd_angstrom_unit_fail/P1CAP_RUN_STATE.json": "b726d44f8d47c589670bf6a26ac10ca2d2120df4dc3df11366af8a298aef685e",
+    "_archive/20260717_2037_r0_dcd_angstrom_unit_fail/raw_gap_replay/w4a_union_s101_bound/cell_result.json": "2e991356f2c1644c62dc1478994237ff15339dfdf6ee52e8f817de95a58e3f4e"
+  },
+  "claims": {
+    "cap_activation_measured": false,
+    "apex_mechanism_verdict": false,
+    "free_energy_estimated": false,
+    "production_sampling_authorized": false
+  }
+}

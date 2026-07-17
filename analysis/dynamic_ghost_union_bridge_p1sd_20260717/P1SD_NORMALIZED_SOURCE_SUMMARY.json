@@ -1,0 +1,256 @@
+{
+  "cells": [
+    {
+      "all_solute_water_min_nm": 0.3204494360358092,
+      "artifacts": {
+        "bridge_system": {
+          "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s101_bound/normalized_bridge_system.xml",
+          "sha256": "77611947083169009a75c64f7b1545a68a13b0998124990cd09af2d1696e2b51",
+          "size": 125817024
+        },
+        "inspection_pdb": {
+          "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s101_bound/normalized_source.pdb",
+          "sha256": "c8063a08bf4383fb950a6047d3b842cbee85902ed4cf6832301e584950cf4486",
+          "size": 24334706
+        },
+        "positions": {
+          "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s101_bound/positions_float64.npy",
+          "sha256": "dfa9d3f0080b5a486e38ebdc0d5ca5001536c66f42e3df7acc3a939099d41214",
+          "size": 7210304
+        },
+        "source_ghost_system": {
+          "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s101_bound/normalized_source_ghost_system.xml",
+          "sha256": "05f1e25d91b2ec227bf18eb27d580d17a35beb92fa5f8824fc1a9a1bd2a8bb26",
+          "size": 125816712
+        },
+        "source_system": {
+          "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s101_bound/normalized_source_system.xml",
+          "sha256": "b901e47c5f609c4fc6405b615cedd43d22575897117f777ead12f6ff29d2f187",
+          "size": 108623644
+        }
+      },
+      "cell_id": "w4a_union_s101_bound",
+      "result": {
+        "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s101_bound/normalization_result.json",
+        "sha256": "fc71bfcd7668a344329ff378a03ee634d50993da12831315de638db5203a1ef8",
+        "size": 20375
+      },
+      "status": "PASS",
+      "stored_min_nm": 0.3650638778799656,
+      "transformed_min_nm": 0.39477643994093525,
+      "volume_relative_delta_before": 0.014119920830061083
+    },
+    {
+      "all_solute_water_min_nm": 0.313357011595359,
+      "artifacts": {
+        "bridge_system": {
+          "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s127_bound/normalized_bridge_system.xml",
+          "sha256": "16e45b047ab83b45559ba517af8f837d3cdde460ea5212f243e75ee7ebe788d7",
+          "size": 126708996
+        },
+        "inspection_pdb": {
+          "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s127_bound/normalized_source.pdb",
+          "sha256": "05afde1991fa98cbd637daf5aa8416d329f8507c0f1b641b19811149dec0259d",
+          "size": 24521168
+        },
+        "positions": {
+          "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s127_bound/positions_float64.npy",
+          "sha256": "05ed8d5a2a121c9ced3c024950c4c7a21577bbaeda94ed8e50623c663d65e7e5",
+          "size": 7265552
+        },
+        "source_ghost_system": {
+          "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s127_bound/normalized_source_ghost_system.xml",
+          "sha256": "611f9afe0221ad191dbca41abe8015d313380a53ec6af4f9955ee125cc334f3d",
+          "size": 126708684
+        },
+        "source_system": {
+          "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s127_bound/normalized_source_system.xml",
+          "sha256": "5973a5a2e5bb0d356ba62f4dbde56fe6d98e3a8cc24b79802c9bb4275ee4bcdb",
+          "size": 109384360
+        }
+      },
+      "cell_id": "w4a_union_s127_bound",
+      "result": {
+        "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s127_bound/normalization_result.json",
+        "sha256": "9ccc27b9bb840c12859b6dce056d6b803d3bd8aea9de047fda192683fca3e996",
+        "size": 20374
+      },
+      "status": "PASS",
+      "stored_min_nm": 0.4053309267248146,
+      "transformed_min_nm": 0.34366438254515064,
+      "volume_relative_delta_before": 0.014915173440944729
+    },
+    {
+      "all_solute_water_min_nm": 0.3172974510020096,
+      "artifacts": {
+        "bridge_system": {
+          "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s163_bound/normalized_bridge_system.xml",
+          "sha256": "d9602a0e86ca1304b5d3c08ad0230b8b6055d930713c7da4943a3bf22233e947",
+          "size": 131058368
+        },
+        "inspection_pdb": {
+          "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s163_bound/normalized_source.pdb",
+          "sha256": "a286c5dbbf420cb02e3eedaf64e72e8f3a895043bec52b7cc99b43bc2792cdd7",
+          "size": 25430393
+        },
+        "positions": {
+          "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s163_bound/positions_float64.npy",
+          "sha256": "60302d1edde1689663c1f8808abdb74539b88bd8812ddb3da9b81c714679dcad",
+          "size": 7534952
+        },
+        "source_ghost_system": {
+          "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s163_bound/normalized_source_ghost_system.xml",
+          "sha256": "8b9169a8106d369dcd374c971a2d5552123da4da1f7139a7225dcfac2b5dde5d",
+          "size": 131058056
+        },
+        "source_system": {
+          "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s163_bound/normalized_source_system.xml",
+          "sha256": "371c308f671ca342146558cf3af28c089c9e3432d881d04b719c10cb7547ce07",
+          "size": 113093697
+        }
+      },
+      "cell_id": "w4a_union_s163_bound",
+      "result": {
+        "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s163_bound/normalization_result.json",
+        "sha256": "6c83e305bd9b18d4665ffa0d4a8334127af41672aaf19fe58871d2e9fa960eac",
+        "size": 20380
+      },
+      "status": "PASS",
+      "stored_min_nm": 0.33330463494500634,
+      "transformed_min_nm": 0.39518068220132685,
+      "volume_relative_delta_before": 0.011542028123545212
+    },
+    {
+      "all_solute_water_min_nm": 0.3361830873861513,
+      "artifacts": {
+        "bridge_system": {
+          "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s101_free/normalized_bridge_system.xml",
+          "sha256": "774ddefc0e9cee2f71383508b6e8c8c2838a344ace6c9c14f166a03bb373f34b",
+          "size": 11812681
+        },
+        "inspection_pdb": {
+          "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s101_free/normalized_source.pdb",
+          "sha256": "8de664092555bd9a27874ea23ac84705cd718d48248fb802052fa63613efc2eb",
+          "size": 2429653
+        },
+        "positions": {
+          "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s101_free/positions_float64.npy",
+          "sha256": "5b48743e8388703cb87943509646293482de0aa0de698fdf8256b96d56c32e13",
+          "size": 719936
+        },
+        "source_ghost_system": {
+          "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s101_free/normalized_source_ghost_system.xml",
+          "sha256": "81152f1aadf6ab8f2158d35988db75066766f899112952744675b991368063b9",
+          "size": 11812369
+        },
+        "source_system": {
+          "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s101_free/normalized_source_system.xml",
+          "sha256": "8e876dd12b4edf8b38575cfc75b27eea4602a578e711efff68bfd4707d53fa27",
+          "size": 10110777
+        }
+      },
+      "cell_id": "w4a_union_s101_free",
+      "result": {
+        "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s101_free/normalization_result.json",
+        "sha256": "c4839c0bae65b72a12f32e97e19251645cb0eff5f11e089fb0c9839f9f6bedc8",
+        "size": 20226
+      },
+      "status": "PASS",
+      "stored_min_nm": 0.3395496246419055,
+      "transformed_min_nm": 0.3870256901450226,
+      "volume_relative_delta_before": 0.02710832072964009
+    },
+    {
+      "all_solute_water_min_nm": 0.2842947072125432,
+      "artifacts": {
+        "bridge_system": {
+          "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s127_free/normalized_bridge_system.xml",
+          "sha256": "9b3098bcb615263116ff904672e96f23317b77a6410f87298fa3f51455eee4e1",
+          "size": 12003581
+        },
+        "inspection_pdb": {
+          "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s127_free/normalized_source.pdb",
+          "sha256": "837bb0feb8e16a5b4b25485df377643073a4f245ca51d250ae86b3d95ad78f68",
+          "size": 2469991
+        },
+        "positions": {
+          "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s127_free/positions_float64.npy",
+          "sha256": "d60bcd1d62dcd66ceea7cfe68c407e8803c8bf66abeb8c97e3f52ee325ba051b",
+          "size": 731888
+        },
+        "source_ghost_system": {
+          "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s127_free/normalized_source_ghost_system.xml",
+          "sha256": "5b10e21cb179343403209ce513ff51929f1056d6629d310ee9888c6b3195b513",
+          "size": 12003269
+        },
+        "source_system": {
+          "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s127_free/normalized_source_system.xml",
+          "sha256": "ce7596cc48868f45a7e749c55cb8f5f1ded892418bebe499bc252725e4b55513",
+          "size": 10273457
+        }
+      },
+      "cell_id": "w4a_union_s127_free",
+      "result": {
+        "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s127_free/normalization_result.json",
+        "sha256": "785f1397b5de535c4bbce0a2f4126bfa2b019a51bcf3e420f2c5219a7faca72a",
+        "size": 20233
+      },
+      "status": "PASS",
+      "stored_min_nm": 0.3256324726599014,
+      "transformed_min_nm": 0.31852412669788327,
+      "volume_relative_delta_before": 0.03387510067836175
+    },
+    {
+      "all_solute_water_min_nm": 0.2829301771350203,
+      "artifacts": {
+        "bridge_system": {
+          "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s163_free/normalized_bridge_system.xml",
+          "sha256": "f9731f349f47e04ae648c0aeccdf8f1a1b899b97e84a1dcbaf025005515737bf",
+          "size": 12614162
+        },
+        "inspection_pdb": {
+          "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s163_free/normalized_source.pdb",
+          "sha256": "48c642822c901fafd9c18920845a19ac2774f7850dffc99bd70b6dc6f1ba7188",
+          "size": 2599105
+        },
+        "positions": {
+          "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s163_free/positions_float64.npy",
+          "sha256": "d737ea47b776fe8589f07c876639ffd3fbbafa01f9557cb992601c679648fe9c",
+          "size": 770144
+        },
+        "source_ghost_system": {
+          "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s163_free/normalized_source_ghost_system.xml",
+          "sha256": "8be23d16e01d108cef8a92fe7648f0a02cb658fd5d1eda9aae83beaad01cf462",
+          "size": 12613850
+        },
+        "source_system": {
+          "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s163_free/normalized_source_system.xml",
+          "sha256": "e9e7e890cc8b1ca1e8b1b1e487fac63d8d4e7ce1ba028657e33e8d30579ea951",
+          "size": 10793668
+        }
+      },
+      "cell_id": "w4a_union_s163_free",
+      "result": {
+        "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources/w4a_union_s163_free/normalization_result.json",
+        "sha256": "e6fa84ee3e51769ce510e58e0d6a5b514f35ad73122d3681d97cf5756e7cb0b8",
+        "size": 20200
+      },
+      "status": "PASS",
+      "stored_min_nm": 0.3204714396206009,
+      "transformed_min_nm": 0.3338699286201395,
+      "volume_relative_delta_before": 0.03560866594210044
+    }
+  ],
+  "context_count": 0,
+  "generated": "2026-07-17 11:15:06 +0900",
+  "gpu_used": false,
+  "inventory_digest": "a794eeb91063c1541d1cf5a593f8f3d039b9951728a10b2acc51c4e39cfb3e69",
+  "md_steps": 0,
+  "minimization_steps": 0,
+  "n_completed": 6,
+  "n_expected": 6,
+  "normalized_summary_digest": "2448671ee154b5392652a6a9d443fffd53bf948b1beb14a242bf1e10e628dacc",
+  "pending_cell_ids": [],
+  "schema": "updd_dynamic_ghost_union_bridge_p1sd_normalization_summary_v1",
+  "status": "PASS"
+}

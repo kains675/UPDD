@@ -1,0 +1,89 @@
+{
+  "cells": [
+    {
+      "cell_id": "w4a_union_s101_bound",
+      "max_source_force_component_kj_mol_nm": 196363.18167433405,
+      "raw_u0_kj_mol": -3569768.9573925687,
+      "raw_u1_kj_mol": -3568533.1137655117,
+      "result": {
+        "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/reference_preflight/w4a_union_s101_bound/reference_result.json",
+        "sha256": "578c08d726f18ca6d07747245418755165dcb2bef00e7ea0e999900ce928152a",
+        "size": 5223
+      },
+      "status": "P1SD_REFERENCE_PASS"
+    },
+    {
+      "cell_id": "w4a_union_s127_bound",
+      "max_source_force_component_kj_mol_nm": 1638026.7380768028,
+      "raw_u0_kj_mol": -2487516.4991088673,
+      "raw_u1_kj_mol": -2484143.181830575,
+      "result": {
+        "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/reference_preflight/w4a_union_s127_bound/reference_result.json",
+        "sha256": "13c6dbb1f99bb514a1db6c9229f2c1dbe64dad997a812dd19f6007529732c57a",
+        "size": 5227
+      },
+      "status": "P1SD_REFERENCE_PASS"
+    },
+    {
+      "cell_id": "w4a_union_s163_bound",
+      "max_source_force_component_kj_mol_nm": 2754647.4818911804,
+      "raw_u0_kj_mol": -69215.0128034241,
+      "raw_u1_kj_mol": -69098.82700642402,
+      "result": {
+        "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/reference_preflight/w4a_union_s163_bound/reference_result.json",
+        "sha256": "f5ffe5bd383a5b4b949af8cbca49208cdec35e8a7ffe9f0334dd0eac8ddca212",
+        "size": 5319
+      },
+      "status": "P1SD_REFERENCE_PASS"
+    },
+    {
+      "cell_id": "w4a_union_s101_free",
+      "max_source_force_component_kj_mol_nm": 454883.8181749474,
+      "raw_u0_kj_mol": -237620.81856242917,
+      "raw_u1_kj_mol": -235529.6206527003,
+      "result": {
+        "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/reference_preflight/w4a_union_s101_free/reference_result.json",
+        "sha256": "5b6bb2668318eaf925f2e3bc07f7a24b208bf68a37adada5d8d1e7f708420890",
+        "size": 5379
+      },
+      "status": "P1SD_REFERENCE_PASS"
+    },
+    {
+      "cell_id": "w4a_union_s127_free",
+      "max_source_force_component_kj_mol_nm": 3404936.1855773404,
+      "raw_u0_kj_mol": 362862.67611020704,
+      "raw_u1_kj_mol": 365682.2317686001,
+      "result": {
+        "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/reference_preflight/w4a_union_s127_free/reference_result.json",
+        "sha256": "927c79f56e670af29cff4d001eddf3a2526569e59ab2a9d0ae73f0421734b01e",
+        "size": 5372
+      },
+      "status": "P1SD_REFERENCE_PASS"
+    },
+    {
+      "cell_id": "w4a_union_s163_free",
+      "max_source_force_component_kj_mol_nm": 410409.52486101113,
+      "raw_u0_kj_mol": -270343.95633684605,
+      "raw_u1_kj_mol": -267631.53709522146,
+      "result": {
+        "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/reference_preflight/w4a_union_s163_free/reference_result.json",
+        "sha256": "ce7bf1055f8108a1a8889be02a3028bc0307bf43f9413ceaf9afa51c739302eb",
+        "size": 5398
+      },
+      "status": "P1SD_REFERENCE_PASS"
+    }
+  ],
+  "free_energy_estimated": false,
+  "generated": "2026-07-17 11:25:06 +0900",
+  "gpu_used": false,
+  "inventory_digest": "a794eeb91063c1541d1cf5a593f8f3d039b9951728a10b2acc51c4e39cfb3e69",
+  "md_steps": 0,
+  "minimization_steps": 0,
+  "n_completed": 6,
+  "n_expected": 6,
+  "normalized_summary_digest": "2448671ee154b5392652a6a9d443fffd53bf948b1beb14a242bf1e10e628dacc",
+  "pending_cell_ids": [],
+  "platform": "Reference",
+  "schema": "updd_dynamic_ghost_union_bridge_p1sd_reference_summary_v1",
+  "status": "P1SD_REFERENCE_PASS"
+}

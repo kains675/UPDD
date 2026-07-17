@@ -1,0 +1,82 @@
+{
+  "schema": "updd_dynamic_ghost_union_bridge_p0v3r2_prereg_v1",
+  "registered_local": "2026-07-17",
+  "status": "FROZEN_BEFORE_P0V3R2_IMPLEMENTATION_OR_OUTPUT",
+  "regime": "R11_RANKING_SIGN_ONLY_MECHANISM_VALIDATION",
+  "scival_verdict": "CONDITIONAL_APPROVE_P0V3R2_ONLY",
+  "inherits": {
+    "preregistration": "analysis/dynamic_ghost_union_bridge_p0v3r1_20260717/PREREGISTRATION.md",
+    "preregistration_sha256": "d9e9b66f855773d8030cb314c44d572b897c86be76625f7ed0d828fa3cf53b6d",
+    "protocol": "analysis/dynamic_ghost_union_bridge_p0v3r1_20260717/protocol.json",
+    "protocol_sha256": "96664e0dda3dc155168c384fd9276192f9dd524c845bfd20d2ee2e2b0bde1870",
+    "frozen_manifest": "analysis/dynamic_ghost_union_bridge_p0v3r1_20260717/FROZEN_MANIFEST.json",
+    "frozen_manifest_sha256": "ff1a7eb9952ef8dbfb0fd02cc46a2df773c6a0f4a1ff7cd5cdef5ec882294ef4",
+    "all_scientific_gates_unchanged": true
+  },
+  "trigger": {
+    "formal_status": "REJECT_UNION_SOURCE",
+    "failed_cell": "w4a_union_s101_bound",
+    "completed_cells": 1,
+    "failed_check": "caller_rng_state_unchanged",
+    "path_classification": "AUDIT_SCOPE_ERROR_WITH_REAL_APPEARING_H_REPRODUCIBILITY_SIGNAL",
+    "path_record": "analysis/dynamic_ghost_union_bridge_p0v3r1_20260717/P0V3R1_PATH_DIAGNOSIS.json",
+    "path_record_sha256": "30488435ba0ec18fd09d6cb493c17641aa97e7750d6eb0430610c825eed3388f",
+    "source_summary": "analysis/dynamic_ghost_union_bridge_p0v3r1_20260717/P0V3R1_SOURCE_SUMMARY.json",
+    "source_summary_sha256": "5561828448554c4b0b1a5f377871403ca34d2b5bc8a63e1ff2a4328a5d296ef0",
+    "failed_cell_result": "analysis/dynamic_ghost_union_bridge_p0v3r1_20260717/u0_union_sources/w4a_union_s101_bound/source_build_result.json",
+    "failed_cell_result_sha256": "dddaf2becf0c6cc561fdc54bb74d1a506ff038f7b1202d5dbd866e361c2ee1af"
+  },
+  "appearing_h": {
+    "mode": "existing_deterministic_per_unit_r2_retry",
+    "mutation_spec_object": "w4a_trp_ala_res4",
+    "unit_key_template": "{seed}|{leg}|w4a_trp_ala_res4",
+    "seed_derivation": "int(sha256(unit_key+'#'+attempt).hexdigest()[:8],16)&0x7fffffff",
+    "retry_k": 5,
+    "retry_only_error_prefix": "R2 two-copy seed min-dist FAIL",
+    "cells": {
+      "w4a_union_s101_bound": [1248013600, 821365542, 13400133, 123974878, 1391514182],
+      "w4a_union_s127_bound": [930194524, 198058456, 1979308714, 1695657795, 643592353],
+      "w4a_union_s163_bound": [652776389, 2100013619, 514827842, 148968126, 1852907068],
+      "w4a_union_s101_free": [1570880720, 1238137364, 280468345, 576613175, 1311681870],
+      "w4a_union_s127_free": [1081154822, 301540652, 1620431659, 1668652495, 550394267],
+      "w4a_union_s163_free": [1103571852, 1876770155, 627858153, 1957885304, 2057776391]
+    }
+  },
+  "rng_scope": {
+    "union_addsolvent_seed_recorded": true,
+    "union_addsolvent_seed_consumed": true,
+    "union_addsolvent_global_state_restored": true,
+    "whole_builder_global_state_invariant_gate": false,
+    "cell_subprocess_isolation": true
+  },
+  "execution": {
+    "fresh_source_builds": 6,
+    "reuse_p0v3r1_source_artifacts": false,
+    "keeper_contexts": 0,
+    "reference_cell_subprocesses": 6,
+    "platform": "Reference",
+    "md_steps": 0,
+    "minimization_steps": 0,
+    "gpu_allowed": false,
+    "free_energy_estimation_allowed": false,
+    "automatic_next_stage": false
+  },
+  "unchanged_hard_gates": {
+    "exact_water_ion_total_solvent_atom_particle_counts": true,
+    "charge_tolerance_e": 1e-8,
+    "placeholder_target_tolerance_nm": 1e-6,
+    "placeholder_final_count": 0,
+    "ring_water_min_distance_nm": 0.26,
+    "raw_endpoint_abs_energy_max_kj_mol": 1e8,
+    "raw_max_force_component_kj_mol_nm": 1e8,
+    "energy_tolerance_kj_mol": 1e-5,
+    "force_component_tolerance_kj_mol_nm": 1e-5,
+    "derivative_tolerance_kj_mol": 1e-5
+  },
+  "outcomes": [
+    "P0V3R2_PASS",
+    "REJECT_UNION_SOURCE",
+    "REJECT_BRIDGE",
+    "P0V3R2_INTERRUPTED"
+  ]
+}

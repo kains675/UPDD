@@ -1,0 +1,16 @@
+{
+  "schema": "updd_raw_gap_cap_activation_p1cap_freeze_v1",
+  "frozen_local": "2026-07-17",
+  "status": "FROZEN_BEFORE_IMPLEMENTATION_OR_P1CAP_OUTPUT",
+  "files": {
+    "PREREGISTRATION.md": "98812e28d341a141e1ebda2630193bf56c505a441c49f6ff10de9a225f34a2fa",
+    "protocol.json": "6999042715357cfd302fcc06588efe03b7e2993c07ba61ec4c6bb7335e6399db"
+  },
+  "parent_evidence": {
+    "analysis/dynamic_ghost_union_bridge_p1sd_20260717/FROZEN_MANIFEST_R2.json": "6c54354e8db230ed1695eff8f3f37890a7d4d08c84cc91cfb8bb281cda48d244",
+    "analysis/dynamic_ghost_union_bridge_p1sd_20260717/P1SD_PREBUILD_INVENTORY.json": "546c8dd51d7a62a69d7e35282a692b81ea92c792272bb1a4a0d506073485317b",
+    "analysis/dynamic_ghost_union_bridge_p1sd_20260717/P1SD_NORMALIZED_SOURCE_SUMMARY.json": "539952550959a5a98d53b2c05aa7806d10072e2154fc53dda7ef2dcf811929ba",
+    "analysis/dynamic_ghost_union_bridge_p1sd_20260717/P1SD_PARTIAL_SUMMARY.json": "2ec4bfb726dbf01e3965ece4a4834200367ec072bb3d501034b7d83185dc5e2a",
+    "analysis/dynamic_ghost_union_bridge_p1sd_20260717/P1SD_PATH_DIAGNOSIS.json": "cd780f0fb822f5f656f9ec1dad9dedc07b29ee714e2ab0692aa775b966e884a8"
+  }
+}

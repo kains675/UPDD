@@ -1,0 +1,1012 @@
+{
+  "cells": [
+    {
+      "bridge_artifact": {
+        "path": "analysis/dynamic_ghost_union_bridge_p0v3r2_20260717/p0v3r2_reference_audit/w4a_union_s101_bound/apex_bridge_system.xml",
+        "sha256": "73bed08681d5a450fb3123a4528adfc048316d69690fa6ac65d67ed18a711ffb",
+        "size": 125817057
+      },
+      "cell_id": "w4a_union_s101_bound",
+      "leg": "bound",
+      "parent_box": {
+        "cubic": true,
+        "finite": true,
+        "lengths_nm": [
+          14.5795,
+          14.5795,
+          14.5795
+        ],
+        "orthogonal": true,
+        "passed": true,
+        "right_handed": true,
+        "vectors_nm": [
+          [
+            14.5795,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            14.5795,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            14.5795
+          ]
+        ],
+        "volume_nm3": 3099.0450583348747
+      },
+      "parent_cell_digest": "f1aadd5c83d6f4397d2c819bce09919ca6978c095556a3737a380a723ee99d15",
+      "parent_contract": {
+        "box": {
+          "cubic": true,
+          "finite": true,
+          "lengths_nm": [
+            14.5795,
+            14.5795,
+            14.5795
+          ],
+          "orthogonal": true,
+          "passed": true,
+          "right_handed": true,
+          "vectors_nm": [
+            [
+              14.5795,
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              14.5795,
+              0.0
+            ],
+            [
+              0.0,
+              0.0,
+              14.5795
+            ]
+          ],
+          "volume_nm3": 3099.0450583348747
+        },
+        "net_charge_e": -1.7053025658242404e-13,
+        "particles": 300424,
+        "solute_signature": {
+          "digest": "e0efac4c2f76ae8301571531a72e19757ca53ef7351c9364af524cd62a3fc9b6",
+          "n_atoms": 10296,
+          "n_residues": 657
+        },
+        "solvent_counts": {
+          "cl": 263,
+          "na": 263,
+          "total": 97060,
+          "water": 96534
+        },
+        "topology_atoms": 300424
+      },
+      "replicate_index": 5,
+      "seed": "s101",
+      "source_artifacts": {
+        "serialized_pdb": {
+          "path": "analysis/dynamic_ghost_union_bridge_p0v3r2_20260717/u0_union_sources/w4a_union_s101_bound/inplace_rbfe_bound.pdb",
+          "sha256": "1789e4bfd4cd47fa349983e64d3acd098f0bdfb164ac092f79de09e55e2ebafe",
+          "size": 24334706
+        },
+        "serialized_xml": {
+          "path": "analysis/dynamic_ghost_union_bridge_p0v3r2_20260717/u0_union_sources/w4a_union_s101_bound/inplace_rbfe_bound_sys.xml",
+          "sha256": "b7310e5c87ac4beb7c30b4f8b260913ea75844268479e043a105daa4548524fe",
+          "size": 108623677
+        }
+      },
+      "source_result": {
+        "path": "analysis/dynamic_ghost_union_bridge_p0v3r2_20260717/u0_union_sources/w4a_union_s101_bound/source_build_result.json",
+        "sha256": "11d5516aa929127429eb41c82e41a23982dc174c39e0287eb9de0a79fda15046",
+        "size": 21182
+      },
+      "states": {
+        "apex_dminus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": -1,
+          "intermediate": 0,
+          "label": "apex_dminus",
+          "lambda1": 0.5,
+          "lambda2": 0.5,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        },
+        "apex_dplus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": 1,
+          "intermediate": 0,
+          "label": "apex_dplus",
+          "lambda1": 0.5,
+          "lambda2": 0.5,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        },
+        "u0_dplus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": 1,
+          "intermediate": 0,
+          "label": "u0_dplus",
+          "lambda1": 0.0,
+          "lambda2": 0.0,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        },
+        "u1_dminus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": -1,
+          "intermediate": 0,
+          "label": "u1_dminus",
+          "lambda1": 0.0,
+          "lambda2": 0.0,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        }
+      }
+    },
+    {
+      "bridge_artifact": {
+        "path": "analysis/dynamic_ghost_union_bridge_p0v3r2_20260717/p0v3r2_reference_audit/w4a_union_s127_bound/apex_bridge_system.xml",
+        "sha256": "f71dad4e63a5487e60dd9e41422646de2d37c9fc38ef976c27c01ce26ab2695c",
+        "size": 126708996
+      },
+      "cell_id": "w4a_union_s127_bound",
+      "leg": "bound",
+      "parent_box": {
+        "cubic": true,
+        "finite": true,
+        "lengths_nm": [
+          14.6143,
+          14.6143,
+          14.6143
+        ],
+        "orthogonal": true,
+        "passed": true,
+        "right_handed": true,
+        "vectors_nm": [
+          [
+            14.6143,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            14.6143,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            14.6143
+          ]
+        ],
+        "volume_nm3": 3121.2895235862056
+      },
+      "parent_cell_digest": "5d7569898a04487456a8e8318bf0f9534da1ac1779a03abf08f2a54189bc1c7d",
+      "parent_contract": {
+        "box": {
+          "cubic": true,
+          "finite": true,
+          "lengths_nm": [
+            14.6143,
+            14.6143,
+            14.6143
+          ],
+          "orthogonal": true,
+          "passed": true,
+          "right_handed": true,
+          "vectors_nm": [
+            [
+              14.6143,
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              14.6143,
+              0.0
+            ],
+            [
+              0.0,
+              0.0,
+              14.6143
+            ]
+          ],
+          "volume_nm3": 3121.2895235862056
+        },
+        "net_charge_e": -1.7053025658242404e-13,
+        "particles": 302726,
+        "solute_signature": {
+          "digest": "e0efac4c2f76ae8301571531a72e19757ca53ef7351c9364af524cd62a3fc9b6",
+          "n_atoms": 10296,
+          "n_residues": 657
+        },
+        "solvent_counts": {
+          "cl": 265,
+          "na": 265,
+          "total": 97830,
+          "water": 97300
+        },
+        "topology_atoms": 302726
+      },
+      "replicate_index": 6,
+      "seed": "s127",
+      "source_artifacts": {
+        "serialized_pdb": {
+          "path": "analysis/dynamic_ghost_union_bridge_p0v3r2_20260717/u0_union_sources/w4a_union_s127_bound/inplace_rbfe_bound.pdb",
+          "sha256": "be6c8ed6652c024e0ece81b416b4398642f25cceefa26e55f64b42493d34b73e",
+          "size": 24521168
+        },
+        "serialized_xml": {
+          "path": "analysis/dynamic_ghost_union_bridge_p0v3r2_20260717/u0_union_sources/w4a_union_s127_bound/inplace_rbfe_bound_sys.xml",
+          "sha256": "652ab9950506344662ce441ed1ec4947ce51e567c5ffb35a24c765bd6d7049fe",
+          "size": 109384360
+        }
+      },
+      "source_result": {
+        "path": "analysis/dynamic_ghost_union_bridge_p0v3r2_20260717/u0_union_sources/w4a_union_s127_bound/source_build_result.json",
+        "sha256": "4c7409dc6b7b3a2273d7ee88a1dadedce64e779b4676bf971642808821a67d85",
+        "size": 21004
+      },
+      "states": {
+        "apex_dminus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": -1,
+          "intermediate": 0,
+          "label": "apex_dminus",
+          "lambda1": 0.5,
+          "lambda2": 0.5,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        },
+        "apex_dplus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": 1,
+          "intermediate": 0,
+          "label": "apex_dplus",
+          "lambda1": 0.5,
+          "lambda2": 0.5,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        },
+        "u0_dplus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": 1,
+          "intermediate": 0,
+          "label": "u0_dplus",
+          "lambda1": 0.0,
+          "lambda2": 0.0,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        },
+        "u1_dminus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": -1,
+          "intermediate": 0,
+          "label": "u1_dminus",
+          "lambda1": 0.0,
+          "lambda2": 0.0,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        }
+      }
+    },
+    {
+      "bridge_artifact": {
+        "path": "analysis/dynamic_ghost_union_bridge_p0v3r2_20260717/p0v3r2_reference_audit/w4a_union_s163_bound/apex_bridge_system.xml",
+        "sha256": "aa57f862f195f3896c72ac8dd84e6fb8e7c70e7ee5e214bd3cf8e92c115ec610",
+        "size": 131058371
+      },
+      "cell_id": "w4a_union_s163_bound",
+      "leg": "bound",
+      "parent_box": {
+        "cubic": true,
+        "finite": true,
+        "lengths_nm": [
+          14.794,
+          14.794,
+          14.794
+        ],
+        "orthogonal": true,
+        "passed": true,
+        "right_handed": true,
+        "vectors_nm": [
+          [
+            14.794,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            14.794,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            14.794
+          ]
+        ],
+        "volume_nm3": 3237.850878184001
+      },
+      "parent_cell_digest": "7fe793c00c2a523badca3fee89af977f187b9c9d92d4d28779311bd150a3077f",
+      "parent_contract": {
+        "box": {
+          "cubic": true,
+          "finite": true,
+          "lengths_nm": [
+            14.794,
+            14.794,
+            14.794
+          ],
+          "orthogonal": true,
+          "passed": true,
+          "right_handed": true,
+          "vectors_nm": [
+            [
+              14.794,
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              14.794,
+              0.0
+            ],
+            [
+              0.0,
+              0.0,
+              14.794
+            ]
+          ],
+          "volume_nm3": 3237.850878184001
+        },
+        "net_charge_e": -1.7053025658242404e-13,
+        "particles": 313951,
+        "solute_signature": {
+          "digest": "e0efac4c2f76ae8301571531a72e19757ca53ef7351c9364af524cd62a3fc9b6",
+          "n_atoms": 10296,
+          "n_residues": 657
+        },
+        "solvent_counts": {
+          "cl": 275,
+          "na": 275,
+          "total": 101585,
+          "water": 101035
+        },
+        "topology_atoms": 313951
+      },
+      "replicate_index": 7,
+      "seed": "s163",
+      "source_artifacts": {
+        "serialized_pdb": {
+          "path": "analysis/dynamic_ghost_union_bridge_p0v3r2_20260717/u0_union_sources/w4a_union_s163_bound/inplace_rbfe_bound.pdb",
+          "sha256": "9fa84fda0010ab3fce9c1e1b2747109d72900e399f34dc59670fe8c702b9fa12",
+          "size": 25430393
+        },
+        "serialized_xml": {
+          "path": "analysis/dynamic_ghost_union_bridge_p0v3r2_20260717/u0_union_sources/w4a_union_s163_bound/inplace_rbfe_bound_sys.xml",
+          "sha256": "55714c0cbe556b4b6b88156820c7849c3ff22f18a6f55dc8600a31a4251fc445",
+          "size": 113093700
+        }
+      },
+      "source_result": {
+        "path": "analysis/dynamic_ghost_union_bridge_p0v3r2_20260717/u0_union_sources/w4a_union_s163_bound/source_build_result.json",
+        "sha256": "41aab31a42956341df63c7e2e600b59397b6d149ab16ad61176af6c0c1c0f6d1",
+        "size": 21058
+      },
+      "states": {
+        "apex_dminus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": -1,
+          "intermediate": 0,
+          "label": "apex_dminus",
+          "lambda1": 0.5,
+          "lambda2": 0.5,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        },
+        "apex_dplus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": 1,
+          "intermediate": 0,
+          "label": "apex_dplus",
+          "lambda1": 0.5,
+          "lambda2": 0.5,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        },
+        "u0_dplus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": 1,
+          "intermediate": 0,
+          "label": "u0_dplus",
+          "lambda1": 0.0,
+          "lambda2": 0.0,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        },
+        "u1_dminus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": -1,
+          "intermediate": 0,
+          "label": "u1_dminus",
+          "lambda1": 0.0,
+          "lambda2": 0.0,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        }
+      }
+    },
+    {
+      "bridge_artifact": {
+        "path": "analysis/dynamic_ghost_union_bridge_p0v3r2_20260717/p0v3r2_reference_audit/w4a_union_s101_free/apex_bridge_system.xml",
+        "sha256": "535f15e71d114deacde080e67600c2d66844d78f98772485d4afbcd0a06c0579",
+        "size": 11812648
+      },
+      "cell_id": "w4a_union_s101_free",
+      "leg": "free",
+      "parent_box": {
+        "cubic": true,
+        "finite": true,
+        "lengths_nm": [
+          6.789000000000001,
+          6.789000000000001,
+          6.789000000000001
+        ],
+        "orthogonal": true,
+        "passed": true,
+        "right_handed": true,
+        "vectors_nm": [
+          [
+            6.789000000000001,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            6.789000000000001,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            6.789000000000001
+          ]
+        ],
+        "volume_nm3": 312.9085470690001
+      },
+      "parent_cell_digest": "9c28856365764b4af410ee9e60d58b9389d7d0f4fc5604f6d032d57f5f0571ad",
+      "parent_contract": {
+        "box": {
+          "cubic": true,
+          "finite": true,
+          "lengths_nm": [
+            6.789000000000001,
+            6.789000000000001,
+            6.789000000000001
+          ],
+          "orthogonal": true,
+          "passed": true,
+          "right_handed": true,
+          "vectors_nm": [
+            [
+              6.789000000000001,
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              6.789000000000001,
+              0.0
+            ],
+            [
+              0.0,
+              0.0,
+              6.789000000000001
+            ]
+          ],
+          "volume_nm3": 312.9085470690001
+        },
+        "net_charge_e": 0.0,
+        "particles": 29992,
+        "solute_signature": {
+          "digest": "bf57c6cb67ded41b9dcc697ae95300c28786870b57d503b58d6f9e65d56e4fd7",
+          "n_atoms": 400,
+          "n_residues": 26
+        },
+        "solvent_counts": {
+          "cl": 27,
+          "na": 27,
+          "total": 9900,
+          "water": 9846
+        },
+        "topology_atoms": 29992
+      },
+      "replicate_index": 5,
+      "seed": "s101",
+      "source_artifacts": {
+        "serialized_pdb": {
+          "path": "analysis/dynamic_ghost_union_bridge_p0v3r2_20260717/u0_union_sources/w4a_union_s101_free/inplace_rbfe_free.pdb",
+          "sha256": "6746e529ffa57c00256de2b35d77943a70a0d7cdb2941a335791da046ca30254",
+          "size": 2429653
+        },
+        "serialized_xml": {
+          "path": "analysis/dynamic_ghost_union_bridge_p0v3r2_20260717/u0_union_sources/w4a_union_s101_free/inplace_rbfe_free_sys.xml",
+          "sha256": "74971ae51f26f3212d86623668e729967623f6b22cd29ee3c3e4dbdf5a354410",
+          "size": 10110744
+        }
+      },
+      "source_result": {
+        "path": "analysis/dynamic_ghost_union_bridge_p0v3r2_20260717/u0_union_sources/w4a_union_s101_free/source_build_result.json",
+        "sha256": "caca6e30e5588fa4838f7d40d83b1a1e3c827635bbd77f9948f1930610ebeb90",
+        "size": 21041
+      },
+      "states": {
+        "apex_dminus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": -1,
+          "intermediate": 0,
+          "label": "apex_dminus",
+          "lambda1": 0.5,
+          "lambda2": 0.5,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        },
+        "apex_dplus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": 1,
+          "intermediate": 0,
+          "label": "apex_dplus",
+          "lambda1": 0.5,
+          "lambda2": 0.5,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        },
+        "u0_dplus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": 1,
+          "intermediate": 0,
+          "label": "u0_dplus",
+          "lambda1": 0.0,
+          "lambda2": 0.0,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        },
+        "u1_dminus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": -1,
+          "intermediate": 0,
+          "label": "u1_dminus",
+          "lambda1": 0.0,
+          "lambda2": 0.0,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        }
+      }
+    },
+    {
+      "bridge_artifact": {
+        "path": "analysis/dynamic_ghost_union_bridge_p0v3r2_20260717/p0v3r2_reference_audit/w4a_union_s127_free/apex_bridge_system.xml",
+        "sha256": "99c81f6f10c6ac412ac8d21d0765a18ac15f60993f86ee2870e7af80830c1749",
+        "size": 12003548
+      },
+      "cell_id": "w4a_union_s127_free",
+      "leg": "free",
+      "parent_box": {
+        "cubic": true,
+        "finite": true,
+        "lengths_nm": [
+          6.815000000000001,
+          6.815000000000001,
+          6.815000000000001
+        ],
+        "orthogonal": true,
+        "passed": true,
+        "right_handed": true,
+        "vectors_nm": [
+          [
+            6.815000000000001,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            6.815000000000001,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            6.815000000000001
+          ]
+        ],
+        "volume_nm3": 316.51739337500015
+      },
+      "parent_cell_digest": "a2843d327579255de9341e1cb4a6d8c384d72cadf1c6342de82c1191698405ec",
+      "parent_contract": {
+        "box": {
+          "cubic": true,
+          "finite": true,
+          "lengths_nm": [
+            6.815000000000001,
+            6.815000000000001,
+            6.815000000000001
+          ],
+          "orthogonal": true,
+          "passed": true,
+          "right_handed": true,
+          "vectors_nm": [
+            [
+              6.815000000000001,
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              6.815000000000001,
+              0.0
+            ],
+            [
+              0.0,
+              0.0,
+              6.815000000000001
+            ]
+          ],
+          "volume_nm3": 316.51739337500015
+        },
+        "net_charge_e": 0.0,
+        "particles": 30490,
+        "solute_signature": {
+          "digest": "bf57c6cb67ded41b9dcc697ae95300c28786870b57d503b58d6f9e65d56e4fd7",
+          "n_atoms": 400,
+          "n_residues": 26
+        },
+        "solvent_counts": {
+          "cl": 27,
+          "na": 27,
+          "total": 10066,
+          "water": 10012
+        },
+        "topology_atoms": 30490
+      },
+      "replicate_index": 6,
+      "seed": "s127",
+      "source_artifacts": {
+        "serialized_pdb": {
+          "path": "analysis/dynamic_ghost_union_bridge_p0v3r2_20260717/u0_union_sources/w4a_union_s127_free/inplace_rbfe_free.pdb",
+          "sha256": "150688aadde6df9ce3d4dbad85108539a78b8598c19484532799172675ed91e6",
+          "size": 2469991
+        },
+        "serialized_xml": {
+          "path": "analysis/dynamic_ghost_union_bridge_p0v3r2_20260717/u0_union_sources/w4a_union_s127_free/inplace_rbfe_free_sys.xml",
+          "sha256": "8621a8491e938c98edebcc1d043aba445e7559c81b7ba186e30dace756a5b902",
+          "size": 10273424
+        }
+      },
+      "source_result": {
+        "path": "analysis/dynamic_ghost_union_bridge_p0v3r2_20260717/u0_union_sources/w4a_union_s127_free/source_build_result.json",
+        "sha256": "ea385f5cd86cee442078d4b244212c1f5d57f6b62e852f23c205b1a03bfa3832",
+        "size": 20980
+      },
+      "states": {
+        "apex_dminus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": -1,
+          "intermediate": 0,
+          "label": "apex_dminus",
+          "lambda1": 0.5,
+          "lambda2": 0.5,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        },
+        "apex_dplus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": 1,
+          "intermediate": 0,
+          "label": "apex_dplus",
+          "lambda1": 0.5,
+          "lambda2": 0.5,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        },
+        "u0_dplus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": 1,
+          "intermediate": 0,
+          "label": "u0_dplus",
+          "lambda1": 0.0,
+          "lambda2": 0.0,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        },
+        "u1_dminus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": -1,
+          "intermediate": 0,
+          "label": "u1_dminus",
+          "lambda1": 0.0,
+          "lambda2": 0.0,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        }
+      }
+    },
+    {
+      "bridge_artifact": {
+        "path": "analysis/dynamic_ghost_union_bridge_p0v3r2_20260717/p0v3r2_reference_audit/w4a_union_s163_free/apex_bridge_system.xml",
+        "sha256": "950499230b379833935574d4bd913b2cd7ab475689e36ba2c77b28d31381a6e8",
+        "size": 12614162
+      },
+      "cell_id": "w4a_union_s163_free",
+      "leg": "free",
+      "parent_box": {
+        "cubic": true,
+        "finite": true,
+        "lengths_nm": [
+          6.9216,
+          6.9216,
+          6.9216
+        ],
+        "orthogonal": true,
+        "passed": true,
+        "right_handed": true,
+        "vectors_nm": [
+          [
+            6.9216,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            6.9216,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            6.9216
+          ]
+        ],
+        "volume_nm3": 331.60379586969583
+      },
+      "parent_cell_digest": "955cf2cbb017de48b5c37ba110f916def6d1ddc4b3444b3b8375414f71089ae0",
+      "parent_contract": {
+        "box": {
+          "cubic": true,
+          "finite": true,
+          "lengths_nm": [
+            6.9216,
+            6.9216,
+            6.9216
+          ],
+          "orthogonal": true,
+          "passed": true,
+          "right_handed": true,
+          "vectors_nm": [
+            [
+              6.9216,
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              6.9216,
+              0.0
+            ],
+            [
+              0.0,
+              0.0,
+              6.9216
+            ]
+          ],
+          "volume_nm3": 331.60379586969583
+        },
+        "net_charge_e": 0.0,
+        "particles": 32084,
+        "solute_signature": {
+          "digest": "bf57c6cb67ded41b9dcc697ae95300c28786870b57d503b58d6f9e65d56e4fd7",
+          "n_atoms": 400,
+          "n_residues": 26
+        },
+        "solvent_counts": {
+          "cl": 29,
+          "na": 29,
+          "total": 10600,
+          "water": 10542
+        },
+        "topology_atoms": 32084
+      },
+      "replicate_index": 7,
+      "seed": "s163",
+      "source_artifacts": {
+        "serialized_pdb": {
+          "path": "analysis/dynamic_ghost_union_bridge_p0v3r2_20260717/u0_union_sources/w4a_union_s163_free/inplace_rbfe_free.pdb",
+          "sha256": "7af22d809312ef336bdb8765856d2b3af66ae43dbe7ef4d60506bde03a7ec1bc",
+          "size": 2599105
+        },
+        "serialized_xml": {
+          "path": "analysis/dynamic_ghost_union_bridge_p0v3r2_20260717/u0_union_sources/w4a_union_s163_free/inplace_rbfe_free_sys.xml",
+          "sha256": "9b4c23034889dc1b26770bd5b3e7d3a5698d1479b7a70dabc0fe68e723f5e4bf",
+          "size": 10793668
+        }
+      },
+      "source_result": {
+        "path": "analysis/dynamic_ghost_union_bridge_p0v3r2_20260717/u0_union_sources/w4a_union_s163_free/source_build_result.json",
+        "sha256": "3e2a3b9da3f62a3064f307bcc181ac5b850ff6f6704d596641c12f67eae56508",
+        "size": 20800
+      },
+      "states": {
+        "apex_dminus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": -1,
+          "intermediate": 0,
+          "label": "apex_dminus",
+          "lambda1": 0.5,
+          "lambda2": 0.5,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        },
+        "apex_dplus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": 1,
+          "intermediate": 0,
+          "label": "apex_dplus",
+          "lambda1": 0.5,
+          "lambda2": 0.5,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        },
+        "u0_dplus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": 1,
+          "intermediate": 0,
+          "label": "u0_dplus",
+          "lambda1": 0.0,
+          "lambda2": 0.0,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        },
+        "u1_dminus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": -1,
+          "intermediate": 0,
+          "label": "u1_dminus",
+          "lambda1": 0.0,
+          "lambda2": 0.0,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        }
+      }
+    }
+  ],
+  "frozen_manifest_sha256": "6c54354e8db230ed1695eff8f3f37890a7d4d08c84cc91cfb8bb281cda48d244",
+  "generated": "2026-07-17 11:12:58 +0900",
+  "implementation": {
+    "bridge_module": {
+      "path": "utils/trackb_apex_bridge.py",
+      "sha256": "db3b42a9913edf80dade0933b66571bfe22e628e741f2dc431d1d71b64fa3f0b",
+      "size": 13473
+    },
+    "ghost_module": {
+      "path": "utils/trackb_dynamic_ghost.py",
+      "sha256": "86d888f21fbed6d17a3a55b6ff16ed84c5aa00e366808b485514eaab9a911212",
+      "size": 19864
+    },
+    "p0v3r2_runner": {
+      "path": "analysis/dynamic_ghost_union_bridge_p0v3r2_20260717/run_p0v3r2_reference_audit.py",
+      "sha256": "a64ad08f3d6967905979855c3cf1fab16bc53153c78df794f03015457b58f79d",
+      "size": 84800
+    },
+    "p1sd_runner": {
+      "path": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/run_p1sd.py",
+      "sha256": "fddb79a189bf52179651eb52f21becce856241edcacda4a8b2bbc28be7e330a3",
+      "size": 87033
+    },
+    "serializer_module": {
+      "path": "utils/atm_trackB_inplace_rbfe.py",
+      "sha256": "f9ec095fbd2677cf0ade29474c3cef909407e6a1face2e769ab9e388a2582197",
+      "size": 109070
+    },
+    "setup_module": {
+      "path": "utils/atm_trackB_setup.py",
+      "sha256": "4fd643586010a8d270d899a57136611077a018b6f2da9a9bb540f1299add4a92",
+      "size": 332955
+    }
+  },
+  "inventory_digest": "a794eeb91063c1541d1cf5a593f8f3d039b9951728a10b2acc51c4e39cfb3e69",
+  "parent_inventory_digest": "0457824c66c54961d2d65fe110817b61b32e828285be5a7e2ff15fb55ba4f702",
+  "parent_source_summary_digest": "d7257f100a2e90657d8f2590bf3ec461060e8822c6ece21032ee44f7d5875e08",
+  "protocol_sha256": "bf054485089ecbc3e28df422fddb5ab80148322e10b00b65bef637bbec194321",
+  "python": "/home/san/miniconda3/envs/atm/bin/python",
+  "runtime": {
+    "numpy": "2.4.6",
+    "openmm": "8.5.1",
+    "pymbar": "4.2.0",
+    "scipy": "1.17.1"
+  },
+  "schema": "updd_dynamic_ghost_union_bridge_p1sd_inventory_v1",
+  "status": "FROZEN_BEFORE_P1SD_OUTPUT",
+  "xi": [
+    0.0,
+    0.25,
+    0.5,
+    0.75,
+    1.0
+  ]
+}

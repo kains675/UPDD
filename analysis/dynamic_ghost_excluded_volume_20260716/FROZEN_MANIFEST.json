@@ -1,0 +1,23 @@
+{
+  "schema": "updd_prereg_frozen_manifest_v1",
+  "frozen_at": "2026-07-17T00:14:45+09:00",
+  "campaign_date": "2026-07-16",
+  "status": "FROZEN_BEFORE_IMPLEMENTATION_OR_OUTPUT",
+  "files": {
+    "PREREGISTRATION.md": "a0c9abcae1d23b6715a9ddf4ad8892b2e6066298940d5e45ccbb7b2e999d8743",
+    "B_TRANSPORT_STOP.md": "5484b75e374bd769c1c8a300ba14b246c9019a9f5b159b936f3c06f2a2c49234",
+    "protocol.json": "14e126a568b97852f4974113de1a2173ab34b644e0b15ab8c5b707e34715e884"
+  },
+  "trigger_evidence": {
+    "analysis/w4a_postdensify_dcd_20260716/PREREGISTRATION.md": "080317080bf08a24de5ed0e44eb5e5ca6b5518572fc8cb97c3eadd70f9680513",
+    "analysis/w4a_postdensify_dcd_20260716/postdensify_gate.json": "58a5d05bd001e15e7a76002a80c87321c8b56516e535a894500050e2b8acbcf2",
+    "analysis/w4a_postdensify_dcd_20260716/postdensify_dcd_summary.json": "4d6bf722f83cc9baa600eef7e413cfacc4f3d98860a161d78a02516f70138aa0",
+    "analysis/w4a_postdensify_dcd_20260716/source_inventory.json": "aeb5b696366454b0e54e4630d29cce0a650ca27765020668e320c571a56817d0"
+  },
+  "source_inventory_digest": "d67c4fa420ccb1d6b170a4bef0fe480c4c0cc79395c006f198d48fa1293cbee9",
+  "mutation_spec": "w4a_trp_ala_res4",
+  "input_policy": "UNCARVED_W4A_ONLY",
+  "implementation_present": false,
+  "gpu_output_present": false,
+  "automatic_launch_authorized": false
+}

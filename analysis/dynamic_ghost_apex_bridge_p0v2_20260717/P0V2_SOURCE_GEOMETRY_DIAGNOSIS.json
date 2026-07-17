@@ -1,0 +1,136 @@
+{
+  "schema": "updd_apex_bridge_p0v2_source_geometry_diagnosis_v1",
+  "generated_local": "2026-07-17",
+  "formal_p0v2_status": "REJECT_BRIDGE",
+  "path_cause": "SOURCE_INPUT_PATHOLOGY",
+  "failed_cell": "w4a_uncarved_s163_bound",
+  "failed_source_readback": {
+    "apex_dplus_energy_kj_mol": -3385678.396180165,
+    "apex_dminus_energy_kj_mol": 1328197968.5190558,
+    "raw_u0_kj_mol": -3386060.307565201,
+    "raw_u1_kj_mol": 2659781997.345677,
+    "hminus_minus_hplus_kj_mol": 1331583646.915236,
+    "max_force_component_gap_kj_mol_nm": 276209950501.09717,
+    "max_force_atom": {
+      "index": 10154,
+      "chain": "B",
+      "residue_name": "TRP",
+      "residue_id": "4",
+      "atom_name": "CZ2"
+    },
+    "collision_water": {
+      "index": 161169,
+      "chain": "4",
+      "residue_name": "HOH",
+      "residue_id": "-15244",
+      "atom_name": "O"
+    },
+    "transformed_minimum_image_distance_nm": 0.05695665018239689
+  },
+  "identity_roundoff": {
+    "xi_0p25_max_force_component_delta_kj_mol_nm": 0.0000152587890625,
+    "xi_0p50_max_force_component_delta_kj_mol_nm": 0.000003814697265625,
+    "xi_0p75_max_force_component_delta_kj_mol_nm": 0.000030517578125,
+    "absolute_tolerance_kj_mol_nm": 0.00001,
+    "endpoint_energy_force_parity_exact": true,
+    "interior_energy_parity_exact": true,
+    "interior_derivative_parity_exact": true
+  },
+  "geometry_method": {
+    "coordinate_image": "ATM state-1 particle transformations applied to stored PDB coordinates",
+    "particle_offset_formula": "x_i_state1=x_i+x_destination1-x_origin1",
+    "distance": "triclinic minimum-image ring-heavy-atom to all explicit-water oxygens",
+    "ring_atoms": ["CG", "CD1", "CD2", "NE1", "CE2", "CE3", "CZ2", "CZ3", "CH2"],
+    "thresholds_nm": [0.1, 0.2, 0.26],
+    "openmm_environment": "/home/san/miniconda3/envs/atm/bin/python"
+  },
+  "uncarved": [
+    {
+      "cell_id": "w4a_uncarved_s101_bound",
+      "min_u1_ring_water_nm": 0.25747922246270727,
+      "n_pairs_lt_0p10": 0,
+      "n_pairs_lt_0p20": 0,
+      "n_pairs_lt_0p26": 1
+    },
+    {
+      "cell_id": "w4a_uncarved_s127_bound",
+      "min_u1_ring_water_nm": 0.24472237331310823,
+      "n_pairs_lt_0p10": 0,
+      "n_pairs_lt_0p20": 0,
+      "n_pairs_lt_0p26": 1
+    },
+    {
+      "cell_id": "w4a_uncarved_s163_bound",
+      "min_u1_ring_water_nm": 0.05695665018239689,
+      "n_pairs_lt_0p10": 1,
+      "n_pairs_lt_0p20": 5,
+      "n_pairs_lt_0p26": 11
+    },
+    {
+      "cell_id": "w4a_uncarved_s101_free",
+      "min_u1_ring_water_nm": 0.23995541252491134,
+      "n_pairs_lt_0p10": 0,
+      "n_pairs_lt_0p20": 0,
+      "n_pairs_lt_0p26": 2
+    },
+    {
+      "cell_id": "w4a_uncarved_s127_free",
+      "min_u1_ring_water_nm": 0.10182715747775799,
+      "n_pairs_lt_0p10": 0,
+      "n_pairs_lt_0p20": 1,
+      "n_pairs_lt_0p26": 4
+    },
+    {
+      "cell_id": "w4a_uncarved_s163_free",
+      "min_u1_ring_water_nm": 0.04850412353604609,
+      "n_pairs_lt_0p10": 1,
+      "n_pairs_lt_0p20": 5,
+      "n_pairs_lt_0p26": 11
+    }
+  ],
+  "carved_comparator": [
+    {
+      "cell_id": "w4a_carved_s101_bound",
+      "waters_removed_vs_uncarved": 3,
+      "min_u1_ring_water_nm": 0.33929330968941696,
+      "n_pairs_lt_0p26": 0
+    },
+    {
+      "cell_id": "w4a_carved_s127_bound",
+      "waters_removed_vs_uncarved": 2,
+      "min_u1_ring_water_nm": 0.33300439937033804,
+      "n_pairs_lt_0p26": 0
+    },
+    {
+      "cell_id": "w4a_carved_s163_bound",
+      "waters_removed_vs_uncarved": 4,
+      "min_u1_ring_water_nm": 0.2764109078889607,
+      "n_pairs_lt_0p26": 0
+    },
+    {
+      "cell_id": "w4a_carved_s101_free",
+      "waters_removed_vs_uncarved": 2,
+      "min_u1_ring_water_nm": 0.26272689241872466,
+      "n_pairs_lt_0p26": 0
+    },
+    {
+      "cell_id": "w4a_carved_s127_free",
+      "waters_removed_vs_uncarved": 5,
+      "min_u1_ring_water_nm": 0.320974235726171,
+      "n_pairs_lt_0p26": 0
+    },
+    {
+      "cell_id": "w4a_carved_s163_free",
+      "waters_removed_vs_uncarved": 6,
+      "min_u1_ring_water_nm": 0.26024809317264874,
+      "n_pairs_lt_0p26": 0
+    }
+  ],
+  "interpretation": {
+    "bridge_algebra_supported": true,
+    "uncarved_sampling_route_supported": false,
+    "carved_route_delta_g_neutrality_demonstrated": false,
+    "free_cells_executed_in_p0v2": false,
+    "recommended_redesign": "water-count-preserving union solvation plus dynamic ghost plus explicit apex bridge"
+  }
+}

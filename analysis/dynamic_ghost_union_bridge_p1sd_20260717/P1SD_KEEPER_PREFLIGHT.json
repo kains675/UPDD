@@ -1,0 +1,87 @@
+{
+  "cells": [
+    {
+      "cell_id": "w4a_union_s101_bound",
+      "checks": {
+        "all_declared_checks": true,
+        "contexts_zero": true,
+        "gpu_false": true,
+        "normalization_pass": true,
+        "parent_box_exact": true,
+        "sampling_zero": true
+      },
+      "passed": true
+    },
+    {
+      "cell_id": "w4a_union_s127_bound",
+      "checks": {
+        "all_declared_checks": true,
+        "contexts_zero": true,
+        "gpu_false": true,
+        "normalization_pass": true,
+        "parent_box_exact": true,
+        "sampling_zero": true
+      },
+      "passed": true
+    },
+    {
+      "cell_id": "w4a_union_s163_bound",
+      "checks": {
+        "all_declared_checks": true,
+        "contexts_zero": true,
+        "gpu_false": true,
+        "normalization_pass": true,
+        "parent_box_exact": true,
+        "sampling_zero": true
+      },
+      "passed": true
+    },
+    {
+      "cell_id": "w4a_union_s101_free",
+      "checks": {
+        "all_declared_checks": true,
+        "contexts_zero": true,
+        "gpu_false": true,
+        "normalization_pass": true,
+        "parent_box_exact": true,
+        "sampling_zero": true
+      },
+      "passed": true
+    },
+    {
+      "cell_id": "w4a_union_s127_free",
+      "checks": {
+        "all_declared_checks": true,
+        "contexts_zero": true,
+        "gpu_false": true,
+        "normalization_pass": true,
+        "parent_box_exact": true,
+        "sampling_zero": true
+      },
+      "passed": true
+    },
+    {
+      "cell_id": "w4a_union_s163_free",
+      "checks": {
+        "all_declared_checks": true,
+        "contexts_zero": true,
+        "gpu_false": true,
+        "normalization_pass": true,
+        "parent_box_exact": true,
+        "sampling_zero": true
+      },
+      "passed": true
+    }
+  ],
+  "context_count": 0,
+  "free_energy_estimated": false,
+  "generated": "2026-07-17 11:15:14 +0900",
+  "gpu_used": false,
+  "inventory_digest": "a794eeb91063c1541d1cf5a593f8f3d039b9951728a10b2acc51c4e39cfb3e69",
+  "md_steps": 0,
+  "minimization_steps": 0,
+  "n_cells": 6,
+  "normalized_summary_digest": "2448671ee154b5392652a6a9d443fffd53bf948b1beb14a242bf1e10e628dacc",
+  "schema": "updd_dynamic_ghost_union_bridge_p1sd_keeper_v1",
+  "status": "PASS"
+}

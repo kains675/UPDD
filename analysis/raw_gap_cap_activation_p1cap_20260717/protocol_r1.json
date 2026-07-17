@@ -1,0 +1,96 @@
+{
+  "schema": "updd_raw_gap_cap_activation_p1cap_v1_r1",
+  "status": "FROZEN_AFTER_R0_DCD_UNIT_FAILURE_BEFORE_R1_OUTPUT",
+  "date": "2026-07-17",
+  "amendment": {
+    "revision": "R1",
+    "trigger": "P1CAP_R0_RUNNER_FAIL_DCD_ANGSTROM_AS_NM",
+    "science_contract_changed": false,
+    "cohort_changed": false,
+    "thresholds_changed": false,
+    "runtime_change": "explicit low-level DCD angstrom-to-nanometer conversion"
+  },
+  "parent": {
+    "analysis_dir": "analysis/dynamic_ghost_union_bridge_p1sd_20260717",
+    "inventory_digest": "a794eeb91063c1541d1cf5a593f8f3d039b9951728a10b2acc51c4e39cfb3e69",
+    "partial_status": "P1SD_RUNNER_FAIL_STOPPED",
+    "path_verdict": "FAIL_P1SD_APEX_DEGENERACY_AND_TRANSFORMED_VOID_PENETRATION",
+    "pilot_samples_reusable": false
+  },
+  "cohort": [
+    {
+      "cell_id": "w4a_union_s101_bound",
+      "leg": "bound",
+      "xi": [0.0, 0.25, 0.5, 0.75, 1.0],
+      "expected_window_status": ["WINDOW_PASS", "WINDOW_PASS", "WINDOW_PASS", "WINDOW_PASS", "WINDOW_PASS"]
+    },
+    {
+      "cell_id": "w4a_union_s127_bound",
+      "leg": "bound",
+      "xi": [0.0, 0.25, 0.5, 0.75, 1.0],
+      "expected_window_status": ["WINDOW_PASS", "WINDOW_PASS", "WINDOW_PASS", "WINDOW_PASS", "WINDOW_PASS"]
+    },
+    {
+      "cell_id": "w4a_union_s163_bound",
+      "leg": "bound",
+      "xi": [0.0, 0.25, 0.5, 0.75, 1.0],
+      "expected_window_status": ["WINDOW_PASS", "WINDOW_PASS", "WINDOW_PASS", "WINDOW_PASS", "WINDOW_PASS"]
+    },
+    {
+      "cell_id": "w4a_union_s101_free",
+      "leg": "free",
+      "xi": [0.0],
+      "expected_window_status": ["WINDOW_FAIL"]
+    }
+  ],
+  "expected": {
+    "cells": 4,
+    "windows": 16,
+    "frames_per_window": 50,
+    "frames": 800,
+    "source_sample_rows": 800
+  },
+  "evaluation": {
+    "interpreter": "/home/san/miniconda3/envs/atm/bin/python",
+    "platform": "CUDA",
+    "device_index": "0",
+    "precision": "mixed",
+    "md_steps": 0,
+    "minimization_steps": 0,
+    "one_context_per_worker": true,
+    "worker_unit": "cell",
+    "ghost_g": 0.5,
+    "bridge_xi_for_derivative": 0.5,
+    "dcd_reader": "mdtraj.formats.DCDTrajectoryFile",
+    "dcd_distance_unit": "angstroms",
+    "dcd_to_nm_scale": 0.1
+  },
+  "softcore": {
+    "uoffset_kj_mol": 0.0,
+    "ubcore_kj_mol": 418.4,
+    "umax_kj_mol": 836.8,
+    "acore": 0.0625,
+    "classification_guard_kj_mol": 5.0,
+    "linear_rule": "abs(delta_raw)<=ubcore-guard",
+    "ambiguous_rule": "ubcore-guard<abs(delta_raw)<ubcore+guard",
+    "cap_active_rule": "abs(delta_raw)>=ubcore+guard"
+  },
+  "validation": {
+    "analytic_slope_absolute_floor_kj_mol": 0.05,
+    "analytic_slope_relative": 1e-05,
+    "recorded_slope_nonzero_threshold_kj_mol": 1e-06,
+    "final_float64_classification_agreement": "required_unless_either_ambiguous",
+    "fixed_parent_box": true,
+    "dcd_box_absolute_tolerance_nm": 0.0001,
+    "finite_only": true
+  },
+  "claims": {
+    "free_energy_estimated": false,
+    "schedule_selected": false,
+    "densification_authorized": false,
+    "production_sampling_authorized": false,
+    "pilot_samples_rehabilitated": false,
+    "mutation_sign_claim": false,
+    "unsampled_windows_imputed": false
+  }
+}

@@ -1,0 +1,147 @@
+{
+  "bridge_rejected_cell_ids": [],
+  "cells": [
+    {
+      "bridge_system": {
+        "path": "analysis/dynamic_ghost_union_bridge_p0v3r2_20260717/p0v3r2_reference_audit/w4a_union_s101_bound/apex_bridge_system.xml",
+        "sha256": "73bed08681d5a450fb3123a4528adfc048316d69690fa6ac65d67ed18a711ffb",
+        "size": 125817057
+      },
+      "cell_id": "w4a_union_s101_bound",
+      "elapsed_s": 292.12705164801446,
+      "endpoint_gap_kj_mol": 357.6610251949169,
+      "leg": "bound",
+      "max_force_gap_kj_mol_nm": 17747.62255321364,
+      "raw_u0_kj_mol": -3590201.6513454886,
+      "raw_u1_kj_mol": -3588970.4024608005,
+      "result": {
+        "path": "analysis/dynamic_ghost_union_bridge_p0v3r2_20260717/p0v3r2_reference_audit/w4a_union_s101_bound/cell_result.json",
+        "sha256": "7ed4c00838594efba902448d0dc52078787a12cb52dda76a3b9253988b891911",
+        "size": 29178
+      },
+      "seed": "s101",
+      "status": "P0V3R2_PASS"
+    },
+    {
+      "bridge_system": {
+        "path": "analysis/dynamic_ghost_union_bridge_p0v3r2_20260717/p0v3r2_reference_audit/w4a_union_s127_bound/apex_bridge_system.xml",
+        "sha256": "f71dad4e63a5487e60dd9e41422646de2d37c9fc38ef976c27c01ce26ab2695c",
+        "size": 126708996
+      },
+      "cell_id": "w4a_union_s127_bound",
+      "elapsed_s": 295.2531658850203,
+      "endpoint_gap_kj_mol": 1420.142669083085,
+      "leg": "bound",
+      "max_force_gap_kj_mol_nm": 90799.17708657662,
+      "raw_u0_kj_mol": -2572881.794836785,
+      "raw_u1_kj_mol": -2569494.4854383725,
+      "result": {
+        "path": "analysis/dynamic_ghost_union_bridge_p0v3r2_20260717/p0v3r2_reference_audit/w4a_union_s127_bound/cell_result.json",
+        "sha256": "9086f8a20c6d2507cef2646992f6beaf790cae7f2d0e01c5fb1f3c4e746b60ba",
+        "size": 29171
+      },
+      "seed": "s127",
+      "status": "P0V3R2_PASS"
+    },
+    {
+      "bridge_system": {
+        "path": "analysis/dynamic_ghost_union_bridge_p0v3r2_20260717/p0v3r2_reference_audit/w4a_union_s163_bound/apex_bridge_system.xml",
+        "sha256": "aa57f862f195f3896c72ac8dd84e6fb8e7c70e7ee5e214bd3cf8e92c115ec610",
+        "size": 131058371
+      },
+      "cell_id": "w4a_union_s163_bound",
+      "elapsed_s": 307.1419555620232,
+      "endpoint_gap_kj_mol": 0.0,
+      "leg": "bound",
+      "max_force_gap_kj_mol_nm": 0.0,
+      "raw_u0_kj_mol": -252895.5015565871,
+      "raw_u1_kj_mol": -252777.5256854212,
+      "result": {
+        "path": "analysis/dynamic_ghost_union_bridge_p0v3r2_20260717/p0v3r2_reference_audit/w4a_union_s163_bound/cell_result.json",
+        "sha256": "9245643db1a32ef93eda1d06c3e1b88c5f1cc600da28327f8c8802fd74c7ce15",
+        "size": 28952
+      },
+      "seed": "s163",
+      "status": "P0V3R2_PASS"
+    },
+    {
+      "bridge_system": {
+        "path": "analysis/dynamic_ghost_union_bridge_p0v3r2_20260717/p0v3r2_reference_audit/w4a_union_s101_free/apex_bridge_system.xml",
+        "sha256": "535f15e71d114deacde080e67600c2d66844d78f98772485d4afbcd0a06c0579",
+        "size": 11812648
+      },
+      "cell_id": "w4a_union_s101_free",
+      "elapsed_s": 28.380419052002253,
+      "endpoint_gap_kj_mol": 774.6362592875375,
+      "leg": "free",
+      "max_force_gap_kj_mol_nm": 43275.86308852582,
+      "raw_u0_kj_mol": -253161.4647198417,
+      "raw_u1_kj_mol": -251078.94018475033,
+      "result": {
+        "path": "analysis/dynamic_ghost_union_bridge_p0v3r2_20260717/p0v3r2_reference_audit/w4a_union_s101_free/cell_result.json",
+        "sha256": "fb5fd636103049c5f721e159435689d0eafa9cdc134bc2d36115242721fd055d",
+        "size": 29031
+      },
+      "seed": "s101",
+      "status": "P0V3R2_PASS"
+    },
+    {
+      "bridge_system": {
+        "path": "analysis/dynamic_ghost_union_bridge_p0v3r2_20260717/p0v3r2_reference_audit/w4a_union_s127_free/apex_bridge_system.xml",
+        "sha256": "99c81f6f10c6ac412ac8d21d0765a18ac15f60993f86ee2870e7af80830c1749",
+        "size": 12003548
+      },
+      "cell_id": "w4a_union_s127_free",
+      "elapsed_s": 29.125663946993882,
+      "endpoint_gap_kj_mol": 1148.6310206257622,
+      "leg": "free",
+      "max_force_gap_kj_mol_nm": 70479.90806031627,
+      "raw_u0_kj_mol": 267511.2823297088,
+      "raw_u1_kj_mol": 270350.7432850801,
+      "result": {
+        "path": "analysis/dynamic_ghost_union_bridge_p0v3r2_20260717/p0v3r2_reference_audit/w4a_union_s127_free/cell_result.json",
+        "sha256": "4a36fc506004e72340f0d2c2e2dae61d2e8aa96523e4395f64792055c67c6195",
+        "size": 29038
+      },
+      "seed": "s127",
+      "status": "P0V3R2_PASS"
+    },
+    {
+      "bridge_system": {
+        "path": "analysis/dynamic_ghost_union_bridge_p0v3r2_20260717/p0v3r2_reference_audit/w4a_union_s163_free/apex_bridge_system.xml",
+        "sha256": "950499230b379833935574d4bd913b2cd7ab475689e36ba2c77b28d31381a6e8",
+        "size": 12614162
+      },
+      "cell_id": "w4a_union_s163_free",
+      "elapsed_s": 27.590416738006752,
+      "endpoint_gap_kj_mol": 1097.1936363741406,
+      "leg": "free",
+      "max_force_gap_kj_mol_nm": 57734.42234855648,
+      "raw_u0_kj_mol": -289996.3964328022,
+      "raw_u1_kj_mol": -287260.85207712784,
+      "result": {
+        "path": "analysis/dynamic_ghost_union_bridge_p0v3r2_20260717/p0v3r2_reference_audit/w4a_union_s163_free/cell_result.json",
+        "sha256": "1498d895886145f86f00482915411394765f3f6b26032bfcb17bf4b4e62891d5",
+        "size": 29047
+      },
+      "seed": "s163",
+      "status": "P0V3R2_PASS"
+    }
+  ],
+  "eta_s": 0.0,
+  "free_energy_estimated": false,
+  "generated": "2026-07-17 10:00:15 +0900",
+  "gpu_used": false,
+  "inventory_digest": "0457824c66c54961d2d65fe110817b61b32e828285be5a7e2ff15fb55ba4f702",
+  "md_steps": 0,
+  "median_elapsed_s": 160.62635779750417,
+  "minimization_steps": 0,
+  "n_completed": 6,
+  "n_expected": 6,
+  "pending_cell_ids": [],
+  "platform": "Reference",
+  "schema": "updd_dynamic_ghost_union_bridge_p0v3r2_summary_v1",
+  "source_rejected_cell_ids": [],
+  "source_summary_digest": "d7257f100a2e90657d8f2590bf3ec461060e8822c6ece21032ee44f7d5875e08",
+  "status": "P0V3R2_PASS"
+}

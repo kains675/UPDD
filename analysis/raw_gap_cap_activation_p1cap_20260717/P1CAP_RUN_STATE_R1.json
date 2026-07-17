@@ -1,0 +1,14 @@
+{
+  "completed_cells": [
+    "w4a_union_s101_bound",
+    "w4a_union_s127_bound",
+    "w4a_union_s163_bound",
+    "w4a_union_s101_free"
+  ],
+  "current_cell": null,
+  "error": null,
+  "inventory_digest": "2768049224403ab431cf40ac684828e3e537ad298e9ed8c450c7ca10491eb667",
+  "schema": "updd_raw_gap_cap_activation_p1cap_run_state_v1_r1",
+  "status": "P1CAP_COMPLETE",
+  "updated": "2026-07-17 20:45:03 +0900"
+}

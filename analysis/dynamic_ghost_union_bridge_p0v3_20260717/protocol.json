@@ -1,0 +1,144 @@
+{
+  "schema": "updd_dynamic_ghost_union_bridge_p0v3_prereg_v1",
+  "registered_local": "2026-07-17",
+  "status": "FROZEN_BEFORE_UNION_IMPLEMENTATION_OR_P0V3_OUTPUT",
+  "regime": "R11_RANKING_SIGN_ONLY_MECHANISM_VALIDATION",
+  "scival_verdict": "CONDITIONAL_APPROVE_P0V3_ONLY",
+  "decision": {
+    "rejected_parent": "P0V2_UNCARVED_SOURCE_ARM",
+    "next_stage": "COUNT_PRESERVING_UNION_SOURCE_AND_CPU_REFERENCE_P0V3",
+    "md_authorized": false,
+    "minimization_authorized": false,
+    "gpu_authorized": false,
+    "free_energy_estimation_authorized": false,
+    "sampled_bridge_authorized": false,
+    "production_authorized": false,
+    "w23a_launch_authorized": false
+  },
+  "trigger": {
+    "parent_status": "REJECT_BRIDGE",
+    "parent_failed_cell": "w4a_uncarved_s163_bound",
+    "parent_inventory_digest": "8a5c2eabd6125bf70a8dbf6b334d29ded9d00091c6aab597e0c4af1c22cd3615",
+    "path_cause": "SOURCE_INPUT_PATHOLOGY",
+    "s163_bound_u1_kj_mol": 2659781997.345677,
+    "s163_bound_min_transformed_ring_water_nm": 0.05695665018239689,
+    "s163_free_min_transformed_ring_water_nm": 0.04850412353604609
+  },
+  "system": {
+    "structure": "2QKI",
+    "mutation_spec": "w4a_trp_ala_res4",
+    "endpoint": "wt",
+    "construction": "twocopy",
+    "displacement_nm": 4.0,
+    "auto_search_displacement": false,
+    "constraints": null,
+    "seeds": ["s101", "s127", "s163"],
+    "legs": ["bound", "free"],
+    "replicate_indices": {"s101": 5, "s127": 6, "s163": 7}
+  },
+  "union_solvation": {
+    "mode": "temporary_forcefield_placeholders_then_numAdded",
+    "water_model": "tip3p-fb",
+    "ionic_strength_molar": 0.15,
+    "neutralize": true,
+    "positive_ion": "Na+",
+    "negative_ion": "Cl-",
+    "box_shape": "cube",
+    "placeholder_atom_names": [
+      "CG", "CD1", "CD2", "NE1", "CE2", "CE3", "CZ2", "CZ3", "CH2"
+    ],
+    "placeholder_parameter_source": "canonical_unsolvated_NonbondedForce",
+    "placeholder_charge_e": 0.0,
+    "placeholder_sigma_epsilon_exact": true,
+    "placeholder_radius_multiplier": 1.0,
+    "placeholder_persistent": false,
+    "global_rng_state_restore_required": true,
+    "carve_void_waters": false,
+    "cells": {
+      "w4a_union_s101_bound": {
+        "seed": "s101", "leg": "bound", "replicate_index": 5,
+        "num_added": 97060, "water": 96534, "na": 263, "cl": 263,
+        "rng_seed": 2026071711, "parent_particles": 300424
+      },
+      "w4a_union_s127_bound": {
+        "seed": "s127", "leg": "bound", "replicate_index": 6,
+        "num_added": 97830, "water": 97300, "na": 265, "cl": 265,
+        "rng_seed": 2026071712, "parent_particles": 302726
+      },
+      "w4a_union_s163_bound": {
+        "seed": "s163", "leg": "bound", "replicate_index": 7,
+        "num_added": 101585, "water": 101035, "na": 275, "cl": 275,
+        "rng_seed": 2026071713, "parent_particles": 313951
+      },
+      "w4a_union_s101_free": {
+        "seed": "s101", "leg": "free", "replicate_index": 5,
+        "num_added": 9900, "water": 9846, "na": 27, "cl": 27,
+        "rng_seed": 2026071721, "parent_particles": 29992
+      },
+      "w4a_union_s127_free": {
+        "seed": "s127", "leg": "free", "replicate_index": 6,
+        "num_added": 10066, "water": 10012, "na": 27, "cl": 27,
+        "rng_seed": 2026071722, "parent_particles": 30490
+      },
+      "w4a_union_s163_free": {
+        "seed": "s163", "leg": "free", "replicate_index": 7,
+        "num_added": 10600, "water": 10542, "na": 29, "cl": 29,
+        "rng_seed": 2026071723, "parent_particles": 32084
+      }
+    }
+  },
+  "dynamic_ghost": {
+    "source_protocol": "analysis/dynamic_ghost_excluded_volume_20260716/protocol.json",
+    "unchanged": true,
+    "bridge_g": 0.5,
+    "deghost_correction_required_for_future_sampling": true
+  },
+  "apex_bridge": {
+    "source_protocol": "analysis/dynamic_ghost_apex_bridge_p0v2_20260717/protocol.json",
+    "unchanged": true,
+    "parameter": "BridgeXi",
+    "audit_states": [0.0, 0.25, 0.5, 0.75, 1.0],
+    "derivative_audit_states": [0.25, 0.5, 0.75],
+    "bridge_zero_assumption_allowed": false
+  },
+  "stages": {
+    "U0": {
+      "isolated_source_builds": 6,
+      "cell_subprocess_required": true,
+      "contexts_allowed": 0
+    },
+    "K0": {
+      "context_free": true,
+      "cells": 6
+    },
+    "P0v3": {
+      "platform": "Reference",
+      "cells": 6,
+      "cell_subprocess_required": true,
+      "md_steps": 0,
+      "minimization_steps": 0,
+      "gpu_allowed": false,
+      "free_energy_estimation_allowed": false
+    }
+  },
+  "gates": {
+    "count_exact": true,
+    "charge_tolerance_e": 1e-8,
+    "placeholder_target_tolerance_nm": 1e-6,
+    "solvent_density_relative_tolerance": 0.01,
+    "ring_water_min_distance_nm": 0.26,
+    "raw_endpoint_abs_energy_max_kj_mol": 1e8,
+    "raw_max_force_component_kj_mol_nm": 1e8,
+    "energy_tolerance_kj_mol": 1e-5,
+    "force_component_tolerance_kj_mol_nm": 1e-5,
+    "derivative_tolerance_kj_mol": 1e-5,
+    "serialization_roundtrip_required": true,
+    "finite_required": true
+  },
+  "outcomes": [
+    "P0V3_PASS",
+    "REJECT_UNION_SOURCE",
+    "REJECT_BRIDGE",
+    "P0V3_INTERRUPTED"
+  ]
+}

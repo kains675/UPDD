@@ -1,0 +1,8 @@
+{
+  "inventory_digest": "ed472c770ad439fcff0b748c91efc65fd0f82076cbebe7552ff51767d8b18d48",
+  "python": "/home/san/miniconda3/envs/atm/bin/python",
+  "source_summary_digest": "de563e1e99a73376c776c76b0b14210a1df038150011d3071be142c02ca68791",
+  "stage": "U0",
+  "status": "REJECT_UNION_SOURCE",
+  "updated": "2026-07-17 09:22:12 +0900"
+}

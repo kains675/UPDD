@@ -1,0 +1,82 @@
+{
+  "cells": [
+    {
+      "bridge_system": {
+        "path": "analysis/dynamic_ghost_apex_bridge_p0v2_20260717/p0v2_reference_audit/w4a_uncarved_s101_bound/apex_bridge_system.xml",
+        "sha256": "7f8993cccc6e1b08bb975d638232b512ea682f7cf82ddd1337054084e36611be",
+        "size": 125817054
+      },
+      "cell_id": "w4a_uncarved_s101_bound",
+      "elapsed_s": 255.16173154101125,
+      "endpoint_gap_kj_mol": 1599.9153046575375,
+      "leg": "bound",
+      "max_force_gap_kj_mol_nm": 84923.01350708821,
+      "result": {
+        "path": "analysis/dynamic_ghost_apex_bridge_p0v2_20260717/p0v2_reference_audit/w4a_uncarved_s101_bound/cell_result.json",
+        "sha256": "899ebe90ac5625dbe0b13c51b9d11f1dbaa8e15ad380edd4117fca27a4fa74b8",
+        "size": 28854
+      },
+      "seed": "s101",
+      "status": "P0V2_PASS"
+    },
+    {
+      "bridge_system": {
+        "path": "analysis/dynamic_ghost_apex_bridge_p0v2_20260717/p0v2_reference_audit/w4a_uncarved_s127_bound/apex_bridge_system.xml",
+        "sha256": "347e8895a1b0bc88e839f3238d526237cb1d2dbb1ff5f52e6fdc265112182433",
+        "size": 126709029
+      },
+      "cell_id": "w4a_uncarved_s127_bound",
+      "elapsed_s": 255.8431613559951,
+      "endpoint_gap_kj_mol": 2042.9575286796317,
+      "leg": "bound",
+      "max_force_gap_kj_mol_nm": 132518.30820455504,
+      "result": {
+        "path": "analysis/dynamic_ghost_apex_bridge_p0v2_20260717/p0v2_reference_audit/w4a_uncarved_s127_bound/cell_result.json",
+        "sha256": "caed326a400f0cf006c8f4ffd57cdddc68a6c8382cedbb65e65661006021de4a",
+        "size": 28851
+      },
+      "seed": "s127",
+      "status": "P0V2_PASS"
+    },
+    {
+      "bridge_system": {
+        "path": "analysis/dynamic_ghost_apex_bridge_p0v2_20260717/p0v2_reference_audit/w4a_uncarved_s163_bound/apex_bridge_system.xml",
+        "sha256": "5b9e44a18ed8053ec4b8cf9a9c02ed40634c029ea131ad670332a5cd529220d5",
+        "size": 131058401
+      },
+      "cell_id": "w4a_uncarved_s163_bound",
+      "elapsed_s": 268.4175325760152,
+      "endpoint_gap_kj_mol": 1331583646.915236,
+      "leg": "bound",
+      "max_force_gap_kj_mol_nm": 276209950501.09717,
+      "result": {
+        "path": "analysis/dynamic_ghost_apex_bridge_p0v2_20260717/p0v2_reference_audit/w4a_uncarved_s163_bound/cell_result.json",
+        "sha256": "faa5e2d130e90555ccf296da36049408979d880e110d0e948ce8f0e349869cde",
+        "size": 28827
+      },
+      "seed": "s163",
+      "status": "REJECT_BRIDGE"
+    }
+  ],
+  "eta_s": 767.5294840679853,
+  "free_energy_estimated": false,
+  "generated": "2026-07-17 08:16:33 +0900",
+  "gpu_used": false,
+  "inventory_digest": "8a5c2eabd6125bf70a8dbf6b334d29ded9d00091c6aab597e0c4af1c22cd3615",
+  "md_steps": 0,
+  "median_elapsed_s": 255.8431613559951,
+  "minimization_steps": 0,
+  "n_completed": 3,
+  "n_expected": 6,
+  "pending_cell_ids": [
+    "w4a_uncarved_s101_free",
+    "w4a_uncarved_s127_free",
+    "w4a_uncarved_s163_free"
+  ],
+  "platform": "Reference",
+  "rejected_cell_ids": [
+    "w4a_uncarved_s163_bound"
+  ],
+  "schema": "updd_dynamic_ghost_apex_bridge_p0v2_summary_v1",
+  "status": "REJECT_BRIDGE"
+}

@@ -1,0 +1,61 @@
+{
+  "schema": "updd_dynamic_ghost_union_bridge_p0v3r1_prereg_v1",
+  "registered_local": "2026-07-17",
+  "status": "FROZEN_BEFORE_OFFICIAL_SOURCE_OR_P0V3R1_OUTPUT",
+  "regime": "R11_RANKING_SIGN_ONLY_MECHANISM_VALIDATION",
+  "scival_verdict": "CONDITIONAL_APPROVE_P0V3R1_ONLY",
+  "inherits": {
+    "preregistration": "analysis/dynamic_ghost_union_bridge_p0v3_20260717/PREREGISTRATION.md",
+    "preregistration_sha256": "b768479b1c007cc8794349c39f6ed209c39ae742a58fd4ce7556f4ea2985a4bc",
+    "protocol": "analysis/dynamic_ghost_union_bridge_p0v3_20260717/protocol.json",
+    "protocol_sha256": "d171f096473d331f26894b15c2de34b0f561a378c5588a5842dae1e89ed199fa",
+    "all_clauses_except": ["gates.solvent_density_relative_tolerance"]
+  },
+  "revision_trigger": {
+    "record": "analysis/dynamic_ghost_union_bridge_p0v3_20260717/DESIGN_PREFLIGHT_STOP.md",
+    "cell": "w4a_union_s101_free",
+    "counts_preserved": true,
+    "placeholders_removed": true,
+    "parent_box_edge_nm": 6.789,
+    "union_box_edge_nm": 6.8498,
+    "static_total_box_density_relative_delta": -0.0264,
+    "reason": "total_box_N_over_V_is_not_equilibrium_bulk_density"
+  },
+  "override": {
+    "static_total_box_density_gate": "REPORT_ONLY",
+    "box_vectors_finite_right_handed_cubic_required": true,
+    "box_volume_report_required": true,
+    "parent_union_total_box_density_diagnostic_required": true,
+    "equilibrium_density_claim_allowed": false,
+    "future_npt_density_preregistration_required": true
+  },
+  "unchanged_hard_gates": {
+    "exact_water_ion_total_solvent_atom_particle_counts": true,
+    "charge_tolerance_e": 1e-8,
+    "placeholder_target_tolerance_nm": 1e-6,
+    "placeholder_final_count": 0,
+    "ring_water_min_distance_nm": 0.26,
+    "raw_endpoint_abs_energy_max_kj_mol": 1e8,
+    "raw_max_force_component_kj_mol_nm": 1e8,
+    "energy_tolerance_kj_mol": 1e-5,
+    "force_component_tolerance_kj_mol_nm": 1e-5,
+    "derivative_tolerance_kj_mol": 1e-5
+  },
+  "execution": {
+    "source_build_subprocesses": 6,
+    "reference_cell_subprocesses": 6,
+    "keeper_contexts": 0,
+    "platform": "Reference",
+    "md_steps": 0,
+    "minimization_steps": 0,
+    "gpu_allowed": false,
+    "free_energy_estimation_allowed": false,
+    "automatic_next_stage": false
+  },
+  "outcomes": [
+    "P0V3_PASS",
+    "REJECT_UNION_SOURCE",
+    "REJECT_BRIDGE",
+    "P0V3_INTERRUPTED"
+  ]
+}

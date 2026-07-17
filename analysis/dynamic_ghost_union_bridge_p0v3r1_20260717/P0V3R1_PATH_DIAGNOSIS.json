@@ -1,0 +1,60 @@
+{
+  "schema": "updd_dynamic_ghost_union_bridge_p0v3r1_path_v1",
+  "date_local": "2026-07-17",
+  "formal_status": "REJECT_UNION_SOURCE",
+  "completed_cells": 1,
+  "expected_cells": 6,
+  "failed_cell": "w4a_union_s101_bound",
+  "classification": "AUDIT_SCOPE_ERROR_WITH_REAL_APPEARING_H_REPRODUCIBILITY_SIGNAL",
+  "failed_checks": [
+    "caller_rng_state_unchanged"
+  ],
+  "preregistered_addsolvent_rng_checks": {
+    "rng_seed_recorded": true,
+    "rng_consumed": true,
+    "global_rng_restored": true
+  },
+  "union_source_gates": {
+    "exact_counts": true,
+    "charge": true,
+    "placeholder_parameters": true,
+    "placeholder_target": true,
+    "placeholder_removed": true,
+    "stored_geometry": true,
+    "transformed_geometry": true,
+    "box": true,
+    "solute_order": true,
+    "twocopy_separation": true
+  },
+  "observations": {
+    "particles": 300424,
+    "water": 96534,
+    "na": 263,
+    "cl": 263,
+    "placeholder_target_max_delta_nm": 8.881784197001252e-16,
+    "stored_min_ring_water_nm": 0.3833169797603175,
+    "transformed_min_ring_water_nm": 0.3966527312888274,
+    "pairs_below_0_26_nm": 0,
+    "static_total_box_density_relative_delta_report_only": -0.013923324589169117,
+    "parent_union_solute_atoms_with_coordinate_delta_gt_1e_6_nm": 9,
+    "max_solute_coordinate_delta_nm": 0.2178059686969117,
+    "max_delta_atom": "ALA4:HB2"
+  },
+  "next_revision": {
+    "fresh_source_builds": 6,
+    "deterministic_appearing_h": true,
+    "appearing_h_retry_k": 5,
+    "whole_builder_rng_invariance_gate": false,
+    "addsolvent_rng_consume_restore_gates": true,
+    "threshold_changes": false,
+    "md_authorized": false,
+    "gpu_authorized": false,
+    "free_energy_estimation_authorized": false
+  },
+  "evidence": {
+    "inventory_digest": "ed472c770ad439fcff0b748c91efc65fd0f82076cbebe7552ff51767d8b18d48",
+    "inventory_sha256": "09622493109a7260164aebbe8005e7616c801079999a6d49ae797294e83cf9b1",
+    "source_summary_sha256": "5561828448554c4b0b1a5f377871403ca34d2b5bc8a63e1ff2a4328a5d296ef0",
+    "failed_cell_result_sha256": "dddaf2becf0c6cc561fdc54bb74d1a506ff038f7b1202d5dbd866e361c2ee1af"
+  }
+}

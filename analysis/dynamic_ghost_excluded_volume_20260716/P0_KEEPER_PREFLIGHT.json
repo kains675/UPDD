@@ -1,0 +1,1932 @@
+{
+  "cells": [
+    {
+      "cell_id": "w4a_uncarved_s101_bound",
+      "checks": {
+        "all_water_oxygens": true,
+        "atom_count_invariant": true,
+        "charge_invariant": true,
+        "dedicated_force_group": true,
+        "exact_nine_ring_atoms": true,
+        "source_pair_parameters_match": true,
+        "top_level_after_atm": true
+      },
+      "force_contract": {
+        "atm_force_index": 1,
+        "cutoff_nm": 0.4,
+        "energy_expression": "g*step(rc-rsc)*(4*epsilon*((sigma/rsc)^12-(sigma/rsc)^6)+epsilon);rsc=(r^6+alpha_sc*(1-g)*sigma^6)^(1.0/6.0);rc=2^(1.0/6.0)*sigma;sigma=0.5*(sigma1+sigma2);epsilon=sqrt(epsilon1*epsilon2)",
+        "energy_parameter_derivatives": [
+          "g"
+        ],
+        "force_group": 31,
+        "force_index": 2,
+        "force_name": "UPDDDynamicGhostWCA",
+        "global_parameters": {
+          "alpha_sc": 0.5,
+          "g": 0.0
+        },
+        "interaction_groups": [
+          {
+            "first": [
+              10145,
+              10146,
+              10148,
+              10149,
+              10151,
+              10152,
+              10154,
+              10156,
+              10158
+            ],
+            "second_count": 96534,
+            "second_sha256": "0c8ad0e7b60c025912ada95a313fb1150da9ae6cd340d9f619e31451d267585e"
+          }
+        ],
+        "long_range_correction": false,
+        "n_forces_after": 3,
+        "n_forces_before": 2,
+        "n_particles": 300424,
+        "n_particles_after": 300424,
+        "n_particles_before": 300424,
+        "nested_nonbonded_index": 1,
+        "net_charge_after_e": -1.7053025658242404e-13,
+        "net_charge_before_e": -1.7053025658242404e-13,
+        "net_charge_delta_e": 0.0,
+        "nonbonded_method": "CutoffPeriodic",
+        "per_particle_parameters": [
+          "sigma",
+          "epsilon"
+        ],
+        "selection": {
+          "n_ring_atoms": 9,
+          "n_water_oxygens": 96534,
+          "n_water_residues": 96534,
+          "ring_atoms": [
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10145,
+              "name": "CG",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10146,
+              "name": "CD1",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10148,
+              "name": "CD2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "N",
+              "index": 10149,
+              "name": "NE1",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10151,
+              "name": "CE2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10152,
+              "name": "CE3",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10154,
+              "name": "CZ2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10156,
+              "name": "CZ3",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10158,
+              "name": "CH2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            }
+          ],
+          "ring_indices": [
+            10145,
+            10146,
+            10148,
+            10149,
+            10151,
+            10152,
+            10154,
+            10156,
+            10158
+          ],
+          "water_name_pairs": [
+            [
+              "HOH",
+              "O"
+            ]
+          ],
+          "water_oxygen_index_first": 10296,
+          "water_oxygen_index_last": 299895,
+          "water_oxygen_indices_sha256": "0c8ad0e7b60c025912ada95a313fb1150da9ae6cd340d9f619e31451d267585e"
+        },
+        "source_parameters": {
+          "pair_classes": {
+            "NE1_water_O": {
+              "epsilon_kj_mol": 0.6810702230092086,
+              "sigma_nm": 0.32139815436629793,
+              "wca_cutoff_nm": 0.3607572306728468
+            },
+            "aromatic_C_water_O": {
+              "epsilon_kj_mol": 0.4844139684778853,
+              "sigma_nm": 0.32888170359867674,
+              "wca_cutoff_nm": 0.3691572306728468
+            }
+          },
+          "ring_atoms": [
+            {
+              "chain_id": "B",
+              "charge_e": -0.1415,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10145,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CG",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.1638,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10146,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CD1",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": 0.1243,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10148,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CD2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.3418,
+              "element": "N",
+              "epsilon_kj_mol": 0.7112800000000001,
+              "index": 10149,
+              "mixed_epsilon_kj_mol": 0.6810702230092086,
+              "mixed_sigma_nm": 0.32139815436629793,
+              "name": "NE1",
+              "pair_class": "NE1_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3249998523775958,
+              "wca_cutoff_nm": 0.3607572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": 0.138,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10151,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CE2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.2387,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10152,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CE3",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.2601,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10154,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CZ2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.1972,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10156,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CZ3",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.1134,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10158,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CH2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            }
+          ],
+          "source_parameter_tolerance": 1e-12,
+          "water_oxygen": {
+            "charge_e": -0.848448690103,
+            "epsilon_kj_mol": 0.652143528104,
+            "n_atoms": 96534,
+            "sigma_nm": 0.317796456355
+          }
+        },
+        "switching_function": false
+      },
+      "leg": "bound",
+      "seed": "s101",
+      "source_cell_digest": "913474dd7ef5f031c59333bbb009bce32797dedeef0a4569fb6b07cf9e059323"
+    },
+    {
+      "cell_id": "w4a_uncarved_s127_bound",
+      "checks": {
+        "all_water_oxygens": true,
+        "atom_count_invariant": true,
+        "charge_invariant": true,
+        "dedicated_force_group": true,
+        "exact_nine_ring_atoms": true,
+        "source_pair_parameters_match": true,
+        "top_level_after_atm": true
+      },
+      "force_contract": {
+        "atm_force_index": 1,
+        "cutoff_nm": 0.4,
+        "energy_expression": "g*step(rc-rsc)*(4*epsilon*((sigma/rsc)^12-(sigma/rsc)^6)+epsilon);rsc=(r^6+alpha_sc*(1-g)*sigma^6)^(1.0/6.0);rc=2^(1.0/6.0)*sigma;sigma=0.5*(sigma1+sigma2);epsilon=sqrt(epsilon1*epsilon2)",
+        "energy_parameter_derivatives": [
+          "g"
+        ],
+        "force_group": 31,
+        "force_index": 2,
+        "force_name": "UPDDDynamicGhostWCA",
+        "global_parameters": {
+          "alpha_sc": 0.5,
+          "g": 0.0
+        },
+        "interaction_groups": [
+          {
+            "first": [
+              10145,
+              10146,
+              10148,
+              10149,
+              10151,
+              10152,
+              10154,
+              10156,
+              10158
+            ],
+            "second_count": 97300,
+            "second_sha256": "ff98e780538879397917d39e2aaeb21b0e5b3652823f2f79709a6f776588ebfb"
+          }
+        ],
+        "long_range_correction": false,
+        "n_forces_after": 3,
+        "n_forces_before": 2,
+        "n_particles": 302726,
+        "n_particles_after": 302726,
+        "n_particles_before": 302726,
+        "nested_nonbonded_index": 1,
+        "net_charge_after_e": -1.7053025658242404e-13,
+        "net_charge_before_e": -1.7053025658242404e-13,
+        "net_charge_delta_e": 0.0,
+        "nonbonded_method": "CutoffPeriodic",
+        "per_particle_parameters": [
+          "sigma",
+          "epsilon"
+        ],
+        "selection": {
+          "n_ring_atoms": 9,
+          "n_water_oxygens": 97300,
+          "n_water_residues": 97300,
+          "ring_atoms": [
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10145,
+              "name": "CG",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10146,
+              "name": "CD1",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10148,
+              "name": "CD2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "N",
+              "index": 10149,
+              "name": "NE1",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10151,
+              "name": "CE2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10152,
+              "name": "CE3",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10154,
+              "name": "CZ2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10156,
+              "name": "CZ3",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10158,
+              "name": "CH2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            }
+          ],
+          "ring_indices": [
+            10145,
+            10146,
+            10148,
+            10149,
+            10151,
+            10152,
+            10154,
+            10156,
+            10158
+          ],
+          "water_name_pairs": [
+            [
+              "HOH",
+              "O"
+            ]
+          ],
+          "water_oxygen_index_first": 10296,
+          "water_oxygen_index_last": 302193,
+          "water_oxygen_indices_sha256": "ff98e780538879397917d39e2aaeb21b0e5b3652823f2f79709a6f776588ebfb"
+        },
+        "source_parameters": {
+          "pair_classes": {
+            "NE1_water_O": {
+              "epsilon_kj_mol": 0.6810702230092086,
+              "sigma_nm": 0.32139815436629793,
+              "wca_cutoff_nm": 0.3607572306728468
+            },
+            "aromatic_C_water_O": {
+              "epsilon_kj_mol": 0.4844139684778853,
+              "sigma_nm": 0.32888170359867674,
+              "wca_cutoff_nm": 0.3691572306728468
+            }
+          },
+          "ring_atoms": [
+            {
+              "chain_id": "B",
+              "charge_e": -0.1415,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10145,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CG",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.1638,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10146,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CD1",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": 0.1243,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10148,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CD2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.3418,
+              "element": "N",
+              "epsilon_kj_mol": 0.7112800000000001,
+              "index": 10149,
+              "mixed_epsilon_kj_mol": 0.6810702230092086,
+              "mixed_sigma_nm": 0.32139815436629793,
+              "name": "NE1",
+              "pair_class": "NE1_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3249998523775958,
+              "wca_cutoff_nm": 0.3607572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": 0.138,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10151,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CE2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.2387,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10152,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CE3",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.2601,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10154,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CZ2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.1972,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10156,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CZ3",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.1134,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10158,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CH2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            }
+          ],
+          "source_parameter_tolerance": 1e-12,
+          "water_oxygen": {
+            "charge_e": -0.848448690103,
+            "epsilon_kj_mol": 0.652143528104,
+            "n_atoms": 97300,
+            "sigma_nm": 0.317796456355
+          }
+        },
+        "switching_function": false
+      },
+      "leg": "bound",
+      "seed": "s127",
+      "source_cell_digest": "71f06dfe9e08622c7960214a41fa54b73a5a4698e627c747df09621111ee68b9"
+    },
+    {
+      "cell_id": "w4a_uncarved_s163_bound",
+      "checks": {
+        "all_water_oxygens": true,
+        "atom_count_invariant": true,
+        "charge_invariant": true,
+        "dedicated_force_group": true,
+        "exact_nine_ring_atoms": true,
+        "source_pair_parameters_match": true,
+        "top_level_after_atm": true
+      },
+      "force_contract": {
+        "atm_force_index": 1,
+        "cutoff_nm": 0.4,
+        "energy_expression": "g*step(rc-rsc)*(4*epsilon*((sigma/rsc)^12-(sigma/rsc)^6)+epsilon);rsc=(r^6+alpha_sc*(1-g)*sigma^6)^(1.0/6.0);rc=2^(1.0/6.0)*sigma;sigma=0.5*(sigma1+sigma2);epsilon=sqrt(epsilon1*epsilon2)",
+        "energy_parameter_derivatives": [
+          "g"
+        ],
+        "force_group": 31,
+        "force_index": 2,
+        "force_name": "UPDDDynamicGhostWCA",
+        "global_parameters": {
+          "alpha_sc": 0.5,
+          "g": 0.0
+        },
+        "interaction_groups": [
+          {
+            "first": [
+              10145,
+              10146,
+              10148,
+              10149,
+              10151,
+              10152,
+              10154,
+              10156,
+              10158
+            ],
+            "second_count": 101035,
+            "second_sha256": "ab46c5b8922e412ed4c4cb03dbe1b178587cbb6098062ae57bb6e7dbcfbd2e30"
+          }
+        ],
+        "long_range_correction": false,
+        "n_forces_after": 3,
+        "n_forces_before": 2,
+        "n_particles": 313951,
+        "n_particles_after": 313951,
+        "n_particles_before": 313951,
+        "nested_nonbonded_index": 1,
+        "net_charge_after_e": -1.7053025658242404e-13,
+        "net_charge_before_e": -1.7053025658242404e-13,
+        "net_charge_delta_e": 0.0,
+        "nonbonded_method": "CutoffPeriodic",
+        "per_particle_parameters": [
+          "sigma",
+          "epsilon"
+        ],
+        "selection": {
+          "n_ring_atoms": 9,
+          "n_water_oxygens": 101035,
+          "n_water_residues": 101035,
+          "ring_atoms": [
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10145,
+              "name": "CG",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10146,
+              "name": "CD1",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10148,
+              "name": "CD2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "N",
+              "index": 10149,
+              "name": "NE1",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10151,
+              "name": "CE2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10152,
+              "name": "CE3",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10154,
+              "name": "CZ2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10156,
+              "name": "CZ3",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 10158,
+              "name": "CH2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            }
+          ],
+          "ring_indices": [
+            10145,
+            10146,
+            10148,
+            10149,
+            10151,
+            10152,
+            10154,
+            10156,
+            10158
+          ],
+          "water_name_pairs": [
+            [
+              "HOH",
+              "O"
+            ]
+          ],
+          "water_oxygen_index_first": 10296,
+          "water_oxygen_index_last": 313398,
+          "water_oxygen_indices_sha256": "ab46c5b8922e412ed4c4cb03dbe1b178587cbb6098062ae57bb6e7dbcfbd2e30"
+        },
+        "source_parameters": {
+          "pair_classes": {
+            "NE1_water_O": {
+              "epsilon_kj_mol": 0.6810702230092086,
+              "sigma_nm": 0.32139815436629793,
+              "wca_cutoff_nm": 0.3607572306728468
+            },
+            "aromatic_C_water_O": {
+              "epsilon_kj_mol": 0.4844139684778853,
+              "sigma_nm": 0.32888170359867674,
+              "wca_cutoff_nm": 0.3691572306728468
+            }
+          },
+          "ring_atoms": [
+            {
+              "chain_id": "B",
+              "charge_e": -0.1415,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10145,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CG",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.1638,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10146,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CD1",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": 0.1243,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10148,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CD2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.3418,
+              "element": "N",
+              "epsilon_kj_mol": 0.7112800000000001,
+              "index": 10149,
+              "mixed_epsilon_kj_mol": 0.6810702230092086,
+              "mixed_sigma_nm": 0.32139815436629793,
+              "name": "NE1",
+              "pair_class": "NE1_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3249998523775958,
+              "wca_cutoff_nm": 0.3607572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": 0.138,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10151,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CE2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.2387,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10152,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CE3",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.2601,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10154,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CZ2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.1972,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10156,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CZ3",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.1134,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 10158,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CH2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            }
+          ],
+          "source_parameter_tolerance": 1e-12,
+          "water_oxygen": {
+            "charge_e": -0.848448690103,
+            "epsilon_kj_mol": 0.652143528104,
+            "n_atoms": 101035,
+            "sigma_nm": 0.317796456355
+          }
+        },
+        "switching_function": false
+      },
+      "leg": "bound",
+      "seed": "s163",
+      "source_cell_digest": "62d458f66e0056fdb3fc576a13b0b5258fadb94e9eab3983d49a49c379b734c0"
+    },
+    {
+      "cell_id": "w4a_uncarved_s101_free",
+      "checks": {
+        "all_water_oxygens": true,
+        "atom_count_invariant": true,
+        "charge_invariant": true,
+        "dedicated_force_group": true,
+        "exact_nine_ring_atoms": true,
+        "source_pair_parameters_match": true,
+        "top_level_after_atm": true
+      },
+      "force_contract": {
+        "atm_force_index": 1,
+        "cutoff_nm": 0.4,
+        "energy_expression": "g*step(rc-rsc)*(4*epsilon*((sigma/rsc)^12-(sigma/rsc)^6)+epsilon);rsc=(r^6+alpha_sc*(1-g)*sigma^6)^(1.0/6.0);rc=2^(1.0/6.0)*sigma;sigma=0.5*(sigma1+sigma2);epsilon=sqrt(epsilon1*epsilon2)",
+        "energy_parameter_derivatives": [
+          "g"
+        ],
+        "force_group": 31,
+        "force_index": 2,
+        "force_name": "UPDDDynamicGhostWCA",
+        "global_parameters": {
+          "alpha_sc": 0.5,
+          "g": 0.0
+        },
+        "interaction_groups": [
+          {
+            "first": [
+              249,
+              250,
+              252,
+              253,
+              255,
+              256,
+              258,
+              260,
+              262
+            ],
+            "second_count": 9846,
+            "second_sha256": "e65bf6d6d80e025e65a731a1e9901ca0a760414d9177b6f7534bcdbe344f298c"
+          }
+        ],
+        "long_range_correction": false,
+        "n_forces_after": 3,
+        "n_forces_before": 2,
+        "n_particles": 29992,
+        "n_particles_after": 29992,
+        "n_particles_before": 29992,
+        "nested_nonbonded_index": 1,
+        "net_charge_after_e": 0.0,
+        "net_charge_before_e": 0.0,
+        "net_charge_delta_e": 0.0,
+        "nonbonded_method": "CutoffPeriodic",
+        "per_particle_parameters": [
+          "sigma",
+          "epsilon"
+        ],
+        "selection": {
+          "n_ring_atoms": 9,
+          "n_water_oxygens": 9846,
+          "n_water_residues": 9846,
+          "ring_atoms": [
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 249,
+              "name": "CG",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 250,
+              "name": "CD1",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 252,
+              "name": "CD2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "N",
+              "index": 253,
+              "name": "NE1",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 255,
+              "name": "CE2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 256,
+              "name": "CE3",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 258,
+              "name": "CZ2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 260,
+              "name": "CZ3",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 262,
+              "name": "CH2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            }
+          ],
+          "ring_indices": [
+            249,
+            250,
+            252,
+            253,
+            255,
+            256,
+            258,
+            260,
+            262
+          ],
+          "water_name_pairs": [
+            [
+              "HOH",
+              "O"
+            ]
+          ],
+          "water_oxygen_index_first": 400,
+          "water_oxygen_index_last": 29935,
+          "water_oxygen_indices_sha256": "e65bf6d6d80e025e65a731a1e9901ca0a760414d9177b6f7534bcdbe344f298c"
+        },
+        "source_parameters": {
+          "pair_classes": {
+            "NE1_water_O": {
+              "epsilon_kj_mol": 0.6810702230092086,
+              "sigma_nm": 0.32139815436629793,
+              "wca_cutoff_nm": 0.3607572306728468
+            },
+            "aromatic_C_water_O": {
+              "epsilon_kj_mol": 0.4844139684778853,
+              "sigma_nm": 0.32888170359867674,
+              "wca_cutoff_nm": 0.3691572306728468
+            }
+          },
+          "ring_atoms": [
+            {
+              "chain_id": "B",
+              "charge_e": -0.1415,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 249,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CG",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.1638,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 250,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CD1",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": 0.1243,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 252,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CD2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.3418,
+              "element": "N",
+              "epsilon_kj_mol": 0.7112800000000001,
+              "index": 253,
+              "mixed_epsilon_kj_mol": 0.6810702230092086,
+              "mixed_sigma_nm": 0.32139815436629793,
+              "name": "NE1",
+              "pair_class": "NE1_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3249998523775958,
+              "wca_cutoff_nm": 0.3607572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": 0.138,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 255,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CE2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.2387,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 256,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CE3",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.2601,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 258,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CZ2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.1972,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 260,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CZ3",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.1134,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 262,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CH2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            }
+          ],
+          "source_parameter_tolerance": 1e-12,
+          "water_oxygen": {
+            "charge_e": -0.848448690103,
+            "epsilon_kj_mol": 0.652143528104,
+            "n_atoms": 9846,
+            "sigma_nm": 0.317796456355
+          }
+        },
+        "switching_function": false
+      },
+      "leg": "free",
+      "seed": "s101",
+      "source_cell_digest": "f5a58a8f79e6cd9c498bf0deec113582d83459371c65fe4ce7f93f0f1805a5ea"
+    },
+    {
+      "cell_id": "w4a_uncarved_s127_free",
+      "checks": {
+        "all_water_oxygens": true,
+        "atom_count_invariant": true,
+        "charge_invariant": true,
+        "dedicated_force_group": true,
+        "exact_nine_ring_atoms": true,
+        "source_pair_parameters_match": true,
+        "top_level_after_atm": true
+      },
+      "force_contract": {
+        "atm_force_index": 1,
+        "cutoff_nm": 0.4,
+        "energy_expression": "g*step(rc-rsc)*(4*epsilon*((sigma/rsc)^12-(sigma/rsc)^6)+epsilon);rsc=(r^6+alpha_sc*(1-g)*sigma^6)^(1.0/6.0);rc=2^(1.0/6.0)*sigma;sigma=0.5*(sigma1+sigma2);epsilon=sqrt(epsilon1*epsilon2)",
+        "energy_parameter_derivatives": [
+          "g"
+        ],
+        "force_group": 31,
+        "force_index": 2,
+        "force_name": "UPDDDynamicGhostWCA",
+        "global_parameters": {
+          "alpha_sc": 0.5,
+          "g": 0.0
+        },
+        "interaction_groups": [
+          {
+            "first": [
+              249,
+              250,
+              252,
+              253,
+              255,
+              256,
+              258,
+              260,
+              262
+            ],
+            "second_count": 10012,
+            "second_sha256": "522491f737c10e1b9148425c7ddc6edf3b5fde9e6ace0f0be9b15843b8ffcf41"
+          }
+        ],
+        "long_range_correction": false,
+        "n_forces_after": 3,
+        "n_forces_before": 2,
+        "n_particles": 30490,
+        "n_particles_after": 30490,
+        "n_particles_before": 30490,
+        "nested_nonbonded_index": 1,
+        "net_charge_after_e": 0.0,
+        "net_charge_before_e": 0.0,
+        "net_charge_delta_e": 0.0,
+        "nonbonded_method": "CutoffPeriodic",
+        "per_particle_parameters": [
+          "sigma",
+          "epsilon"
+        ],
+        "selection": {
+          "n_ring_atoms": 9,
+          "n_water_oxygens": 10012,
+          "n_water_residues": 10012,
+          "ring_atoms": [
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 249,
+              "name": "CG",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 250,
+              "name": "CD1",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 252,
+              "name": "CD2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "N",
+              "index": 253,
+              "name": "NE1",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 255,
+              "name": "CE2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 256,
+              "name": "CE3",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 258,
+              "name": "CZ2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 260,
+              "name": "CZ3",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 262,
+              "name": "CH2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            }
+          ],
+          "ring_indices": [
+            249,
+            250,
+            252,
+            253,
+            255,
+            256,
+            258,
+            260,
+            262
+          ],
+          "water_name_pairs": [
+            [
+              "HOH",
+              "O"
+            ]
+          ],
+          "water_oxygen_index_first": 400,
+          "water_oxygen_index_last": 30433,
+          "water_oxygen_indices_sha256": "522491f737c10e1b9148425c7ddc6edf3b5fde9e6ace0f0be9b15843b8ffcf41"
+        },
+        "source_parameters": {
+          "pair_classes": {
+            "NE1_water_O": {
+              "epsilon_kj_mol": 0.6810702230092086,
+              "sigma_nm": 0.32139815436629793,
+              "wca_cutoff_nm": 0.3607572306728468
+            },
+            "aromatic_C_water_O": {
+              "epsilon_kj_mol": 0.4844139684778853,
+              "sigma_nm": 0.32888170359867674,
+              "wca_cutoff_nm": 0.3691572306728468
+            }
+          },
+          "ring_atoms": [
+            {
+              "chain_id": "B",
+              "charge_e": -0.1415,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 249,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CG",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.1638,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 250,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CD1",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": 0.1243,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 252,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CD2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.3418,
+              "element": "N",
+              "epsilon_kj_mol": 0.7112800000000001,
+              "index": 253,
+              "mixed_epsilon_kj_mol": 0.6810702230092086,
+              "mixed_sigma_nm": 0.32139815436629793,
+              "name": "NE1",
+              "pair_class": "NE1_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3249998523775958,
+              "wca_cutoff_nm": 0.3607572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": 0.138,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 255,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CE2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.2387,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 256,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CE3",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.2601,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 258,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CZ2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.1972,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 260,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CZ3",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.1134,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 262,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CH2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            }
+          ],
+          "source_parameter_tolerance": 1e-12,
+          "water_oxygen": {
+            "charge_e": -0.848448690103,
+            "epsilon_kj_mol": 0.652143528104,
+            "n_atoms": 10012,
+            "sigma_nm": 0.317796456355
+          }
+        },
+        "switching_function": false
+      },
+      "leg": "free",
+      "seed": "s127",
+      "source_cell_digest": "571174a9e3deda4e25e37c699c645859dbbc832cd05ad4a92e83a7db498d3252"
+    },
+    {
+      "cell_id": "w4a_uncarved_s163_free",
+      "checks": {
+        "all_water_oxygens": true,
+        "atom_count_invariant": true,
+        "charge_invariant": true,
+        "dedicated_force_group": true,
+        "exact_nine_ring_atoms": true,
+        "source_pair_parameters_match": true,
+        "top_level_after_atm": true
+      },
+      "force_contract": {
+        "atm_force_index": 1,
+        "cutoff_nm": 0.4,
+        "energy_expression": "g*step(rc-rsc)*(4*epsilon*((sigma/rsc)^12-(sigma/rsc)^6)+epsilon);rsc=(r^6+alpha_sc*(1-g)*sigma^6)^(1.0/6.0);rc=2^(1.0/6.0)*sigma;sigma=0.5*(sigma1+sigma2);epsilon=sqrt(epsilon1*epsilon2)",
+        "energy_parameter_derivatives": [
+          "g"
+        ],
+        "force_group": 31,
+        "force_index": 2,
+        "force_name": "UPDDDynamicGhostWCA",
+        "global_parameters": {
+          "alpha_sc": 0.5,
+          "g": 0.0
+        },
+        "interaction_groups": [
+          {
+            "first": [
+              249,
+              250,
+              252,
+              253,
+              255,
+              256,
+              258,
+              260,
+              262
+            ],
+            "second_count": 10542,
+            "second_sha256": "60eb93549bb107c3508c355f7f5fbab649c678fdf538cb41ce6ba1f82ab97e93"
+          }
+        ],
+        "long_range_correction": false,
+        "n_forces_after": 3,
+        "n_forces_before": 2,
+        "n_particles": 32084,
+        "n_particles_after": 32084,
+        "n_particles_before": 32084,
+        "nested_nonbonded_index": 1,
+        "net_charge_after_e": 0.0,
+        "net_charge_before_e": 0.0,
+        "net_charge_delta_e": 0.0,
+        "nonbonded_method": "CutoffPeriodic",
+        "per_particle_parameters": [
+          "sigma",
+          "epsilon"
+        ],
+        "selection": {
+          "n_ring_atoms": 9,
+          "n_water_oxygens": 10542,
+          "n_water_residues": 10542,
+          "ring_atoms": [
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 249,
+              "name": "CG",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 250,
+              "name": "CD1",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 252,
+              "name": "CD2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "N",
+              "index": 253,
+              "name": "NE1",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 255,
+              "name": "CE2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 256,
+              "name": "CE3",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 258,
+              "name": "CZ2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 260,
+              "name": "CZ3",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            },
+            {
+              "chain_id": "B",
+              "element": "C",
+              "index": 262,
+              "name": "CH2",
+              "residue_id": "4",
+              "residue_name": "TRP"
+            }
+          ],
+          "ring_indices": [
+            249,
+            250,
+            252,
+            253,
+            255,
+            256,
+            258,
+            260,
+            262
+          ],
+          "water_name_pairs": [
+            [
+              "HOH",
+              "O"
+            ]
+          ],
+          "water_oxygen_index_first": 400,
+          "water_oxygen_index_last": 32023,
+          "water_oxygen_indices_sha256": "60eb93549bb107c3508c355f7f5fbab649c678fdf538cb41ce6ba1f82ab97e93"
+        },
+        "source_parameters": {
+          "pair_classes": {
+            "NE1_water_O": {
+              "epsilon_kj_mol": 0.6810702230092086,
+              "sigma_nm": 0.32139815436629793,
+              "wca_cutoff_nm": 0.3607572306728468
+            },
+            "aromatic_C_water_O": {
+              "epsilon_kj_mol": 0.4844139684778853,
+              "sigma_nm": 0.32888170359867674,
+              "wca_cutoff_nm": 0.3691572306728468
+            }
+          },
+          "ring_atoms": [
+            {
+              "chain_id": "B",
+              "charge_e": -0.1415,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 249,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CG",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.1638,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 250,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CD1",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": 0.1243,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 252,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CD2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.3418,
+              "element": "N",
+              "epsilon_kj_mol": 0.7112800000000001,
+              "index": 253,
+              "mixed_epsilon_kj_mol": 0.6810702230092086,
+              "mixed_sigma_nm": 0.32139815436629793,
+              "name": "NE1",
+              "pair_class": "NE1_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3249998523775958,
+              "wca_cutoff_nm": 0.3607572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": 0.138,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 255,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CE2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.2387,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 256,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CE3",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.2601,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 258,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CZ2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.1972,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 260,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CZ3",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            },
+            {
+              "chain_id": "B",
+              "charge_e": -0.1134,
+              "element": "C",
+              "epsilon_kj_mol": 0.359824,
+              "index": 262,
+              "mixed_epsilon_kj_mol": 0.4844139684778853,
+              "mixed_sigma_nm": 0.32888170359867674,
+              "name": "CH2",
+              "pair_class": "aromatic_C_water_O",
+              "residue_id": "4",
+              "residue_name": "TRP",
+              "sigma_nm": 0.3399669508423535,
+              "wca_cutoff_nm": 0.3691572306728468
+            }
+          ],
+          "source_parameter_tolerance": 1e-12,
+          "water_oxygen": {
+            "charge_e": -0.848448690103,
+            "epsilon_kj_mol": 0.652143528104,
+            "n_atoms": 10542,
+            "sigma_nm": 0.317796456355
+          }
+        },
+        "switching_function": false
+      },
+      "leg": "free",
+      "seed": "s163",
+      "source_cell_digest": "46a2e4e6711c2b01bc96e9b6fe511314f58d9fe5220ee27823b476d5769d6e4f"
+    }
+  ],
+  "context_count": 0,
+  "generated": "2026-07-17 01:33:12 +0900",
+  "gpu_used": false,
+  "inventory_digest": "e6f17322677d097e1b4c39af2e9f8ca19aaba3006a8866e37936e5653212a181",
+  "md_steps": 0,
+  "n_cells": 6,
+  "schema": "updd_dynamic_ghost_p0_keeper_preflight_v1",
+  "status": "PASS"
+}

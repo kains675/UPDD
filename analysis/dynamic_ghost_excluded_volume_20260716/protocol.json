@@ -1,0 +1,146 @@
+{
+  "schema": "updd_dynamic_ghost_prereg_v1",
+  "registered_local": "2026-07-16",
+  "status": "FROZEN_BEFORE_IMPLEMENTATION_OR_OUTPUT",
+  "regime": "R11_RANKING_SIGN_ONLY_MECHANISM_PILOT",
+  "decision": {
+    "stop_branch": "B_TRANSPORT_TUNING",
+    "next_branch": "A_DYNAMIC_GHOST_EXCLUDED_VOLUME",
+    "trigger_verdict": "PROMOTE_A_CARVE_REDESIGN",
+    "automatic_production_authorized": false,
+    "w23a_launch_authorized": false
+  },
+  "evidence": {
+    "source_inventory_digest": "d67c4fa420ccb1d6b170a4bef0fe480c4c0cc79395c006f198d48fa1293cbee9",
+    "control_median_frac_lt_0p26": 0.334667,
+    "s127_frac_lt_0p26": 0.497333,
+    "delta": 0.162667,
+    "ratio": 1.486056,
+    "baseline_floor": 0.15
+  },
+  "system": {
+    "structure": "2QKI",
+    "mutation_spec": "w4a_trp_ala_res4",
+    "endpoint": "wt",
+    "construction": "twocopy",
+    "input_arm": "uncarved",
+    "seeds": ["s101", "s127", "s163"],
+    "high_leverage_seed": "s127",
+    "control_seeds": ["s101", "s163"]
+  },
+  "ghost": {
+    "implementation": "top_level_CustomNonbondedForce_interaction_group",
+    "coordinate_policy": "stored_coordinates_of_disappearing_trp_atoms",
+    "ring_atom_names": [
+      "CG", "CD1", "CD2", "NE1", "CE2", "CE3", "CZ2", "CZ3", "CH2"
+    ],
+    "water_residue_names": ["HOH", "WAT", "SOL"],
+    "water_oxygen_names": ["O", "OW", "OH2"],
+    "electrostatics": false,
+    "attraction": false,
+    "water_deletion": false,
+    "added_particles": 0,
+    "potential": "softcore_WCA",
+    "formula": "rsc=(r^6+alpha_sc*(1-g)*sigma^6)^(1/6); rc=2^(1/6)*sigma; V=g*step(rc-rsc)*(4*epsilon*((sigma/rsc)^12-(sigma/rsc)^6)+epsilon)",
+    "alpha_sc": 0.5,
+    "mixing_rule": "Lorentz-Berthelot",
+    "nonbonded_method": "CutoffPeriodic",
+    "cutoff_nm": 0.4,
+    "long_range_correction": false,
+    "force_group_required": true,
+    "energy_parameter_derivative_required": true,
+    "parameter_source": {
+      "seed": "s127",
+      "leg": "bound",
+      "replicate_index": 6,
+      "serialized_xml": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep6/inplace_rbfe_bound_sys.xml",
+      "serialized_xml_sha256": "2cf60c082a7a22438fd0b795b9ab50d95b4c6dcad3058d2c852eff71b9255c55",
+      "serialized_pdb_sha256": "5e0dfdbf5650d45b0dec1fc73c1e97ddc178a5fb477a3943a5cb8679dd134529",
+      "run_manifest_sha256": "a3d74cc60c48457d3a41640152586ee4b1ec6953d7b6078cdd0e252841848fed"
+    },
+    "reference_pair_parameters": {
+      "aromatic_C_water_O": {
+        "sigma_nm": 0.328881703598677,
+        "epsilon_kj_mol": 0.484413968477885,
+        "wca_cutoff_nm": 0.369157230672847
+      },
+      "NE1_water_O": {
+        "sigma_nm": 0.321398154366298,
+        "epsilon_kj_mol": 0.681070223009209,
+        "wca_cutoff_nm": 0.360757230672847
+      }
+    },
+    "main_coupling": {
+      "dplus": "g=Lambda2",
+      "dminus": "g=1-Lambda2",
+      "u0": 0.0,
+      "shared_apex": 0.5,
+      "u1": 1.0
+    }
+  },
+  "thermodynamic_cycle": {
+    "main": "DeltaG_main_e=G_e(u1g)-G_e(u0)",
+    "correction": "DeltaG_off_e=G_e(u1)-G_e(u1g)",
+    "physical": "DeltaG_phys_e=DeltaG_main_e+DeltaG_off_e",
+    "binding": "DeltaDeltaG_bind_phys=DeltaG_phys_bound-DeltaG_phys_free",
+    "main_observable": "dgb=dgbind1-dgbind2",
+    "dgbind1_role": "diagnostic_only",
+    "correction_estimator": "per_environment_MBAR"
+  },
+  "h18": {
+    "lambda1_rampdown": [0.025, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5],
+    "lambda2_rampup": [0.0, 0.05, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5],
+    "md_steps_per_cycle": 250,
+    "timestep_fs": 1.0,
+    "temperature_K": 300.0
+  },
+  "stages": {
+    "P0": {
+      "platform": "Reference",
+      "md_allowed": false,
+      "legs": ["bound", "free"]
+    },
+    "P1": {
+      "platform": "CUDA",
+      "leg": "bound",
+      "directions": ["dplus", "dminus"],
+      "n_cycles": 50,
+      "dcd_frames_per_cycle": 1,
+      "fe_verdict_allowed": false
+    },
+    "P2": {
+      "platform": "CUDA",
+      "legs": ["bound", "free"],
+      "main_n_cycles": 200,
+      "main_mintimeid": 100,
+      "correction_n_cycles": 200,
+      "correction_lambda_g": [
+        0.0, 0.025, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5,
+        0.6, 0.7, 0.8, 0.9, 0.95, 0.975, 1.0
+      ],
+      "direct_comparator_required": true,
+      "scientific_sign_claim_allowed": false
+    }
+  },
+  "gates": {
+    "energy_tolerance_kj_mol": 1e-5,
+    "force_component_tolerance_kj_mol_nm": 1e-5,
+    "control_frac_lt_0p26_max_exclusive": 0.15,
+    "amplification_delta": 0.1,
+    "amplification_ratio": 1.5,
+    "site_rmsd_p95_nm_max": 0.15,
+    "adjacent_overlap_target": 0.1,
+    "adjacent_overlap_hard_floor": 0.03,
+    "minimum_round_trips": 1,
+    "correction_se_kcal_mol_max": 1.5,
+    "uncertainty_inflation_max": 2.0,
+    "closure_median_abs_kcal_mol_max": 1.0
+  },
+  "outcomes": [
+    "A_PILOT_PASS",
+    "A_CORRECTION_VALID_DIRECT_UNKNOWN",
+    "A_PILOT_INDETERMINATE",
+    "REVISE_GHOST",
+    "REJECT_GHOST"
+  ]
+}

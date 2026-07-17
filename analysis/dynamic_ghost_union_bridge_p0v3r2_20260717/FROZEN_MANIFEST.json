@@ -1,0 +1,20 @@
+{
+  "schema": "updd_dynamic_ghost_union_bridge_p0v3r2_freeze_v1",
+  "frozen_local": "2026-07-17",
+  "status": "FROZEN_BEFORE_P0V3R2_IMPLEMENTATION_OR_OUTPUT",
+  "files": {
+    "PREREGISTRATION.md": "0ab7d03e7ba1621863d9faf396e874f3c38314a9007fb326f5e4f2e40a01d0de",
+    "protocol.json": "a57d2656b17ff35aaa853208d6edfeec4c7cfaa3113f772c867c7fbf8a1dfaf0"
+  },
+  "inherited_design": {
+    "analysis/dynamic_ghost_union_bridge_p0v3r1_20260717/PREREGISTRATION.md": "d9e9b66f855773d8030cb314c44d572b897c86be76625f7ed0d828fa3cf53b6d",
+    "analysis/dynamic_ghost_union_bridge_p0v3r1_20260717/protocol.json": "96664e0dda3dc155168c384fd9276192f9dd524c845bfd20d2ee2e2b0bde1870",
+    "analysis/dynamic_ghost_union_bridge_p0v3r1_20260717/FROZEN_MANIFEST.json": "ff1a7eb9952ef8dbfb0fd02cc46a2df773c6a0f4a1ff7cd5cdef5ec882294ef4"
+  },
+  "trigger_evidence": {
+    "analysis/dynamic_ghost_union_bridge_p0v3r1_20260717/P0V3R1_PATH_DIAGNOSIS.md": "73cbf8aac6032843c888251a2e7eff835b77ac11f49c2b9daac5cb11283b9fe2",
+    "analysis/dynamic_ghost_union_bridge_p0v3r1_20260717/P0V3R1_PATH_DIAGNOSIS.json": "30488435ba0ec18fd09d6cb493c17641aa97e7750d6eb0430610c825eed3388f",
+    "analysis/dynamic_ghost_union_bridge_p0v3r1_20260717/P0V3R1_SOURCE_SUMMARY.json": "5561828448554c4b0b1a5f377871403ca34d2b5bc8a63e1ff2a4328a5d296ef0",
+    "analysis/dynamic_ghost_union_bridge_p0v3r1_20260717/u0_union_sources/w4a_union_s101_bound/source_build_result.json": "dddaf2becf0c6cc561fdc54bb74d1a506ff038f7b1202d5dbd866e361c2ee1af"
+  }
+}

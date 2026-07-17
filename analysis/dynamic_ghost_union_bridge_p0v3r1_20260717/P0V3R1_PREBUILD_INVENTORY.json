@@ -1,0 +1,1455 @@
+{
+  "bridge_states": [
+    0.0,
+    0.25,
+    0.5,
+    0.75,
+    1.0
+  ],
+  "cells": [
+    {
+      "cell_digest": "f1aadd5c83d6f4397d2c819bce09919ca6978c095556a3737a380a723ee99d15",
+      "cell_id": "w4a_union_s101_bound",
+      "config": {
+        "cl": 263,
+        "na": 263,
+        "num_added": 97060,
+        "parent_particles": 300424,
+        "rng_seed": 2026071711,
+        "water": 96534
+      },
+      "leg": "bound",
+      "parent_contract": {
+        "box": {
+          "cubic": true,
+          "finite": true,
+          "lengths_nm": [
+            14.5795,
+            14.5795,
+            14.5795
+          ],
+          "orthogonal": true,
+          "passed": true,
+          "right_handed": true,
+          "vectors_nm": [
+            [
+              14.5795,
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              14.5795,
+              0.0
+            ],
+            [
+              0.0,
+              0.0,
+              14.5795
+            ]
+          ],
+          "volume_nm3": 3099.0450583348747
+        },
+        "net_charge_e": -1.7053025658242404e-13,
+        "particles": 300424,
+        "solute_signature": {
+          "digest": "e0efac4c2f76ae8301571531a72e19757ca53ef7351c9364af524cd62a3fc9b6",
+          "n_atoms": 10296,
+          "n_residues": 657
+        },
+        "solvent_counts": {
+          "cl": 263,
+          "na": 263,
+          "total": 97060,
+          "water": 96534
+        },
+        "topology_atoms": 300424
+      },
+      "parent_source": {
+        "artifacts": {
+          "dminus_cntl": {
+            "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep5/dminus/trackb_dminus_asyncre.cntl",
+            "sha256": "254a922b326cbe05a0a7832ffd16c12498e61ac710c7963391580edc2332bd46",
+            "size": 1027
+          },
+          "dplus_cntl": {
+            "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep5/dplus/trackb_dplus_asyncre.cntl",
+            "sha256": "29c5987112e9ed3f4f9e2d676e5f7d14507612d63fef5cfecb3d1c09a68f368b",
+            "size": 1010
+          },
+          "run_manifest": {
+            "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep5/run_manifest.json",
+            "sha256": "9d10b34d475f43e8e2e7dad36d2f2470436ee998dbf9ce9d9701169038febb42",
+            "size": 373148
+          },
+          "serialized_pdb": {
+            "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep5/inplace_rbfe_bound.pdb",
+            "sha256": "7428ec92cc9ad9a9b2a15c047e97fb9c1ba5d0fc861b4f7636ccf1be4e701e07",
+            "size": 24334706
+          },
+          "serialized_xml": {
+            "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep5/inplace_rbfe_bound_sys.xml",
+            "sha256": "f07056214404603081639dc5ea3cdc833b3910e8467046a1da4a21b52eb9d726",
+            "size": 108623674
+          }
+        },
+        "cell_digest": "913474dd7ef5f031c59333bbb009bce32797dedeef0a4569fb6b07cf9e059323",
+        "cell_id": "w4a_uncarved_s101_bound",
+        "leg": "bound",
+        "main_path_g": {
+          "apex_dminus": 0.5,
+          "apex_dplus": 0.5,
+          "u0_dplus": 0.0,
+          "u1_dminus": 1.0
+        },
+        "manifest_declaration": {
+          "construction": "twocopy",
+          "endpoint": "wt",
+          "leg": "bound",
+          "replicate_index": 5,
+          "seed": "s101"
+        },
+        "replicate_index": 5,
+        "seed": "s101",
+        "source_rep_dir": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep5",
+        "states": {
+          "apex_dminus": {
+            "acore": 0.0625,
+            "alpha_kcal_inv": 0.1,
+            "direction": -1,
+            "intermediate": 0,
+            "label": "apex_dminus",
+            "lambda1": 0.5,
+            "lambda2": 0.5,
+            "ubcore_kcal_mol": 100.0,
+            "uh_kcal_mol": 110.0,
+            "umax_kcal_mol": 200.0,
+            "w0_kcal_mol": 0.0
+          },
+          "apex_dplus": {
+            "acore": 0.0625,
+            "alpha_kcal_inv": 0.1,
+            "direction": 1,
+            "intermediate": 0,
+            "label": "apex_dplus",
+            "lambda1": 0.5,
+            "lambda2": 0.5,
+            "ubcore_kcal_mol": 100.0,
+            "uh_kcal_mol": 110.0,
+            "umax_kcal_mol": 200.0,
+            "w0_kcal_mol": 0.0
+          },
+          "u0_dplus": {
+            "acore": 0.0625,
+            "alpha_kcal_inv": 0.1,
+            "direction": 1,
+            "intermediate": 0,
+            "label": "u0_dplus",
+            "lambda1": 0.0,
+            "lambda2": 0.0,
+            "ubcore_kcal_mol": 100.0,
+            "uh_kcal_mol": 110.0,
+            "umax_kcal_mol": 200.0,
+            "w0_kcal_mol": 0.0
+          },
+          "u1_dminus": {
+            "acore": 0.0625,
+            "alpha_kcal_inv": 0.1,
+            "direction": -1,
+            "intermediate": 0,
+            "label": "u1_dminus",
+            "lambda1": 0.0,
+            "lambda2": 0.0,
+            "ubcore_kcal_mol": 100.0,
+            "uh_kcal_mol": 110.0,
+            "umax_kcal_mol": 200.0,
+            "w0_kcal_mol": 0.0
+          }
+        }
+      },
+      "replicate_index": 5,
+      "scaffold": {
+        "path": "outputs/2QKI_WT_calib_s101/mdresult/2QKI_WT_final.pdb",
+        "sha256": "0638c80b2fe071a7c5c7eab437f8a63877376ddc8ea31c1ae6abb76176b77ec4",
+        "size": 9969570
+      },
+      "seed": "s101",
+      "states": {
+        "apex_dminus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": -1,
+          "intermediate": 0,
+          "label": "apex_dminus",
+          "lambda1": 0.5,
+          "lambda2": 0.5,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        },
+        "apex_dplus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": 1,
+          "intermediate": 0,
+          "label": "apex_dplus",
+          "lambda1": 0.5,
+          "lambda2": 0.5,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        },
+        "u0_dplus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": 1,
+          "intermediate": 0,
+          "label": "u0_dplus",
+          "lambda1": 0.0,
+          "lambda2": 0.0,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        },
+        "u1_dminus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": -1,
+          "intermediate": 0,
+          "label": "u1_dminus",
+          "lambda1": 0.0,
+          "lambda2": 0.0,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        }
+      }
+    },
+    {
+      "cell_digest": "5d7569898a04487456a8e8318bf0f9534da1ac1779a03abf08f2a54189bc1c7d",
+      "cell_id": "w4a_union_s127_bound",
+      "config": {
+        "cl": 265,
+        "na": 265,
+        "num_added": 97830,
+        "parent_particles": 302726,
+        "rng_seed": 2026071712,
+        "water": 97300
+      },
+      "leg": "bound",
+      "parent_contract": {
+        "box": {
+          "cubic": true,
+          "finite": true,
+          "lengths_nm": [
+            14.6143,
+            14.6143,
+            14.6143
+          ],
+          "orthogonal": true,
+          "passed": true,
+          "right_handed": true,
+          "vectors_nm": [
+            [
+              14.6143,
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              14.6143,
+              0.0
+            ],
+            [
+              0.0,
+              0.0,
+              14.6143
+            ]
+          ],
+          "volume_nm3": 3121.2895235862056
+        },
+        "net_charge_e": -1.7053025658242404e-13,
+        "particles": 302726,
+        "solute_signature": {
+          "digest": "e0efac4c2f76ae8301571531a72e19757ca53ef7351c9364af524cd62a3fc9b6",
+          "n_atoms": 10296,
+          "n_residues": 657
+        },
+        "solvent_counts": {
+          "cl": 265,
+          "na": 265,
+          "total": 97830,
+          "water": 97300
+        },
+        "topology_atoms": 302726
+      },
+      "parent_source": {
+        "artifacts": {
+          "dminus_cntl": {
+            "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep6/dminus/trackb_dminus_asyncre.cntl",
+            "sha256": "254a922b326cbe05a0a7832ffd16c12498e61ac710c7963391580edc2332bd46",
+            "size": 1027
+          },
+          "dplus_cntl": {
+            "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep6/dplus/trackb_dplus_asyncre.cntl",
+            "sha256": "29c5987112e9ed3f4f9e2d676e5f7d14507612d63fef5cfecb3d1c09a68f368b",
+            "size": 1010
+          },
+          "run_manifest": {
+            "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep6/run_manifest.json",
+            "sha256": "a3d74cc60c48457d3a41640152586ee4b1ec6953d7b6078cdd0e252841848fed",
+            "size": 373149
+          },
+          "serialized_pdb": {
+            "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep6/inplace_rbfe_bound.pdb",
+            "sha256": "5e0dfdbf5650d45b0dec1fc73c1e97ddc178a5fb477a3943a5cb8679dd134529",
+            "size": 24521168
+          },
+          "serialized_xml": {
+            "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep6/inplace_rbfe_bound_sys.xml",
+            "sha256": "2cf60c082a7a22438fd0b795b9ab50d95b4c6dcad3058d2c852eff71b9255c55",
+            "size": 109384393
+          }
+        },
+        "cell_digest": "71f06dfe9e08622c7960214a41fa54b73a5a4698e627c747df09621111ee68b9",
+        "cell_id": "w4a_uncarved_s127_bound",
+        "leg": "bound",
+        "main_path_g": {
+          "apex_dminus": 0.5,
+          "apex_dplus": 0.5,
+          "u0_dplus": 0.0,
+          "u1_dminus": 1.0
+        },
+        "manifest_declaration": {
+          "construction": "twocopy",
+          "endpoint": "wt",
+          "leg": "bound",
+          "replicate_index": 6,
+          "seed": "s127"
+        },
+        "replicate_index": 6,
+        "seed": "s127",
+        "source_rep_dir": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep6",
+        "states": {
+          "apex_dminus": {
+            "acore": 0.0625,
+            "alpha_kcal_inv": 0.1,
+            "direction": -1,
+            "intermediate": 0,
+            "label": "apex_dminus",
+            "lambda1": 0.5,
+            "lambda2": 0.5,
+            "ubcore_kcal_mol": 100.0,
+            "uh_kcal_mol": 110.0,
+            "umax_kcal_mol": 200.0,
+            "w0_kcal_mol": 0.0
+          },
+          "apex_dplus": {
+            "acore": 0.0625,
+            "alpha_kcal_inv": 0.1,
+            "direction": 1,
+            "intermediate": 0,
+            "label": "apex_dplus",
+            "lambda1": 0.5,
+            "lambda2": 0.5,
+            "ubcore_kcal_mol": 100.0,
+            "uh_kcal_mol": 110.0,
+            "umax_kcal_mol": 200.0,
+            "w0_kcal_mol": 0.0
+          },
+          "u0_dplus": {
+            "acore": 0.0625,
+            "alpha_kcal_inv": 0.1,
+            "direction": 1,
+            "intermediate": 0,
+            "label": "u0_dplus",
+            "lambda1": 0.0,
+            "lambda2": 0.0,
+            "ubcore_kcal_mol": 100.0,
+            "uh_kcal_mol": 110.0,
+            "umax_kcal_mol": 200.0,
+            "w0_kcal_mol": 0.0
+          },
+          "u1_dminus": {
+            "acore": 0.0625,
+            "alpha_kcal_inv": 0.1,
+            "direction": -1,
+            "intermediate": 0,
+            "label": "u1_dminus",
+            "lambda1": 0.0,
+            "lambda2": 0.0,
+            "ubcore_kcal_mol": 100.0,
+            "uh_kcal_mol": 110.0,
+            "umax_kcal_mol": 200.0,
+            "w0_kcal_mol": 0.0
+          }
+        }
+      },
+      "replicate_index": 6,
+      "scaffold": {
+        "path": "outputs/2QKI_WT_calib_s127/mdresult/2QKI_WT_final.pdb",
+        "sha256": "fd9a380e339d421c2a9e82dc007bd06bb7b03d315d3722b6d576b22d8a78122a",
+        "size": 9969570
+      },
+      "seed": "s127",
+      "states": {
+        "apex_dminus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": -1,
+          "intermediate": 0,
+          "label": "apex_dminus",
+          "lambda1": 0.5,
+          "lambda2": 0.5,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        },
+        "apex_dplus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": 1,
+          "intermediate": 0,
+          "label": "apex_dplus",
+          "lambda1": 0.5,
+          "lambda2": 0.5,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        },
+        "u0_dplus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": 1,
+          "intermediate": 0,
+          "label": "u0_dplus",
+          "lambda1": 0.0,
+          "lambda2": 0.0,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        },
+        "u1_dminus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": -1,
+          "intermediate": 0,
+          "label": "u1_dminus",
+          "lambda1": 0.0,
+          "lambda2": 0.0,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        }
+      }
+    },
+    {
+      "cell_digest": "7fe793c00c2a523badca3fee89af977f187b9c9d92d4d28779311bd150a3077f",
+      "cell_id": "w4a_union_s163_bound",
+      "config": {
+        "cl": 275,
+        "na": 275,
+        "num_added": 101585,
+        "parent_particles": 313951,
+        "rng_seed": 2026071713,
+        "water": 101035
+      },
+      "leg": "bound",
+      "parent_contract": {
+        "box": {
+          "cubic": true,
+          "finite": true,
+          "lengths_nm": [
+            14.794,
+            14.794,
+            14.794
+          ],
+          "orthogonal": true,
+          "passed": true,
+          "right_handed": true,
+          "vectors_nm": [
+            [
+              14.794,
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              14.794,
+              0.0
+            ],
+            [
+              0.0,
+              0.0,
+              14.794
+            ]
+          ],
+          "volume_nm3": 3237.850878184001
+        },
+        "net_charge_e": -1.7053025658242404e-13,
+        "particles": 313951,
+        "solute_signature": {
+          "digest": "e0efac4c2f76ae8301571531a72e19757ca53ef7351c9364af524cd62a3fc9b6",
+          "n_atoms": 10296,
+          "n_residues": 657
+        },
+        "solvent_counts": {
+          "cl": 275,
+          "na": 275,
+          "total": 101585,
+          "water": 101035
+        },
+        "topology_atoms": 313951
+      },
+      "parent_source": {
+        "artifacts": {
+          "dminus_cntl": {
+            "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep7/dminus/trackb_dminus_asyncre.cntl",
+            "sha256": "254a922b326cbe05a0a7832ffd16c12498e61ac710c7963391580edc2332bd46",
+            "size": 1027
+          },
+          "dplus_cntl": {
+            "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep7/dplus/trackb_dplus_asyncre.cntl",
+            "sha256": "29c5987112e9ed3f4f9e2d676e5f7d14507612d63fef5cfecb3d1c09a68f368b",
+            "size": 1010
+          },
+          "run_manifest": {
+            "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep7/run_manifest.json",
+            "sha256": "7c1f725ad170cc818d1b39dce79d131328bd86ad7e82b66f5236129e92d38e0b",
+            "size": 373145
+          },
+          "serialized_pdb": {
+            "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep7/inplace_rbfe_bound.pdb",
+            "sha256": "70893c4983cabb4b31bb21ae6a49074cebd39af8660c39e51576ca4407e1d34b",
+            "size": 25430393
+          },
+          "serialized_xml": {
+            "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep7/inplace_rbfe_bound_sys.xml",
+            "sha256": "8b51ef0a6e6c45323b0f753e817923c48dbfd91910ec3c38baf6157dd074f730",
+            "size": 113093730
+          }
+        },
+        "cell_digest": "62d458f66e0056fdb3fc576a13b0b5258fadb94e9eab3983d49a49c379b734c0",
+        "cell_id": "w4a_uncarved_s163_bound",
+        "leg": "bound",
+        "main_path_g": {
+          "apex_dminus": 0.5,
+          "apex_dplus": 0.5,
+          "u0_dplus": 0.0,
+          "u1_dminus": 1.0
+        },
+        "manifest_declaration": {
+          "construction": "twocopy",
+          "endpoint": "wt",
+          "leg": "bound",
+          "replicate_index": 7,
+          "seed": "s163"
+        },
+        "replicate_index": 7,
+        "seed": "s163",
+        "source_rep_dir": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_bound/wt/bound/rep7",
+        "states": {
+          "apex_dminus": {
+            "acore": 0.0625,
+            "alpha_kcal_inv": 0.1,
+            "direction": -1,
+            "intermediate": 0,
+            "label": "apex_dminus",
+            "lambda1": 0.5,
+            "lambda2": 0.5,
+            "ubcore_kcal_mol": 100.0,
+            "uh_kcal_mol": 110.0,
+            "umax_kcal_mol": 200.0,
+            "w0_kcal_mol": 0.0
+          },
+          "apex_dplus": {
+            "acore": 0.0625,
+            "alpha_kcal_inv": 0.1,
+            "direction": 1,
+            "intermediate": 0,
+            "label": "apex_dplus",
+            "lambda1": 0.5,
+            "lambda2": 0.5,
+            "ubcore_kcal_mol": 100.0,
+            "uh_kcal_mol": 110.0,
+            "umax_kcal_mol": 200.0,
+            "w0_kcal_mol": 0.0
+          },
+          "u0_dplus": {
+            "acore": 0.0625,
+            "alpha_kcal_inv": 0.1,
+            "direction": 1,
+            "intermediate": 0,
+            "label": "u0_dplus",
+            "lambda1": 0.0,
+            "lambda2": 0.0,
+            "ubcore_kcal_mol": 100.0,
+            "uh_kcal_mol": 110.0,
+            "umax_kcal_mol": 200.0,
+            "w0_kcal_mol": 0.0
+          },
+          "u1_dminus": {
+            "acore": 0.0625,
+            "alpha_kcal_inv": 0.1,
+            "direction": -1,
+            "intermediate": 0,
+            "label": "u1_dminus",
+            "lambda1": 0.0,
+            "lambda2": 0.0,
+            "ubcore_kcal_mol": 100.0,
+            "uh_kcal_mol": 110.0,
+            "umax_kcal_mol": 200.0,
+            "w0_kcal_mol": 0.0
+          }
+        }
+      },
+      "replicate_index": 7,
+      "scaffold": {
+        "path": "outputs/2QKI_WT_calib_s163/mdresult/2QKI_WT_final.pdb",
+        "sha256": "82b57c01be4dcaa53b5d008913181b833f9a2bfbe424449b7df38793a6ca512d",
+        "size": 9969570
+      },
+      "seed": "s163",
+      "states": {
+        "apex_dminus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": -1,
+          "intermediate": 0,
+          "label": "apex_dminus",
+          "lambda1": 0.5,
+          "lambda2": 0.5,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        },
+        "apex_dplus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": 1,
+          "intermediate": 0,
+          "label": "apex_dplus",
+          "lambda1": 0.5,
+          "lambda2": 0.5,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        },
+        "u0_dplus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": 1,
+          "intermediate": 0,
+          "label": "u0_dplus",
+          "lambda1": 0.0,
+          "lambda2": 0.0,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        },
+        "u1_dminus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": -1,
+          "intermediate": 0,
+          "label": "u1_dminus",
+          "lambda1": 0.0,
+          "lambda2": 0.0,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        }
+      }
+    },
+    {
+      "cell_digest": "9c28856365764b4af410ee9e60d58b9389d7d0f4fc5604f6d032d57f5f0571ad",
+      "cell_id": "w4a_union_s101_free",
+      "config": {
+        "cl": 27,
+        "na": 27,
+        "num_added": 9900,
+        "parent_particles": 29992,
+        "rng_seed": 2026071721,
+        "water": 9846
+      },
+      "leg": "free",
+      "parent_contract": {
+        "box": {
+          "cubic": true,
+          "finite": true,
+          "lengths_nm": [
+            6.789000000000001,
+            6.789000000000001,
+            6.789000000000001
+          ],
+          "orthogonal": true,
+          "passed": true,
+          "right_handed": true,
+          "vectors_nm": [
+            [
+              6.789000000000001,
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              6.789000000000001,
+              0.0
+            ],
+            [
+              0.0,
+              0.0,
+              6.789000000000001
+            ]
+          ],
+          "volume_nm3": 312.9085470690001
+        },
+        "net_charge_e": 0.0,
+        "particles": 29992,
+        "solute_signature": {
+          "digest": "bf57c6cb67ded41b9dcc697ae95300c28786870b57d503b58d6f9e65d56e4fd7",
+          "n_atoms": 400,
+          "n_residues": 26
+        },
+        "solvent_counts": {
+          "cl": 27,
+          "na": 27,
+          "total": 9900,
+          "water": 9846
+        },
+        "topology_atoms": 29992
+      },
+      "parent_source": {
+        "artifacts": {
+          "dminus_cntl": {
+            "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_free/wt/free/rep5/dminus/trackb_dminus_asyncre.cntl",
+            "sha256": "254a922b326cbe05a0a7832ffd16c12498e61ac710c7963391580edc2332bd46",
+            "size": 1027
+          },
+          "dplus_cntl": {
+            "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_free/wt/free/rep5/dplus/trackb_dplus_asyncre.cntl",
+            "sha256": "29c5987112e9ed3f4f9e2d676e5f7d14507612d63fef5cfecb3d1c09a68f368b",
+            "size": 1010
+          },
+          "run_manifest": {
+            "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_free/wt/free/rep5/run_manifest.json",
+            "sha256": "3e9350bedd989e3963f5a47f442cf17412d89c94bef7c9d592bbe2710487012b",
+            "size": 372220
+          },
+          "serialized_pdb": {
+            "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_free/wt/free/rep5/inplace_rbfe_free.pdb",
+            "sha256": "f65a582446399cc50a55a4ccd3af477a1d99991e0e52e378bb3d88bc9ccb0e53",
+            "size": 2429653
+          },
+          "serialized_xml": {
+            "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_free/wt/free/rep5/inplace_rbfe_free_sys.xml",
+            "sha256": "edeb7b4da6b4e777e2bb7f5abb09cef0ee4e7c256a0e67039835dc9ecc5556af",
+            "size": 10110777
+          }
+        },
+        "cell_digest": "f5a58a8f79e6cd9c498bf0deec113582d83459371c65fe4ce7f93f0f1805a5ea",
+        "cell_id": "w4a_uncarved_s101_free",
+        "leg": "free",
+        "main_path_g": {
+          "apex_dminus": 0.5,
+          "apex_dplus": 0.5,
+          "u0_dplus": 0.0,
+          "u1_dminus": 1.0
+        },
+        "manifest_declaration": {
+          "construction": "twocopy",
+          "endpoint": "wt",
+          "leg": "free",
+          "replicate_index": 5,
+          "seed": "s101"
+        },
+        "replicate_index": 5,
+        "seed": "s101",
+        "source_rep_dir": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_free/wt/free/rep5",
+        "states": {
+          "apex_dminus": {
+            "acore": 0.0625,
+            "alpha_kcal_inv": 0.1,
+            "direction": -1,
+            "intermediate": 0,
+            "label": "apex_dminus",
+            "lambda1": 0.5,
+            "lambda2": 0.5,
+            "ubcore_kcal_mol": 100.0,
+            "uh_kcal_mol": 110.0,
+            "umax_kcal_mol": 200.0,
+            "w0_kcal_mol": 0.0
+          },
+          "apex_dplus": {
+            "acore": 0.0625,
+            "alpha_kcal_inv": 0.1,
+            "direction": 1,
+            "intermediate": 0,
+            "label": "apex_dplus",
+            "lambda1": 0.5,
+            "lambda2": 0.5,
+            "ubcore_kcal_mol": 100.0,
+            "uh_kcal_mol": 110.0,
+            "umax_kcal_mol": 200.0,
+            "w0_kcal_mol": 0.0
+          },
+          "u0_dplus": {
+            "acore": 0.0625,
+            "alpha_kcal_inv": 0.1,
+            "direction": 1,
+            "intermediate": 0,
+            "label": "u0_dplus",
+            "lambda1": 0.0,
+            "lambda2": 0.0,
+            "ubcore_kcal_mol": 100.0,
+            "uh_kcal_mol": 110.0,
+            "umax_kcal_mol": 200.0,
+            "w0_kcal_mol": 0.0
+          },
+          "u1_dminus": {
+            "acore": 0.0625,
+            "alpha_kcal_inv": 0.1,
+            "direction": -1,
+            "intermediate": 0,
+            "label": "u1_dminus",
+            "lambda1": 0.0,
+            "lambda2": 0.0,
+            "ubcore_kcal_mol": 100.0,
+            "uh_kcal_mol": 110.0,
+            "umax_kcal_mol": 200.0,
+            "w0_kcal_mol": 0.0
+          }
+        }
+      },
+      "replicate_index": 5,
+      "scaffold": {
+        "path": "outputs/2QKI_WT_calib_s101/mdresult/2QKI_WT_final.pdb",
+        "sha256": "0638c80b2fe071a7c5c7eab437f8a63877376ddc8ea31c1ae6abb76176b77ec4",
+        "size": 9969570
+      },
+      "seed": "s101",
+      "states": {
+        "apex_dminus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": -1,
+          "intermediate": 0,
+          "label": "apex_dminus",
+          "lambda1": 0.5,
+          "lambda2": 0.5,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        },
+        "apex_dplus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": 1,
+          "intermediate": 0,
+          "label": "apex_dplus",
+          "lambda1": 0.5,
+          "lambda2": 0.5,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        },
+        "u0_dplus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": 1,
+          "intermediate": 0,
+          "label": "u0_dplus",
+          "lambda1": 0.0,
+          "lambda2": 0.0,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        },
+        "u1_dminus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": -1,
+          "intermediate": 0,
+          "label": "u1_dminus",
+          "lambda1": 0.0,
+          "lambda2": 0.0,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        }
+      }
+    },
+    {
+      "cell_digest": "a2843d327579255de9341e1cb4a6d8c384d72cadf1c6342de82c1191698405ec",
+      "cell_id": "w4a_union_s127_free",
+      "config": {
+        "cl": 27,
+        "na": 27,
+        "num_added": 10066,
+        "parent_particles": 30490,
+        "rng_seed": 2026071722,
+        "water": 10012
+      },
+      "leg": "free",
+      "parent_contract": {
+        "box": {
+          "cubic": true,
+          "finite": true,
+          "lengths_nm": [
+            6.815000000000001,
+            6.815000000000001,
+            6.815000000000001
+          ],
+          "orthogonal": true,
+          "passed": true,
+          "right_handed": true,
+          "vectors_nm": [
+            [
+              6.815000000000001,
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              6.815000000000001,
+              0.0
+            ],
+            [
+              0.0,
+              0.0,
+              6.815000000000001
+            ]
+          ],
+          "volume_nm3": 316.51739337500015
+        },
+        "net_charge_e": 0.0,
+        "particles": 30490,
+        "solute_signature": {
+          "digest": "bf57c6cb67ded41b9dcc697ae95300c28786870b57d503b58d6f9e65d56e4fd7",
+          "n_atoms": 400,
+          "n_residues": 26
+        },
+        "solvent_counts": {
+          "cl": 27,
+          "na": 27,
+          "total": 10066,
+          "water": 10012
+        },
+        "topology_atoms": 30490
+      },
+      "parent_source": {
+        "artifacts": {
+          "dminus_cntl": {
+            "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_free/wt/free/rep6/dminus/trackb_dminus_asyncre.cntl",
+            "sha256": "254a922b326cbe05a0a7832ffd16c12498e61ac710c7963391580edc2332bd46",
+            "size": 1027
+          },
+          "dplus_cntl": {
+            "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_free/wt/free/rep6/dplus/trackb_dplus_asyncre.cntl",
+            "sha256": "29c5987112e9ed3f4f9e2d676e5f7d14507612d63fef5cfecb3d1c09a68f368b",
+            "size": 1010
+          },
+          "run_manifest": {
+            "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_free/wt/free/rep6/run_manifest.json",
+            "sha256": "feba750dca8f5caf88243a6fc613a3412f16bddedd8641299deb49f599c7292d",
+            "size": 372217
+          },
+          "serialized_pdb": {
+            "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_free/wt/free/rep6/inplace_rbfe_free.pdb",
+            "sha256": "fb215e34c6768fb0286410b6d222315cbb1f8c380763f7d5162bd593a8e52d33",
+            "size": 2469991
+          },
+          "serialized_xml": {
+            "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_free/wt/free/rep6/inplace_rbfe_free_sys.xml",
+            "sha256": "cc8d855ed9e4349e862dfd240d0778f538c2e7018941d69028560e781bcfd6c2",
+            "size": 10273457
+          }
+        },
+        "cell_digest": "571174a9e3deda4e25e37c699c645859dbbc832cd05ad4a92e83a7db498d3252",
+        "cell_id": "w4a_uncarved_s127_free",
+        "leg": "free",
+        "main_path_g": {
+          "apex_dminus": 0.5,
+          "apex_dplus": 0.5,
+          "u0_dplus": 0.0,
+          "u1_dminus": 1.0
+        },
+        "manifest_declaration": {
+          "construction": "twocopy",
+          "endpoint": "wt",
+          "leg": "free",
+          "replicate_index": 6,
+          "seed": "s127"
+        },
+        "replicate_index": 6,
+        "seed": "s127",
+        "source_rep_dir": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_free/wt/free/rep6",
+        "states": {
+          "apex_dminus": {
+            "acore": 0.0625,
+            "alpha_kcal_inv": 0.1,
+            "direction": -1,
+            "intermediate": 0,
+            "label": "apex_dminus",
+            "lambda1": 0.5,
+            "lambda2": 0.5,
+            "ubcore_kcal_mol": 100.0,
+            "uh_kcal_mol": 110.0,
+            "umax_kcal_mol": 200.0,
+            "w0_kcal_mol": 0.0
+          },
+          "apex_dplus": {
+            "acore": 0.0625,
+            "alpha_kcal_inv": 0.1,
+            "direction": 1,
+            "intermediate": 0,
+            "label": "apex_dplus",
+            "lambda1": 0.5,
+            "lambda2": 0.5,
+            "ubcore_kcal_mol": 100.0,
+            "uh_kcal_mol": 110.0,
+            "umax_kcal_mol": 200.0,
+            "w0_kcal_mol": 0.0
+          },
+          "u0_dplus": {
+            "acore": 0.0625,
+            "alpha_kcal_inv": 0.1,
+            "direction": 1,
+            "intermediate": 0,
+            "label": "u0_dplus",
+            "lambda1": 0.0,
+            "lambda2": 0.0,
+            "ubcore_kcal_mol": 100.0,
+            "uh_kcal_mol": 110.0,
+            "umax_kcal_mol": 200.0,
+            "w0_kcal_mol": 0.0
+          },
+          "u1_dminus": {
+            "acore": 0.0625,
+            "alpha_kcal_inv": 0.1,
+            "direction": -1,
+            "intermediate": 0,
+            "label": "u1_dminus",
+            "lambda1": 0.0,
+            "lambda2": 0.0,
+            "ubcore_kcal_mol": 100.0,
+            "uh_kcal_mol": 110.0,
+            "umax_kcal_mol": 200.0,
+            "w0_kcal_mol": 0.0
+          }
+        }
+      },
+      "replicate_index": 6,
+      "scaffold": {
+        "path": "outputs/2QKI_WT_calib_s127/mdresult/2QKI_WT_final.pdb",
+        "sha256": "fd9a380e339d421c2a9e82dc007bd06bb7b03d315d3722b6d576b22d8a78122a",
+        "size": 9969570
+      },
+      "seed": "s127",
+      "states": {
+        "apex_dminus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": -1,
+          "intermediate": 0,
+          "label": "apex_dminus",
+          "lambda1": 0.5,
+          "lambda2": 0.5,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        },
+        "apex_dplus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": 1,
+          "intermediate": 0,
+          "label": "apex_dplus",
+          "lambda1": 0.5,
+          "lambda2": 0.5,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        },
+        "u0_dplus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": 1,
+          "intermediate": 0,
+          "label": "u0_dplus",
+          "lambda1": 0.0,
+          "lambda2": 0.0,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        },
+        "u1_dminus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": -1,
+          "intermediate": 0,
+          "label": "u1_dminus",
+          "lambda1": 0.0,
+          "lambda2": 0.0,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        }
+      }
+    },
+    {
+      "cell_digest": "955cf2cbb017de48b5c37ba110f916def6d1ddc4b3444b3b8375414f71089ae0",
+      "cell_id": "w4a_union_s163_free",
+      "config": {
+        "cl": 29,
+        "na": 29,
+        "num_added": 10600,
+        "parent_particles": 32084,
+        "rng_seed": 2026071723,
+        "water": 10542
+      },
+      "leg": "free",
+      "parent_contract": {
+        "box": {
+          "cubic": true,
+          "finite": true,
+          "lengths_nm": [
+            6.9216,
+            6.9216,
+            6.9216
+          ],
+          "orthogonal": true,
+          "passed": true,
+          "right_handed": true,
+          "vectors_nm": [
+            [
+              6.9216,
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              6.9216,
+              0.0
+            ],
+            [
+              0.0,
+              0.0,
+              6.9216
+            ]
+          ],
+          "volume_nm3": 331.60379586969583
+        },
+        "net_charge_e": 0.0,
+        "particles": 32084,
+        "solute_signature": {
+          "digest": "bf57c6cb67ded41b9dcc697ae95300c28786870b57d503b58d6f9e65d56e4fd7",
+          "n_atoms": 400,
+          "n_residues": 26
+        },
+        "solvent_counts": {
+          "cl": 29,
+          "na": 29,
+          "total": 10600,
+          "water": 10542
+        },
+        "topology_atoms": 32084
+      },
+      "parent_source": {
+        "artifacts": {
+          "dminus_cntl": {
+            "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_free/wt/free/rep7/dminus/trackb_dminus_asyncre.cntl",
+            "sha256": "254a922b326cbe05a0a7832ffd16c12498e61ac710c7963391580edc2332bd46",
+            "size": 1027
+          },
+          "dplus_cntl": {
+            "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_free/wt/free/rep7/dplus/trackb_dplus_asyncre.cntl",
+            "sha256": "29c5987112e9ed3f4f9e2d676e5f7d14507612d63fef5cfecb3d1c09a68f368b",
+            "size": 1010
+          },
+          "run_manifest": {
+            "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_free/wt/free/rep7/run_manifest.json",
+            "sha256": "250a91c258e82813d3188ad864f0d1d1c0d1f3283adcf59c2e55bb463f500487",
+            "size": 372198
+          },
+          "serialized_pdb": {
+            "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_free/wt/free/rep7/inplace_rbfe_free.pdb",
+            "sha256": "47172cd88bf3c92c3fe17e361116b28cf888bf779bdc872e361916fed8251d75",
+            "size": 2599105
+          },
+          "serialized_xml": {
+            "path": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_free/wt/free/rep7/inplace_rbfe_free_sys.xml",
+            "sha256": "971f2599e665e3558d13ab0cec79994edae9bc9e0bdc1bb8f940778ef30f6bed",
+            "size": 10793704
+          }
+        },
+        "cell_digest": "46a2e4e6711c2b01bc96e9b6fe511314f58d9fe5220ee27823b476d5769d6e4f",
+        "cell_id": "w4a_uncarved_s163_free",
+        "leg": "free",
+        "main_path_g": {
+          "apex_dminus": 0.5,
+          "apex_dplus": 0.5,
+          "u0_dplus": 0.0,
+          "u1_dminus": 1.0
+        },
+        "manifest_declaration": {
+          "construction": "twocopy",
+          "endpoint": "wt",
+          "leg": "free",
+          "replicate_index": 7,
+          "seed": "s163"
+        },
+        "replicate_index": 7,
+        "seed": "s163",
+        "source_rep_dir": "outputs/_trackb/w4a_bdcd_h18_20260710_rerun1/uncarved_free/wt/free/rep7",
+        "states": {
+          "apex_dminus": {
+            "acore": 0.0625,
+            "alpha_kcal_inv": 0.1,
+            "direction": -1,
+            "intermediate": 0,
+            "label": "apex_dminus",
+            "lambda1": 0.5,
+            "lambda2": 0.5,
+            "ubcore_kcal_mol": 100.0,
+            "uh_kcal_mol": 110.0,
+            "umax_kcal_mol": 200.0,
+            "w0_kcal_mol": 0.0
+          },
+          "apex_dplus": {
+            "acore": 0.0625,
+            "alpha_kcal_inv": 0.1,
+            "direction": 1,
+            "intermediate": 0,
+            "label": "apex_dplus",
+            "lambda1": 0.5,
+            "lambda2": 0.5,
+            "ubcore_kcal_mol": 100.0,
+            "uh_kcal_mol": 110.0,
+            "umax_kcal_mol": 200.0,
+            "w0_kcal_mol": 0.0
+          },
+          "u0_dplus": {
+            "acore": 0.0625,
+            "alpha_kcal_inv": 0.1,
+            "direction": 1,
+            "intermediate": 0,
+            "label": "u0_dplus",
+            "lambda1": 0.0,
+            "lambda2": 0.0,
+            "ubcore_kcal_mol": 100.0,
+            "uh_kcal_mol": 110.0,
+            "umax_kcal_mol": 200.0,
+            "w0_kcal_mol": 0.0
+          },
+          "u1_dminus": {
+            "acore": 0.0625,
+            "alpha_kcal_inv": 0.1,
+            "direction": -1,
+            "intermediate": 0,
+            "label": "u1_dminus",
+            "lambda1": 0.0,
+            "lambda2": 0.0,
+            "ubcore_kcal_mol": 100.0,
+            "uh_kcal_mol": 110.0,
+            "umax_kcal_mol": 200.0,
+            "w0_kcal_mol": 0.0
+          }
+        }
+      },
+      "replicate_index": 7,
+      "scaffold": {
+        "path": "outputs/2QKI_WT_calib_s163/mdresult/2QKI_WT_final.pdb",
+        "sha256": "82b57c01be4dcaa53b5d008913181b833f9a2bfbe424449b7df38793a6ca512d",
+        "size": 9969570
+      },
+      "seed": "s163",
+      "states": {
+        "apex_dminus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": -1,
+          "intermediate": 0,
+          "label": "apex_dminus",
+          "lambda1": 0.5,
+          "lambda2": 0.5,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        },
+        "apex_dplus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": 1,
+          "intermediate": 0,
+          "label": "apex_dplus",
+          "lambda1": 0.5,
+          "lambda2": 0.5,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        },
+        "u0_dplus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": 1,
+          "intermediate": 0,
+          "label": "u0_dplus",
+          "lambda1": 0.0,
+          "lambda2": 0.0,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        },
+        "u1_dminus": {
+          "acore": 0.0625,
+          "alpha_kcal_inv": 0.1,
+          "direction": -1,
+          "intermediate": 0,
+          "label": "u1_dminus",
+          "lambda1": 0.0,
+          "lambda2": 0.0,
+          "ubcore_kcal_mol": 100.0,
+          "uh_kcal_mol": 110.0,
+          "umax_kcal_mol": 200.0,
+          "w0_kcal_mol": 0.0
+        }
+      }
+    }
+  ],
+  "equilibrium_density_claim_allowed": false,
+  "forcefields": {
+    "amber14-all.xml": {
+      "path": "/home/san/miniconda3/envs/atm/lib/python3.11/site-packages/openmm/app/data/amber14-all.xml",
+      "sha256": "96d635545c36ce248e37d23ea82fa05ce4d2e1a6a42cd6d0ec5db3cfe30ca44c",
+      "size": 190
+    },
+    "amber14/DNA.OL15.xml": {
+      "path": "/home/san/miniconda3/envs/atm/lib/python3.11/site-packages/openmm/app/data/amber14/DNA.OL15.xml",
+      "sha256": "200e7cd116481fb47ed50bfd29deefb84a1e488d73d262c3f3f278b36b80ffa5",
+      "size": 105594
+    },
+    "amber14/RNA.OL3.xml": {
+      "path": "/home/san/miniconda3/envs/atm/lib/python3.11/site-packages/openmm/app/data/amber14/RNA.OL3.xml",
+      "sha256": "61b793a49ded3c9c3bd9fbab328bc1b20b2b4ce7bc2358d537892ca64b085127",
+      "size": 97695
+    },
+    "amber14/lipid17.xml": {
+      "path": "/home/san/miniconda3/envs/atm/lib/python3.11/site-packages/openmm/app/data/amber14/lipid17.xml",
+      "sha256": "f974506df14202973637cf5e1d094af5e6098eb04afd2b68c523589ffcf2e780",
+      "size": 534086
+    },
+    "amber14/protein.ff14SB.xml": {
+      "path": "/home/san/miniconda3/envs/atm/lib/python3.11/site-packages/openmm/app/data/amber14/protein.ff14SB.xml",
+      "sha256": "d9f9779c09d67cd5f8bc657692f174ffab14c469dfd06d560ac1899fa7e976b8",
+      "size": 224056
+    },
+    "amber14/tip3pfb.xml": {
+      "path": "/home/san/miniconda3/envs/atm/lib/python3.11/site-packages/openmm/app/data/amber14/tip3pfb.xml",
+      "sha256": "6d8e47161b69da99d1f01982939ae078cd7399a5344c7513eef3a207ca6f6128",
+      "size": 19596
+    }
+  },
+  "free_energy_estimation_allowed": false,
+  "frozen_files": {
+    "PREREGISTRATION.md": {
+      "path": "analysis/dynamic_ghost_union_bridge_p0v3r1_20260717/PREREGISTRATION.md",
+      "sha256": "d9e9b66f855773d8030cb314c44d572b897c86be76625f7ed0d828fa3cf53b6d",
+      "size": 3031
+    },
+    "protocol.json": {
+      "path": "analysis/dynamic_ghost_union_bridge_p0v3r1_20260717/protocol.json",
+      "sha256": "96664e0dda3dc155168c384fd9276192f9dd524c845bfd20d2ee2e2b0bde1870",
+      "size": 2367
+    }
+  },
+  "frozen_manifest": {
+    "path": "analysis/dynamic_ghost_union_bridge_p0v3r1_20260717/FROZEN_MANIFEST.json",
+    "sha256": "ff1a7eb9952ef8dbfb0fd02cc46a2df773c6a0f4a1ff7cd5cdef5ec882294ef4",
+    "size": 1455
+  },
+  "generated": "2026-07-17 09:19:15 +0900",
+  "ghost_g": 0.5,
+  "gpu_allowed": false,
+  "implementation": {
+    "bridge_module": {
+      "path": "utils/trackb_apex_bridge.py",
+      "sha256": "db3b42a9913edf80dade0933b66571bfe22e628e741f2dc431d1d71b64fa3f0b",
+      "size": 13473
+    },
+    "ghost_module": {
+      "path": "utils/trackb_dynamic_ghost.py",
+      "sha256": "86d888f21fbed6d17a3a55b6ff16ed84c5aa00e366808b485514eaab9a911212",
+      "size": 19864
+    },
+    "p0v3r1_runner": {
+      "path": "analysis/dynamic_ghost_union_bridge_p0v3r1_20260717/run_p0v3r1_reference_audit.py",
+      "sha256": "9e3ef7d6ba31c2d0f1ba9cc2d08a8cd3c8255e32c555269c12d6333c926edce4",
+      "size": 82314
+    },
+    "serializer_module": {
+      "path": "utils/atm_trackB_inplace_rbfe.py",
+      "sha256": "f9ec095fbd2677cf0ade29474c3cef909407e6a1face2e769ab9e388a2582197",
+      "size": 109070
+    },
+    "setup_module": {
+      "path": "utils/atm_trackB_setup.py",
+      "sha256": "4fd643586010a8d270d899a57136611077a018b6f2da9a9bb540f1299add4a92",
+      "size": 332955
+    }
+  },
+  "inventory_digest": "ed472c770ad439fcff0b748c91efc65fd0f82076cbebe7552ff51767d8b18d48",
+  "md_allowed": false,
+  "minimization_allowed": false,
+  "openmm_version": "8.5.1",
+  "platform": "Reference",
+  "protocol_digests": {
+    "base": "6f85707e960491086210c5946de25f99992c6b707cdb40017a5bb6bc816c67e3",
+    "bridge": "738da59243bc0bfe28c40761b6427774e1ece9e117f24646bf7e782aea62c762",
+    "ghost": "211d190a61e84fe0ea2eb0d6e8cea513e891a243974fa2fcce1f25db0df481cc",
+    "revision": "0313be7e2c5b310e6ac78aabe4e92b9869e88bc38fd6c302f16ddb9fc9744d52"
+  },
+  "python": "/home/san/miniconda3/envs/atm/bin/python",
+  "runtime_modules": {
+    "openmm_forcefield": {
+      "path": "/home/san/miniconda3/envs/atm/lib/python3.11/site-packages/openmm/app/forcefield.py",
+      "sha256": "7c909edd1bbb8c48ac0070e5ea19b6bf0817be2aeccfbd23e7ebb1302c0da432",
+      "size": 238248
+    },
+    "openmm_modeller": {
+      "path": "/home/san/miniconda3/envs/atm/lib/python3.11/site-packages/openmm/app/modeller.py",
+      "sha256": "376d8c8c06d1cfed4e40da20d77a2094099e872bda783b9c9bfc03a67305e813",
+      "size": 94935
+    },
+    "pdbfixer": {
+      "path": "/home/san/miniconda3/envs/atm/lib/python3.11/site-packages/pdbfixer/pdbfixer.py",
+      "sha256": "a52e39125e3e0e2d1b58b83841fb05b8669e0bcdd73461e1b0ed1d5a8e8261b9",
+      "size": 81887
+    }
+  },
+  "schema": "updd_dynamic_ghost_union_bridge_p0v3r1_prebuild_inventory_v1",
+  "status": "FROZEN_BEFORE_OFFICIAL_UNION_SOURCE_OUTPUT"
+}

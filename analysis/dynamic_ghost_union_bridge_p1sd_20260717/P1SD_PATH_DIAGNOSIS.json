@@ -1,0 +1,66 @@
+{
+  "schema": "updd_dynamic_ghost_union_bridge_p1sd_path_v1",
+  "generated": "2026-07-17 11:52:26 +0900",
+  "path_verdict": "FAIL_P1SD_APEX_DEGENERACY_AND_TRANSFORMED_VOID_PENETRATION",
+  "runner_verdict": "FAIL_STOP_FIRST_FREE_WINDOW",
+  "inventory_digest": "a794eeb91063c1541d1cf5a593f8f3d039b9951728a10b2acc51c4e39cfb3e69",
+  "findings": [
+    {
+      "id": "APEX_LINEAR_BRANCH_DEGENERACY",
+      "severity": "ROOT",
+      "evidence": "745 of 750 bound samples had exactly zero interior bridge slope; only the first five s127/xi=0 samples were nonzero.",
+      "mechanism": "For abs(u1-u0) below Ubcore=418.4 kJ/mol, uscplus=u1-u0 and uscminus=-(u1-u0), so Hplus=Hminus=(u0+u1)/2 exactly.",
+      "consequence": "The dplus-to-dminus apex bridge is flat in the ordinary linear soft-core region. Densification cannot recover a physical free-energy signal there."
+    },
+    {
+      "id": "TRANSFORMED_RING_VOID_PENETRATION",
+      "severity": "ROOT",
+      "evidence": "s101/free xi=0 had transformed minimum 0.186746626432 nm and 39/50 frames below 0.26 nm; nine distinct waters contributed.",
+      "mechanism": "The top-level dynamic ghost acts on stored disappearing-ring coordinates only and cannot exclude water from the ATM-transformed ring location.",
+      "consequence": "The current ghost cannot provide the required transformed-site structural protection during dynamics."
+    },
+    {
+      "id": "MIXED_PRECISION_ABSOLUTE_READBACK",
+      "severity": "FORMAL_STOP",
+      "evidence": "The final absolute readback error was 0.0015312392497435212 kJ/mol versus a 0.001 kJ/mol ceiling. The five signed errors shared a -0.0014907051459886133 kJ/mol common mode; the maximum residual after removing it was 4.616871010512105e-5 kJ/mol.",
+      "mechanism": "Changing BridgeXi for the slope probe and restoring it changes the mixed-precision total-energy reduction/cache baseline slightly while preserving relative linear differences.",
+      "consequence": "The preregistered absolute gate fails even though the relative bridge identity remains within the intended numerical scale. The result remains FAIL."
+    }
+  ],
+  "water_forensic": {
+    "cell_id": "w4a_union_s101_free",
+    "xi": 0.0,
+    "frames": 50,
+    "frames_below_0p26": 39,
+    "distinct_waters_below_0p26": 9,
+    "global_min_nm": 0.1867470202969753,
+    "global_min_frame": 2,
+    "global_min_ring_atom": "NE1",
+    "global_min_water": "chain 4 HOH340 O atom 1300",
+    "persistent_water": "HOH340 appeared below 0.26 nm from frame 1 through frame 50"
+  },
+  "bound_diagnostics": {
+    "samples": 750,
+    "nonzero_slope_samples": 5,
+    "flat_fraction": 0.9933333333333333,
+    "s127_xi0_slope_abs_max_kj_mol": 620.560575071,
+    "s127_xi0_nonzero_samples": 5,
+    "s163_stored_min_nm": 0.259601840258,
+    "s163_transformed_min_nm": 0.259088790012
+  },
+  "next_action": {
+    "resume_current_p1sd": false,
+    "densify_current_bridge": false,
+    "promote_transformed_site_carve_redesign": true,
+    "replace_apex_fe_with_cap_activation_diagnostic": true,
+    "required_numerical_fix_before_any_future_bridge": "Rebaseline at the restored generating xi and gate relative Delta-U identity; retain absolute total-energy drift as a diagnostic.",
+    "required_structural_fix": "Apply excluded volume at the ATM-transformed ring coordinates, not only the stored coordinates, and pass per-state DCD penetration gates before any FE pilot."
+  },
+  "claims": {
+    "free_energy_result": false,
+    "schedule_result": false,
+    "production_reuse": false,
+    "w23a_authorized": false,
+    "mutation_sign_verdict": false
+  }
+}

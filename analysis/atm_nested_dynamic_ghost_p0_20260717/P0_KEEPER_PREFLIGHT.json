@@ -1,0 +1,117 @@
+{
+  "cells": [
+    {
+      "cell_id": "w4a_union_s101_bound",
+      "elapsed_s": 29.761368910956662,
+      "keeper_result": {
+        "path": "analysis/atm_nested_dynamic_ghost_p0_20260717/keeper_cells/w4a_union_s101_bound/keeper_result.json",
+        "sha256": "89e8935b8203792db5aa5186cbc7e3121d9c4ff8269da91e4d205b6e975943be",
+        "size": 20685
+      },
+      "leg": "bound",
+      "nested_system": {
+        "path": "analysis/atm_nested_dynamic_ghost_p0_20260717/keeper_cells/w4a_union_s101_bound/atm_nested_ghost_system.xml",
+        "sha256": "fb7ff11a914308361eae1f1a85c683e39a830270b1c4c15f53ff149492fc7451",
+        "size": 127007724
+      },
+      "seed": "s101",
+      "status": "PASS"
+    },
+    {
+      "cell_id": "w4a_union_s127_bound",
+      "elapsed_s": 30.073960582027212,
+      "keeper_result": {
+        "path": "analysis/atm_nested_dynamic_ghost_p0_20260717/keeper_cells/w4a_union_s127_bound/keeper_result.json",
+        "sha256": "a4daaf0beaa62eb35a65888a29a31d661ad4f76f1a765489fa8a6f069ade37de",
+        "size": 20674
+      },
+      "leg": "bound",
+      "nested_system": {
+        "path": "analysis/atm_nested_dynamic_ghost_p0_20260717/keeper_cells/w4a_union_s127_bound/atm_nested_ghost_system.xml",
+        "sha256": "fbe57931390c40d22aef109c1d65543fe3960d1236b63806ffb9e12a4513999b",
+        "size": 127908900
+      },
+      "seed": "s127",
+      "status": "PASS"
+    },
+    {
+      "cell_id": "w4a_union_s163_bound",
+      "elapsed_s": 31.173823821998667,
+      "keeper_result": {
+        "path": "analysis/atm_nested_dynamic_ghost_p0_20260717/keeper_cells/w4a_union_s163_bound/keeper_result.json",
+        "sha256": "8c9e71dad736f4f586b11683f039ae245a7193f2ac3c62177e1c0fb2f80b55b7",
+        "size": 20698
+      },
+      "leg": "bound",
+      "nested_system": {
+        "path": "analysis/atm_nested_dynamic_ghost_p0_20260717/keeper_cells/w4a_union_s163_bound/atm_nested_ghost_system.xml",
+        "sha256": "b70c75f7ad06323eca6163be58714ab3f34be40f8c9197354c531af466e4b7b0",
+        "size": 132303152
+      },
+      "seed": "s163",
+      "status": "PASS"
+    },
+    {
+      "cell_id": "w4a_union_s101_free",
+      "elapsed_s": 2.6347022649715655,
+      "keeper_result": {
+        "path": "analysis/atm_nested_dynamic_ghost_p0_20260717/keeper_cells/w4a_union_s101_free/keeper_result.json",
+        "sha256": "537694fa9d6d4efe2b8a2a00608eeab544108448ee89b84135f794db19a7143f",
+        "size": 20507
+      },
+      "leg": "free",
+      "nested_system": {
+        "path": "analysis/atm_nested_dynamic_ghost_p0_20260717/keeper_cells/w4a_union_s101_free/atm_nested_ghost_system.xml",
+        "sha256": "7ff19c5a95896a0ceb2bee6b42fe4b18f656635bb983f8165e481a09a0276ced",
+        "size": 11932021
+      },
+      "seed": "s101",
+      "status": "PASS"
+    },
+    {
+      "cell_id": "w4a_union_s127_free",
+      "elapsed_s": 2.694934051949531,
+      "keeper_result": {
+        "path": "analysis/atm_nested_dynamic_ghost_p0_20260717/keeper_cells/w4a_union_s127_free/keeper_result.json",
+        "sha256": "ae86f53508ea2de334a36fcb6f54b745fbf12b312309bac07a5581edbfb69974",
+        "size": 20513
+      },
+      "leg": "free",
+      "nested_system": {
+        "path": "analysis/atm_nested_dynamic_ghost_p0_20260717/keeper_cells/w4a_union_s127_free/atm_nested_ghost_system.xml",
+        "sha256": "f1738d79ba9224a7fa5b4ad36338ddb88e7539c624a3d1dce38f57ef6afaa706",
+        "size": 12124913
+      },
+      "seed": "s127",
+      "status": "PASS"
+    },
+    {
+      "cell_id": "w4a_union_s163_free",
+      "elapsed_s": 2.82663844601484,
+      "keeper_result": {
+        "path": "analysis/atm_nested_dynamic_ghost_p0_20260717/keeper_cells/w4a_union_s163_free/keeper_result.json",
+        "sha256": "23529c28997c7eae72634ddd8ac6e2d2728062e734c28644f08dbd4ad886dfbe",
+        "size": 20434
+      },
+      "leg": "free",
+      "nested_system": {
+        "path": "analysis/atm_nested_dynamic_ghost_p0_20260717/keeper_cells/w4a_union_s163_free/atm_nested_ghost_system.xml",
+        "sha256": "a7826abc58d73103e088c0ff95a0e167b078d1f449ab098d64ad317121d1bdb2",
+        "size": 12741866
+      },
+      "seed": "s163",
+      "status": "PASS"
+    }
+  ],
+  "context_count": 0,
+  "generated": "2026-07-17 23:36:04 +0900",
+  "gpu_used": false,
+  "inventory_digest": "7dc94e231613aa8b5fc2ecf5d4dd04607fd539b1f477af93f618695f77c5ec46",
+  "keeper_digest": "6f2ba6fd52fce0efddb725f02e4e1867146cbf5ccfe9ce09d77dfdd0672b4830",
+  "md_steps": 0,
+  "minimization_steps": 0,
+  "n_completed": 6,
+  "n_expected": 6,
+  "schema": "updd_atm_nested_dynamic_ghost_p0_keeper_preflight_v1",
+  "status": "PASS"
+}

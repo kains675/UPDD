@@ -1,0 +1,10 @@
+{
+  "gpu_used": false,
+  "md_steps": 0,
+  "minimization_steps": 0,
+  "n_completed": 6,
+  "n_expected": 6,
+  "platform": "Reference",
+  "status": "P0_PASS",
+  "updated": "2026-07-18 00:07:05 +0900"
+}

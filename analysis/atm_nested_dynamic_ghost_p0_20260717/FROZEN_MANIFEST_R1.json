@@ -1,0 +1,19 @@
+{
+  "schema": "updd_atm_nested_dynamic_ghost_p0_frozen_manifest_v1_r1",
+  "status": "FROZEN_AFTER_DEV_SMOKE_BASELINE_DISCOVERY_BEFORE_OFFICIAL_OUTPUT",
+  "frozen_kst": "2026-07-17",
+  "files": {
+    "PREREGISTRATION.md": "95c6a8c75159f34ff606978204a84e8eeebc63ddd15889ddb928b21275849f35",
+    "SCIVAL_VERDICT.md": "4c16acd0a6b07e2e9f186feaa38ba9a5dc7fbfe95793cb9396dd70f6a8770a3a",
+    "protocol.json": "998614adf5ff9f8250708110500296e7d80fc2358d1c2f7a10c3713848c26202",
+    "FROZEN_MANIFEST.json": "8106f59ddf21e0c35b750736573985251b02adcc8e85e8bcb37c1447aeb27087",
+    "PREREGISTRATION_AMENDMENT_R1.md": "4718ccf1316d1db3f9343ed7be3b3ada980dbfce93334e9a690e6c4b31ce856e",
+    "protocol_amendment_r1.json": "15757b4cac8fa5f63699013f64fb2b0355c971827a0ea589f132642444afbbc8"
+  },
+  "parent_evidence": {
+    "analysis/dynamic_ghost_union_bridge_p1sd_20260717/P1SD_PREBUILD_INVENTORY.json": "546c8dd51d7a62a69d7e35282a692b81ea92c792272bb1a4a0d506073485317b",
+    "analysis/dynamic_ghost_union_bridge_p1sd_20260717/P1SD_NORMALIZED_SOURCE_SUMMARY.json": "539952550959a5a98d53b2c05aa7806d10072e2154fc53dda7ef2dcf811929ba",
+    "analysis/dynamic_ghost_union_bridge_p1sd_20260717/P1SD_PATH_DIAGNOSIS.json": "cd780f0fb822f5f656f9ec1dad9dedc07b29ee714e2ab0692aa775b966e884a8",
+    "analysis/raw_gap_cap_activation_p1cap_20260717/P1CAP_PATH_DIAGNOSIS.json": "2f230deb33589fb5cd3561475e7d652f4c40393c1570422ffcc09475363c4750"
+  }
+}

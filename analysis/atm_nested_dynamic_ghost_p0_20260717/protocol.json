@@ -1,0 +1,128 @@
+{
+  "schema": "updd_atm_nested_dynamic_ghost_p0_protocol_v1",
+  "status": "FROZEN_BEFORE_IMPLEMENTATION_OR_OUTPUT",
+  "registered_kst": "2026-07-17",
+  "scival_verdict": "CONDITIONAL_APPROVE",
+  "system": {
+    "mutation_spec": "w4a_trp_ala_res4",
+    "cells": [
+      "w4a_union_s101_bound",
+      "w4a_union_s127_bound",
+      "w4a_union_s163_bound",
+      "w4a_union_s101_free",
+      "w4a_union_s127_free",
+      "w4a_union_s163_free"
+    ],
+    "source_root": "analysis/dynamic_ghost_union_bridge_p1sd_20260717/normalized_sources",
+    "source_files": [
+      "normalized_source_system.xml",
+      "normalized_source.pdb",
+      "positions_float64.npy",
+      "normalization_result.json"
+    ],
+    "platform": "Reference",
+    "md_steps": 0,
+    "minimization_steps": 0,
+    "gpu_allowed": false,
+    "worker_unit": "cell",
+    "one_context_per_system_variant": true
+  },
+  "ghost": {
+    "implementation": "ATMForce_nested_CustomNonbondedForce_interaction_group",
+    "coordinate_policy": "u0_stored_u1_ATM_transformed_coordinates",
+    "force_name": "UPDDATMNestedDynamicGhostWCA",
+    "ring_atom_names": [
+      "CG",
+      "CD1",
+      "CD2",
+      "NE1",
+      "CE2",
+      "CE3",
+      "CZ2",
+      "CZ3",
+      "CH2"
+    ],
+    "water_residue_names": [
+      "HOH",
+      "SOL",
+      "WAT"
+    ],
+    "water_oxygen_names": [
+      "O",
+      "OH2",
+      "OW"
+    ],
+    "electrostatics": false,
+    "attraction": false,
+    "water_deletion": false,
+    "added_particles": 0,
+    "potential": "softcore_WCA",
+    "alpha_sc": 0.5,
+    "mixing_rule": "Lorentz-Berthelot",
+    "nonbonded_method": "CutoffPeriodic",
+    "cutoff_nm": 0.4,
+    "long_range_correction": false,
+    "switching_function": false,
+    "top_level_force_count_change": 0,
+    "atm_nested_force_count_change": 1,
+    "energy_parameter_derivative_required": true,
+    "reference_pair_parameters": {
+      "aromatic_C_water_O": {
+        "sigma_nm": 0.32888170359867674,
+        "epsilon_kj_mol": 0.4844139684778853,
+        "wca_cutoff_nm": 0.3691572306728468
+      },
+      "NE1_water_O": {
+        "sigma_nm": 0.32139815436629793,
+        "epsilon_kj_mol": 0.6810702230092086,
+        "wca_cutoff_nm": 0.3607572306728468
+      }
+    }
+  },
+  "transformation": {
+    "ring_type": "ParticleOffsetDisplacement",
+    "ring_common_u1_offset_required": true,
+    "ring_u0_displacement": false,
+    "expected_u1_offset_norm_nm": 4.0,
+    "offset_norm_tolerance_nm": 1e-08,
+    "water_type": "FixedDisplacement",
+    "water_zero_u0_u1_required": true
+  },
+  "probe": {
+    "target_atom_name": "NE1",
+    "outward_vector": "stored_ring_centroid_to_stored_NE1",
+    "distance_fraction_of_target_wca_cutoff": 0.85,
+    "water_residue_atom_count": 3,
+    "water_selection": "maximum_H_centroid_outward_dot_then_lowest_oxygen_index",
+    "coordinate_operation": "rigid_translation_only",
+    "coordinate_sets": [
+      "stored_probe",
+      "transformed_probe"
+    ],
+    "sampling_reuse_allowed": false
+  },
+  "gates": {
+    "energy_parity_abs_kj_mol": 1e-05,
+    "force_parity_max_component_kj_mol_nm": 1e-05,
+    "source_isolated_energy_abs_max_kj_mol": 1000.0,
+    "source_isolated_force_max_component_kj_mol_nm": 100000.0,
+    "probe_intended_energy_min_kj_mol": 0.1,
+    "probe_opposite_energy_abs_max_kj_mol": 1e-06,
+    "probe_intended_radial_force_min_kj_mol_nm": 1.0,
+    "probe_opposite_force_max_component_kj_mol_nm": 1e-05,
+    "probe_force_balance_max_component_kj_mol_nm": 1e-05,
+    "finite_dvdg_required": true,
+    "all_six_cells_required": true
+  },
+  "decisions": {
+    "pass": "P0_PASS",
+    "scientific_reject": "REJECT_GHOST",
+    "execution_incomplete": "INDETERMINATE"
+  },
+  "claims": {
+    "free_energy_estimate": false,
+    "delta_g_neutrality": false,
+    "equilibrium_density": false,
+    "production_authorization": false
+  }
+}

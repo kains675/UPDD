@@ -1,0 +1,67 @@
+{
+  "schema": "updd_atm_nested_dynamic_ghost_p0_path_diagnosis_v1",
+  "completed_kst": "2026-07-18",
+  "path_verdict": "P0_PASS_ENDPOINT_SELECTIVE_NO_PATHOLOGY",
+  "scope": {
+    "platform": "Reference",
+    "cells": 6,
+    "md_steps": 0,
+    "minimization_steps": 0,
+    "gpu_used": false,
+    "free_energy_estimate": false,
+    "delta_g_neutrality_claim": false,
+    "production_authorization": false
+  },
+  "integrity": {
+    "inventory_digest": "7dc94e231613aa8b5fc2ecf5d4dd04607fd539b1f477af93f618695f77c5ec46",
+    "keeper_digest": "6f2ba6fd52fce0efddb725f02e4e1867146cbf5ccfe9ce09d77dfdd0672b4830",
+    "inventory_sha256": "a0ae036d0a14aeb8de11ada000c33a25daef4113d53ac2274296c63e5bba88bd",
+    "keeper_sha256": "66758bf5e48564083cf8891ebfa354cdd9d9c974bcd43eeb94213fc55e913e36",
+    "runner_summary_sha256": "13a4ef3831f8ecebb46272cd6b8dfa46109be6ea31169fcd3f323dcefdaf8ae1",
+    "keeper_passed": 6,
+    "runner_passed": 6,
+    "failed_checks": 0
+  },
+  "aggregate": {
+    "total_worker_elapsed_s": 1831.373576296959,
+    "intended_probe_energy_range_kj_mol": [
+      2.3705916171893477,
+      2.3959255066583864
+    ],
+    "max_stored_transformed_energy_mismatch_kj_mol": 4.656612873077393e-10,
+    "max_opposite_probe_energy_abs_kj_mol": 0.0,
+    "min_outward_oxygen_force_kj_mol_nm": 149.9546002635302,
+    "max_force_balance_component_kj_mol_nm": 1.1624479157035239e-11,
+    "max_g0_parity_energy_delta_kj_mol": 0.0,
+    "max_g0_parity_force_component_delta_kj_mol_nm": 0.0,
+    "source_isolated_energy_abs_range_kj_mol": [
+      0.0,
+      1.2772110443911515
+    ],
+    "source_isolated_force_max_component_kj_mol_nm": 59.94257171985271,
+    "atm_offset_norm_range_nm": [
+      3.9999777574381588,
+      4.000026749910556
+    ]
+  },
+  "pathology_checks": {
+    "endpoint_swap": false,
+    "opposite_site_leakage": false,
+    "force_imbalance": false,
+    "serialization_or_declaration_drift": false,
+    "cohort_gate_heterogeneity": false,
+    "nonfinite_values": false,
+    "global_hamiltonian_flattening_evidence": false
+  },
+  "remaining_uncertainty": [
+    "trajectory_level_activation_on_preserved_P1SD_frames",
+    "raw_gap_cap_tail_response",
+    "equilibrium_behavior_under_new_hamiltonian"
+  ],
+  "ranked_next_step": "preregister_zero_md_state_specific_P1SD_DCD_replay",
+  "next_step_claim_limits": {
+    "diagnostic_only": true,
+    "reused_frames_are_equilibrium_under_new_hamiltonian": false,
+    "fresh_sampling_authorized": false
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "schema": "updd_atm_nested_dynamic_ghost_p0_protocol_amendment_v1_r1",
+  "status": "FROZEN_AFTER_DEV_SMOKE_BASELINE_DISCOVERY_BEFORE_OFFICIAL_OUTPUT",
+  "registered_kst": "2026-07-17",
+  "scival_verdict": "CONDITIONAL_APPROVE",
+  "base_protocol_sha256": "998614adf5ff9f8250708110500296e7d80fc2358d1c2f7a10c3713848c26202",
+  "development_smoke_scope": {
+    "cell_id": "w4a_union_s101_free",
+    "official_output": false,
+    "files_written": 0,
+    "finding": "endpoint_specific_source_ghost_baseline"
+  },
+  "probe_updates": {
+    "water_selection": "ghost_inactive_both_endpoints_then_maximum_H_centroid_outward_dot_then_lowest_oxygen_index",
+    "source_clearance_nm": 0.42,
+    "isolation_metric": "endpoint_matched_source_baseline_double_difference"
+  },
+  "gate_semantics": {
+    "absolute_g_difference": "diagnostic_only",
+    "probe_threshold_input": "probe_g_difference_minus_source_g_difference",
+    "numeric_threshold_changes": 0
+  },
+  "claims": {
+    "free_energy_estimate": false,
+    "delta_g_neutrality": false,
+    "equilibrium_density": false,
+    "production_authorization": false
+  }
+}

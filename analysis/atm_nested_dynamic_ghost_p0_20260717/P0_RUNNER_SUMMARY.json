@@ -1,0 +1,110 @@
+{
+  "cells": [
+    {
+      "cell_id": "w4a_union_s101_bound",
+      "elapsed_s": 541.3571380659705,
+      "leg": "bound",
+      "max_opposite_energy_abs_kj_mol": 0.0,
+      "result": {
+        "path": "analysis/atm_nested_dynamic_ghost_p0_20260717/reference_audit/w4a_union_s101_bound/cell_result.json",
+        "sha256": "caa3f2d25c68a1291ddcc40e60dd557d0ecfce7076540b794cfab439038cb410",
+        "size": 14113
+      },
+      "seed": "s101",
+      "status": "P0_PASS",
+      "stored_probe_energy_kj_mol": 2.3772557503543794,
+      "transformed_probe_energy_kj_mol": 2.3772557503543794
+    },
+    {
+      "cell_id": "w4a_union_s127_bound",
+      "elapsed_s": 543.3373451239895,
+      "leg": "bound",
+      "max_opposite_energy_abs_kj_mol": 0.0,
+      "result": {
+        "path": "analysis/atm_nested_dynamic_ghost_p0_20260717/reference_audit/w4a_union_s127_bound/cell_result.json",
+        "sha256": "83c15679ea83e055bcd5b5fcb445521da6caf78d4328cd1a0c9fc9f45796903d",
+        "size": 14315
+      },
+      "seed": "s127",
+      "status": "P0_PASS",
+      "stored_probe_energy_kj_mol": 2.3705916171893477,
+      "transformed_probe_energy_kj_mol": 2.370591617655009
+    },
+    {
+      "cell_id": "w4a_union_s163_bound",
+      "elapsed_s": 576.3368574419874,
+      "leg": "bound",
+      "max_opposite_energy_abs_kj_mol": 0.0,
+      "result": {
+        "path": "analysis/atm_nested_dynamic_ghost_p0_20260717/reference_audit/w4a_union_s163_bound/cell_result.json",
+        "sha256": "9119837eb2c802246268d486e3385437b626bfc2cf4bddb2a3c29d1d120bf9e7",
+        "size": 14134
+      },
+      "seed": "s163",
+      "status": "P0_PASS",
+      "stored_probe_energy_kj_mol": 2.3959255066147307,
+      "transformed_probe_energy_kj_mol": 2.3959255066147307
+    },
+    {
+      "cell_id": "w4a_union_s101_free",
+      "elapsed_s": 54.48684162000427,
+      "leg": "free",
+      "max_opposite_energy_abs_kj_mol": 0.0,
+      "result": {
+        "path": "analysis/atm_nested_dynamic_ghost_p0_20260717/reference_audit/w4a_union_s101_free/cell_result.json",
+        "sha256": "76bb4c22f4e5ea91ff97d5512d860f73626d3a369e5dcdbd7f1ef2772a7c89dc",
+        "size": 14254
+      },
+      "seed": "s101",
+      "status": "P0_PASS",
+      "stored_probe_energy_kj_mol": 2.37725575058721,
+      "transformed_probe_energy_kj_mol": 2.37725575058721
+    },
+    {
+      "cell_id": "w4a_union_s127_free",
+      "elapsed_s": 55.920002621016465,
+      "leg": "free",
+      "max_opposite_energy_abs_kj_mol": 0.0,
+      "result": {
+        "path": "analysis/atm_nested_dynamic_ghost_p0_20260717/reference_audit/w4a_union_s127_free/cell_result.json",
+        "sha256": "80a9c3d89fc21e118c790e8a56a0a83524b92b71e8fd314f926688c7d7882663",
+        "size": 14351
+      },
+      "seed": "s127",
+      "status": "P0_PASS",
+      "stored_probe_energy_kj_mol": 2.370591617305763,
+      "transformed_probe_energy_kj_mol": 2.370591617305763
+    },
+    {
+      "cell_id": "w4a_union_s163_free",
+      "elapsed_s": 59.93539142399095,
+      "leg": "free",
+      "max_opposite_energy_abs_kj_mol": 0.0,
+      "result": {
+        "path": "analysis/atm_nested_dynamic_ghost_p0_20260717/reference_audit/w4a_union_s163_free/cell_result.json",
+        "sha256": "9f502bdd22f4d9e541ce8cf7c334a2703d8946387dcd0aabcdb849d90b096612",
+        "size": 14482
+      },
+      "seed": "s163",
+      "status": "P0_PASS",
+      "stored_probe_energy_kj_mol": 2.395925506600179,
+      "transformed_probe_energy_kj_mol": 2.3959255066583864
+    }
+  ],
+  "eta_s": 0.0,
+  "generated": "2026-07-18 00:07:49 +0900",
+  "gpu_used": false,
+  "inventory_digest": "7dc94e231613aa8b5fc2ecf5d4dd04607fd539b1f477af93f618695f77c5ec46",
+  "keeper_digest": "6f2ba6fd52fce0efddb725f02e4e1867146cbf5ccfe9ce09d77dfdd0672b4830",
+  "md_steps": 0,
+  "median_elapsed_s": 300.6462647449807,
+  "minimization_steps": 0,
+  "n_completed": 6,
+  "n_expected": 6,
+  "pending_cell_ids": [],
+  "platform": "Reference",
+  "rejected_cell_ids": [],
+  "schema": "updd_atm_nested_dynamic_ghost_p0_summary_v1",
+  "status": "P0_PASS",
+  "summary_digest": "6ea9bce8ead029c401aadb3dec7703e9fb758e5c84812c7f65453d6b27d99e43"
+}

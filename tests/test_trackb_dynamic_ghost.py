@@ -52,6 +52,32 @@ def _protocol() -> dict:
     }
 
 
+def _nested_protocol() -> dict:
+    protocol = _protocol()
+    ghost = protocol["ghost"]
+    ghost.update(
+        {
+            "implementation": "ATMForce_nested_CustomNonbondedForce_interaction_group",
+            "coordinate_policy": "u0_stored_u1_ATM_transformed_coordinates",
+            "force_name": dg.ATM_NESTED_GHOST_FORCE_NAME,
+            "switching_function": False,
+            "top_level_force_count_change": 0,
+            "atm_nested_force_count_change": 1,
+        }
+    )
+    ghost.pop("force_group_required")
+    protocol["transformation"] = {
+        "ring_type": "ParticleOffsetDisplacement",
+        "ring_common_u1_offset_required": True,
+        "ring_u0_displacement": False,
+        "expected_u1_offset_norm_nm": 4.0,
+        "offset_norm_tolerance_nm": 1.0e-8,
+        "water_type": "FixedDisplacement",
+        "water_zero_u0_u1_required": True,
+    }
+    return protocol
+
+
 def _fixture_system():
     mm = _openmm()
     from openmm import app, unit
@@ -115,6 +141,42 @@ def _fixture_system():
     return system, topology, positions * unit.nanometer, selection
 
 
+def _nested_fixture_system():
+    mm = _openmm()
+    from openmm import unit
+
+    system, topology, positions, selection = _fixture_system()
+    _atm_index, atm = dg.find_atm_force(system)
+    atm.setEnergyFunction("(1-select)*u0+select*u1")
+    atm.addGlobalParameter("select", 0.0)
+
+    atoms = list(topology.atoms())
+    origin = next(atom.index for atom in atoms if atom.name == "CB")
+    destination = next(
+        atom.index
+        for atom in atoms
+        if atom.residue.name == "GLY" and atom.name == "O"
+    )
+    position_array = np.asarray(
+        positions.value_in_unit(unit.nanometer),
+        dtype=float,
+    )
+    position_array[origin] = (0.2, 0.2, 0.2)
+    position_array[destination] = (1.0, 0.2, 0.2)
+    for index in selection.ring_indices:
+        atm.setParticleTransformation(
+            int(index),
+            mm.ParticleOffsetDisplacement(destination, origin),
+        )
+    return (
+        system,
+        topology,
+        position_array * unit.nanometer,
+        selection,
+        np.array([0.8, 0.0, 0.0]),
+    )
+
+
 def _state(system, positions, *, g=None):
     mm = _openmm()
     from openmm import unit
@@ -149,6 +211,47 @@ def _state(system, positions, *, g=None):
         ).getPotentialEnergy().value_in_unit(unit.kilojoule_per_mole)
     del context, integrator
     return energy, forces, derivatives, ghost_energy
+
+
+def _nested_state(system, positions, *, endpoint, g):
+    mm = _openmm()
+    from openmm import unit
+
+    integrator = mm.VerletIntegrator(0.001 * unit.picoseconds)
+    context = mm.Context(
+        system,
+        integrator,
+        mm.Platform.getPlatformByName("Reference"),
+    )
+    context.setPositions(positions)
+    context.setParameter("select", float(endpoint))
+    context.setParameter(dg.GHOST_GLOBAL_PARAMETER, float(g))
+    state = context.getState(
+        getEnergy=True,
+        getForces=True,
+        getParameterDerivatives=True,
+    )
+    energy = float(
+        state.getPotentialEnergy().value_in_unit(unit.kilojoule_per_mole)
+    )
+    forces = np.asarray(
+        state.getForces(asNumpy=True).value_in_unit(
+            unit.kilojoule_per_mole / unit.nanometer
+        ),
+        dtype=float,
+    )
+    derivatives = {
+        str(name): float(value)
+        for name, value in dict(state.getEnergyParameterDerivatives()).items()
+    }
+    _atm_index, atm = dg.find_atm_force(system)
+    u1, u0, _alpha = atm.getPerturbationEnergy(context)
+    raw = {
+        "u0": float(u0.value_in_unit(unit.kilojoule_per_mole)),
+        "u1": float(u1.value_in_unit(unit.kilojoule_per_mole)),
+    }
+    del context, integrator
+    return energy, forces, derivatives, raw
 
 
 def test_selection_is_exact_ring_and_all_water_oxygens():
@@ -225,3 +328,100 @@ def test_protocol_or_target_selection_drift_fails_loudly():
 
     with pytest.raises(dg.DynamicGhostError, match="exactly one disappearing TRP"):
         dg.select_ghost_atoms(topology, binder_chain="Z")
+
+
+def test_atm_nested_builder_preserves_top_level_scope_and_transformations():
+    system, topology, positions, selection, offset = _nested_fixture_system()
+    _atm_index, atm = dg.find_atm_force(system)
+    n_top_level = system.getNumForces()
+    n_nested = atm.getNumForces()
+
+    report = dg.build_atm_nested_dynamic_ghost_force(
+        system,
+        topology,
+        _nested_protocol(),
+    )
+    transformations = dg.inspect_atm_coordinate_transformations(
+        system,
+        topology,
+        positions_nm=np.asarray(
+            positions.value_in_unit(_openmm().unit.nanometer),
+            dtype=float,
+        ),
+    )
+
+    assert report["n_top_level_forces_before"] == n_top_level
+    assert report["n_top_level_forces_after"] == n_top_level
+    assert report["n_atm_nested_forces_before"] == n_nested
+    assert report["n_atm_nested_forces_after"] == n_nested + 1
+    assert report["nested_force_index"] == n_nested
+    assert report["force_name"] == dg.ATM_NESTED_GHOST_FORCE_NAME
+    assert report["force_group"] == 0
+    assert report["net_charge_delta_e"] == 0.0
+    assert transformations["n_ring_atoms"] == 9
+    assert transformations["n_water_oxygens"] == 2
+    assert transformations["common_u1_offset"]["norm_nm"] == pytest.approx(
+        np.linalg.norm(offset),
+        abs=1.0e-12,
+    )
+    group = report["interaction_groups"][0]
+    assert group["first"] == sorted(selection.ring_indices)
+    assert group["second"] == sorted(selection.water_oxygen_indices)
+
+
+def test_atm_nested_ghost_tracks_stored_and_transformed_endpoint_coordinates():
+    mm = _openmm()
+    from openmm import unit
+
+    system, topology, positions, selection, offset = _nested_fixture_system()
+    dg.build_atm_nested_dynamic_ghost_force(system, topology, _nested_protocol())
+
+    stored_g0 = _nested_state(system, positions, endpoint=0.0, g=0.0)
+    stored_u0 = _nested_state(system, positions, endpoint=0.0, g=1.0)
+    stored_u1 = _nested_state(system, positions, endpoint=1.0, g=1.0)
+    assert stored_g0[0] == pytest.approx(0.0, abs=1.0e-12)
+    assert stored_u0[0] > 0.1
+    assert stored_u1[0] == pytest.approx(0.0, abs=1.0e-12)
+    assert stored_u0[3]["u0"] > 0.1
+    assert stored_u0[3]["u1"] == pytest.approx(0.0, abs=1.0e-12)
+    assert math.isfinite(stored_u0[2][dg.GHOST_GLOBAL_PARAMETER])
+
+    transformed_positions = np.asarray(
+        positions.value_in_unit(unit.nanometer),
+        dtype=float,
+    )
+    transformed_positions[selection.water_oxygen_indices[0]] += offset
+    transformed_positions *= unit.nanometer
+    transformed_u0 = _nested_state(
+        system,
+        transformed_positions,
+        endpoint=0.0,
+        g=1.0,
+    )
+    transformed_u1 = _nested_state(
+        system,
+        transformed_positions,
+        endpoint=1.0,
+        g=1.0,
+    )
+    assert transformed_u0[0] == pytest.approx(0.0, abs=1.0e-12)
+    assert transformed_u1[0] > 0.1
+    assert transformed_u1[3]["u0"] == pytest.approx(0.0, abs=1.0e-12)
+    assert transformed_u1[3]["u1"] > 0.1
+
+
+def test_atm_nested_serialization_preserves_contract_and_endpoint_energy():
+    mm = _openmm()
+    system, topology, positions, _selection, _offset = _nested_fixture_system()
+    dg.build_atm_nested_dynamic_ghost_force(system, topology, _nested_protocol())
+    roundtrip = mm.XmlSerializer.deserialize(mm.XmlSerializer.serialize(system))
+
+    before = dg.inspect_atm_nested_dynamic_ghost_force(system)
+    after = dg.inspect_atm_nested_dynamic_ghost_force(roundtrip)
+    expected = _nested_state(system, positions, endpoint=0.0, g=1.0)
+    observed = _nested_state(roundtrip, positions, endpoint=0.0, g=1.0)
+
+    assert after == before
+    assert observed[0] == pytest.approx(expected[0], abs=1.0e-10)
+    assert observed[3] == pytest.approx(expected[3], abs=1.0e-10)
+    assert np.max(np.abs(observed[1] - expected[1])) < 1.0e-10

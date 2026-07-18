@@ -1,0 +1,32 @@
+{
+  "schema": "updd_atm_nested_dynamic_ghost_p0_protocol_amendment_v1_r2",
+  "status": "FROZEN_AFTER_KEEPER_SMOKE_COORDINATE_PRECISION_DISCOVERY_BEFORE_OFFICIAL_OUTPUT",
+  "registered_kst": "2026-07-17",
+  "scival_verdict": "CONDITIONAL_APPROVE",
+  "base_protocol_sha256": "998614adf5ff9f8250708110500296e7d80fc2358d1c2f7a10c3713848c26202",
+  "r1_amendment_sha256": "15757b4cac8fa5f63699013f64fb2b0355c971827a0ea589f132642444afbbc8",
+  "r1_manifest_sha256": "e93ac8c232b79769ee696da062b0e15518535cd847e22321c73f20071030e0ae",
+  "development_smoke_scope": {
+    "cell_id": "w4a_union_s101_free",
+    "context_count": 0,
+    "official_output": false,
+    "finding": "normalized_coordinate_precision_exceeds_r0_offset_tolerance"
+  },
+  "transformation_updates": {
+    "expected_u1_offset_norm_nm": 4.0,
+    "offset_norm_tolerance_nm": 0.0001
+  },
+  "gate_semantics": {
+    "hamiltonian_changes": 0,
+    "scientific_threshold_changes": 0,
+    "exact_common_transform_indices_required": true,
+    "ring_u0_displacement_allowed": false,
+    "water_displacement_allowed": false
+  },
+  "claims": {
+    "free_energy_estimate": false,
+    "delta_g_neutrality": false,
+    "equilibrium_density": false,
+    "production_authorization": false
+  }
+}
